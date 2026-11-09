@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use daw_audio_io::playback::{ControlFn, StereoProcessor, StreamLatency};
+#[cfg(target_os = "windows")]
+use daw_audio_io::playback::ControlFn;
+use daw_audio_io::playback::{StereoProcessor, StreamLatency};
 use daw_engine::Engine;
 use daw_ui::demo::demo_session_with_instruments;
 use daw_ui::prefs::{self, Effective, Prefs, Runtime};
@@ -231,11 +233,16 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
         log(w);
     }
     host.set_preferences(prefs.clone(), prefs_path());
+    // Pilotes ASIO installés (Windows seulement : les autres plates-formes n'ont pas de pilote branché pour l'instant).
+    #[cfg(target_os = "windows")]
+    let drivers: Vec<String> = daw_audio_io::asio_backend::list_drivers().into_iter().map(|d| d.name).collect();
+    #[cfg(not(target_os = "windows"))]
+    let drivers: Vec<String> = Vec::new();
     host.set_runtime(Runtime {
         effective: eff.clone(),
         sample_rate: rate,
         inputs,
-        drivers: daw_audio_io::asio_backend::list_drivers().into_iter().map(|d| d.name).collect(),
+        drivers,
         cores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
         audio,
     });

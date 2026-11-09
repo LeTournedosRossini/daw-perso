@@ -30,6 +30,20 @@
   #fx-params .fp output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
   #fx-params .fp input[type=range] { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; touch-action: pan-y; }
   .mx button.fx { min-width: 44px; }
+  /* Tablette en paysage : la régie à gauche, la page de contrôle du plugin **fixée** à droite (plus de feuille qui recouvre les pistes) ; les
+     seize paramètres d'un coup, sur deux colonnes, sans onglets. */
+  body:not(.tab-mix) #fxpanel { display: none; }
+  @media (orientation: landscape) and (min-width: 820px) {
+    body.tab-mix { padding-right: calc(52% + 16px); }
+    body.tab-mix #fxpanel { top: 0; left: auto; right: 0; bottom: 0; width: 52%; max-height: none; border-radius: 0; border-top: 0; border-left: 2px solid var(--accent); box-shadow: none; padding: 14px 18px; display: block; }
+    body.tab-mix #fxpanel[hidden] { display: block; }
+    body.tab-mix #fx-close { display: none; }
+    body.tab-mix #fx-tabs { display: none; }
+    body.tab-mix #fx-params { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin-top: 10px; }
+    body.tab-mix #fx-params .fp .pn { font-size: 15px; }
+    body.tab-mix #fx-params .fp input[type=range] { height: 38px; }
+    body.tab-mix #fx-chain button { min-height: 42px; }
+  }
   #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #expired.on { display: block; }
   .src { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 0; margin-bottom: 6px; }
@@ -389,13 +403,30 @@ function closeFx() {
   fxNode = null; fxInsert = null; fxShape = "";
   document.getElementById("fxpanel").hidden = true;
   postFx({ open: null });
+  showFx(fxState); // en paysage le panneau reste fixé, avec son message
 }
 function selectFx(insert) {
   fxInsert = insert; fxGroup = 0; fxShape = "";
   postFx({ open: insert });
 }
+// Paysage : la page de contrôle est fixée à droite de la régie et montre ses seize paramètres d'un coup (plus de feuille, plus d'onglets).
+const LANDSCAPE = window.matchMedia("(orientation: landscape) and (min-width: 820px)");
+const docked = () => LANDSCAPE.matches && document.body.classList.contains("tab-mix");
+LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; showFx(fxState); });
 function showFx(st) {
   const panel = document.getElementById("fxpanel");
+  if (docked()) panel.hidden = false;
+  if (fxNode == null && docked()) {
+    // Rien d'ouvert : le panneau fixé dit quoi faire.
+    document.getElementById("fx-track").textContent = "Plugins";
+    document.getElementById("fx-chain").replaceChildren();
+    delete document.getElementById("fx-chain").dataset.shape;
+    document.getElementById("fx-tabs").replaceChildren();
+    document.getElementById("fx-params").replaceChildren();
+    fxRows.clear(); fxShape = "";
+    document.getElementById("fx-msg").textContent = "Touche « fx » sur une piste pour régler ses plugins.";
+    return;
+  }
   if (fxNode == null || !st?.mix) return;
   const node = st.mix.nodes.find((n) => n.id === fxNode);
   if (!node || !(node.inserts ?? []).length) return closeFx();
@@ -432,9 +463,10 @@ function showFx(st) {
     return;
   }
   msg.textContent = page.missing?.length ? "Introuvable dans le plugin : " + page.missing.join(", ") : "";
-  const groups = Math.ceil(page.params.length / 8);
+  const all = docked();
+  const groups = all ? 1 : Math.ceil(page.params.length / 8);
   if (fxGroup >= groups) fxGroup = 0;
-  const shape = JSON.stringify([page.insert, fxGroup, page.params.map((p) => [p.id, p.name, p.min, p.max])]);
+  const shape = JSON.stringify([page.insert, fxGroup, all, page.params.map((p) => [p.id, p.name, p.min, p.max])]);
   if (shape !== fxShape) {
     fxShape = shape; fxRows.clear();
     tabs.replaceChildren(...(groups > 1 ? Array.from({ length: groups }, (_, g) => {
@@ -444,7 +476,7 @@ function showFx(st) {
       b.addEventListener("click", () => { fxGroup = g; fxShape = ""; showFx(fxState); });
       return b;
     }) : []));
-    params.replaceChildren(...page.params.slice(fxGroup * 8, fxGroup * 8 + 8).map((p) => {
+    params.replaceChildren(...(all ? page.params : page.params.slice(fxGroup * 8, fxGroup * 8 + 8)).map((p) => {
       const row = document.createElement("div");
       row.className = "fp";
       row.innerHTML = '<span class="pn"></span><output></output><input type="range">';
@@ -581,6 +613,8 @@ function showTabs(hasMix) {
       el("tab-mix").setAttribute("aria-selected", String(mix));
       el("tab-me").setAttribute("aria-selected", String(!mix));
       store.put("tab-" + base, mix ? "mix" : "me");
+      fxShape = "";
+      showFx(fxState);
     };
     el("tab-me").addEventListener("click", () => pick(false));
     el("tab-mix").addEventListener("click", () => pick(true));
