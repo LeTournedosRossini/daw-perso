@@ -43,9 +43,8 @@ def played_triplets(jitter, seed):
             add(Fraction(beat, 4) + Fraction(i, 12), Fraction(1, 12))
     for i in range(8):                          # mesure 2 : croches binaires
         add(1 + Fraction(i, 8), Fraction(1, 8))
-    for beat in range(2):                       # mesure 3 : triolets de noires sur deux temps, puis double croches
-        for i in range(3):
-            add(2 + Fraction(beat, 2) + Fraction(i, 6), Fraction(1, 6))
+    for i in range(3):                          # mesure 3 : un groupe de triolets de noires sur les temps 1-2, puis doubles croches sur les temps 3-4
+        add(2 + Fraction(i, 6), Fraction(1, 6))
     for i in range(8):
         add(2 + Fraction(1, 2) + Fraction(i, 16), Fraction(1, 16))
     for beat in range(4):                       # mesure 4 : un temps de triolets au milieu de croches
