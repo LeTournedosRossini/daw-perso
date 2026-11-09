@@ -154,3 +154,37 @@ test("un mélisme se relit en « _ » et le trait part vers le module dans le re
   assert.deepEqual(out[0].end, [1, 2]); // fin absolue 9/4 (fin de la 2e note) − début du clip 2 + décalage de matière 1/4
   assert.equal(out[1].end, undefined);
 });
+
+test("lyricTap : saisie d'une syllabe au clic dans la partition", async () => {
+  const { applyLyricTap } = await import("../js/lyrics-model.js");
+  // Clip de 2 rondes commençant à la mesure 2 (début 1/1 de ronde), décalage 0 ; notes aux noires 0, 1/4, 2/4, 3/4 du clip.
+  const note = (n, d) => ({ start: [n, d], len: [1, 4], key: 60, velocity: 0.8, channel: 0, voice: 1 });
+  const data = { start: [1, 1], len: [2, 1], offset: [0, 1], notes: [note(0, 1), note(1, 4), note(1, 2), note(3, 4)] };
+  const at = (n, d) => [n, d];
+  // Syllabe posée sur une place vide : à l'instant touché (début du clip + start).
+  let r = applyLyricTap([], data, { start: [1, 4], verse: 1 }, "man");
+  assert.equal(r.label, "Écrire une syllabe");
+  assert.deepEqual(r.syllables.map((s) => [s.at, s.text, s.verse]), [[at(5, 4), "man", 1]]);
+  // « ma-man » : deux syllabes, sur la note touchée puis la suivante ; la première est liée.
+  r = applyLyricTap([], data, { start: [0, 1], verse: 1 }, "ma-man");
+  assert.deepEqual(r.syllables.map((s) => [s.at, s.text, s.hyphen]), [[at(1, 1), "ma", true], [at(5, 4), "man", false]]);
+  // Remplace la syllabe du même couplet au même instant, sans toucher aux autres couplets.
+  const list = [{ at: at(1, 1), text: "la", hyphen: false, verse: 1 }, { at: at(1, 1), text: "lo", hyphen: false, verse: 2 }];
+  r = applyLyricTap(list, data, { start: [0, 1], verse: 1 }, "si");
+  assert.deepEqual(r.syllables.map((s) => [s.text, s.verse]), [["si", 1], ["lo", 2]]);
+  // Une syllabe retouchée garde son trait de prolongation ; un « _ » le recalcule.
+  const mel = [{ at: at(1, 1), text: "ma", hyphen: false, verse: 1, end: at(2, 1) }];
+  r = applyLyricTap(mel, data, { start: [0, 1], verse: 1, end: [1, 2] }, "mi");
+  assert.deepEqual(r.syllables[0].end, at(3, 2)); // le trait du module (fin à 1/2 depuis le début du clip) est repris
+  r = applyLyricTap(mel, data, { start: [0, 1], verse: 1 }, "mi _");
+  assert.deepEqual(r.syllables[0].end, at(3, 2), "« _ » : fin de la note suivante");
+  // Texte vide : supprime la syllabe de cet instant, rien à faire s'il n'y en a pas.
+  r = applyLyricTap(list, data, { start: [0, 1], verse: 2 }, "");
+  assert.deepEqual(r.syllables.map((s) => s.text), ["la"]);
+  assert.equal(r.label, "Effacer une syllabe");
+  assert.equal(applyLyricTap([], data, { start: [0, 1], verse: 1 }, "  "), null);
+  // Clip rogné (décalage) : le repère de la matière est converti en position du projet.
+  const trimmed = { ...data, offset: [1, 2], len: [3, 2] };
+  r = applyLyricTap([], trimmed, { start: [1, 2], verse: 1 }, "x");
+  assert.deepEqual(r.syllables[0].at, at(1, 1));
+});

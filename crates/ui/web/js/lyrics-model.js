@@ -155,6 +155,33 @@ export function clearVerseRange(list, verse, from, to) {
   return list.filter((s) => (s.verse ?? 1) !== verse || fcmp(s.at, from) < 0 || fcmp(s.at, to) >= 0);
 }
 
+/**
+ * Saisie d'une syllabe au clic dans la partition (`lyricTap` du module : `start` depuis le début de la matière du clip, `verse`, `end` éventuel).
+ * Rend la nouvelle liste de syllabes du projet et son libellé d'historique, ou `null` s'il n'y a rien à changer. Un texte vide supprime la syllabe
+ * de cet instant ; sinon la première syllabe saisie se pose à l'instant touché (remplaçant celle du même couplet qui y était) et les suivantes,
+ * si le texte en contient plusieurs (« ma-man »), sur les notes qui suivent ; un « _ » prolonge la syllabe précédente. Une syllabe retouchée garde
+ * son trait de prolongation s'il n'y a pas de « _ » dans le texte.
+ */
+export function applyLyricTap(list, d, tap, typed) {
+  const verse = tap.verse ?? 1;
+  const abs = (rel) => fadd(d.start, fsub(rel, d.offset));
+  const at = abs(tap.start);
+  const items = parseLyricsText(typed);
+  if (!items.length) {
+    const there = list.some((s) => (s.verse ?? 1) === verse && fcmp(s.at, at) === 0);
+    return there ? { syllables: list.filter((s) => !((s.verse ?? 1) === verse && fcmp(s.at, at) === 0)), label: "Effacer une syllabe", extra: 0 } : null;
+  }
+  const spans = noteSpans(d);
+  const here = spans.find((s) => fcmp(s.at, at) === 0);
+  const slots = [{ at, end: here?.end ?? null }, ...spans.filter((s) => fcmp(s.at, at) > 0)];
+  const { placed, extra } = placeOnNotes(items, slots, verse);
+  if (!placed.length) return null;
+  if (tap.end && !placed[0].end && !items.some((i) => i.extend)) placed[0].end = abs(tap.end);
+  const base = list.filter((s) => !((s.verse ?? 1) === verse && placed.some((p) => fcmp(p.at, s.at) === 0)));
+  const syllables = [...base, ...placed].sort((a, b) => fcmp(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1));
+  return { syllables, label: "Écrire une syllabe", extra };
+}
+
 /** Les indices des notes qui commencent à l'instant de la première note sélectionnée ou après (là où les syllabes démarrent). */
 export function notesFromFirstSelected(d, sel) {
   const first = sel.map((i) => d.notes[i]).filter(Boolean).sort((a, b) => fcmp(a.start, b.start))[0];

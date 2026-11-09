@@ -9,7 +9,7 @@ import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction } from "../score-adapter.js";
 import { GRIDS, gridById, noteId, displayGrid } from "../notes-model.js";
 import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockIndices } from "../section-blocks.js";
-import { lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
+import { applyLyricTap, lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
 import { clampDockRows, clampWindowPos, dragPos, DOCK_ROWS_DEFAULT } from "../window-pos.js";
@@ -61,6 +61,7 @@ export class ScoreWindow {
         <span class="sc-group" role="group" aria-label="Taille de la portée"><button class="sc-smaller" title="Portée plus petite" aria-label="Portée plus petite">A−</button><span class="sc-size"></span><button class="sc-bigger" title="Portée plus grande" aria-label="Portée plus grande">A＋</button></span>
         <button class="sc-blocks" aria-pressed="true" title="Un titre par section de la forme : les pistes d'une même section se suivent" hidden>Par sections</button>
         <button class="sc-lyr" title="Écrire les paroles du clip : une syllabe par note">Paroles…</button>
+        <button class="sc-lyrline" aria-pressed="false" title="Montre la ligne de paroles sous la portée : toucher une place (ou une syllabe) pour la saisir au clavier">Saisie ♪</button>
         <label class="sc-seek"><input type="checkbox" class="sc-seekbox"> Placer la tête de lecture</label>
         <button class="sc-roll" title="Ouvrir le clip courant dans le piano roll">Piano roll</button>
         <button class="sc-dockbtn" title="Ancrer la partition sous la piste"></button>
@@ -143,6 +144,16 @@ export class ScoreWindow {
       if (this.isOpen() && this.shown) this.#refreshAll();
     });
     this.root.querySelector(".sc-lyr").addEventListener("click", () => this.#lyricsPopup());
+    // Ligne de paroles toujours réservée (pour pouvoir taper la première syllabe au clic) ; sinon elle n'apparaît que sous un clip qui a des paroles.
+    this.lyrLine = store.get("daw-score-lyrline") === "1";
+    this.lyrLineBtn = this.root.querySelector(".sc-lyrline");
+    this.lyrLineBtn.setAttribute("aria-pressed", String(this.lyrLine));
+    this.lyrLineBtn.addEventListener("click", () => {
+      this.lyrLine = !this.lyrLine;
+      store.set("daw-score-lyrline", this.lyrLine ? "1" : "0");
+      this.lyrLineBtn.setAttribute("aria-pressed", String(this.lyrLine));
+      if (this.isOpen() && this.shown) this.#refreshAll();
+    });
     this.root.querySelector(".sc-roll").addEventListener("click", () => this.cur != null && this.onOpenRoll?.(this.cur));
     this.root.querySelector(".close").addEventListener("click", () => this.close());
     // Les touches de la partition (flèches, Suppr, Alt + flèches…) ne doivent pas déclencher les raccourcis du DAW ; Ctrl+Z, Ctrl+S et la barre d'espace passent.
@@ -823,7 +834,7 @@ export class ScoreWindow {
     const it = this.items.get(b.clip);
     const c = this.#clip(b.clip);
     const sel = b.indexMap ? toBlockIndices(it.sel, b.indexMap) : it.sel;
-    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(b.data.notes, [1, 1]), keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data) } });
+    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(b.data.notes, [1, 1]), keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data), ...(this.lyrLine ? { lyricsLine: true } : {}) } });
     // Avec un seul clip affiché, son nom sous chaque titre de section n'apprend rien : on le cache (avec plusieurs pistes il dit laquelle c'est).
     const named = this.ids.length > 1 || !b.section ? inp : { ...inp, hideName: true };
     return b.section ? { ...named, section: b.section } : named;
@@ -878,6 +889,7 @@ export class ScoreWindow {
       return;
     }
     if (cmd.type === "preview") return this.#preview(cmd, it);
+    if (cmd.type === "lyricTap") return this.#lyricTap(cmd, it);
     if (cmd.type === "delete") it.sel = [];
     const node = this.#clip(cmd.clip)?.node.id;
     for (const c of editToCommands(cmd, it.data, { node })) {
@@ -886,6 +898,47 @@ export class ScoreWindow {
     }
     // Une durée posée à la souris ou au clavier devient la durée des prochaines notes ajoutées (comme dans le piano roll).
     if (cmd.type === "resize" && Array.isArray(cmd.len)) this.view.setNewNoteLength(cmd.len);
+  }
+
+  /**
+   * Un tap sur la ligne de paroles : le module ne montre aucun champ, c'est le DAW qui ouvre le sien à `rect` (pixels de la fenêtre). Entrée valide
+   * (texte vide : supprime la syllabe), Échap ou un clic ailleurs abandonne. Une commande `set_lyrics` annulable.
+   */
+  #lyricTap(cmd, it) {
+    this.root.querySelector(".sc-lyrinput")?.remove();
+    const zoom = Number(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
+    const r = cmd.rect ?? { left: 0, top: 0, width: 80, height: 24 };
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "sc-lyrinput";
+    input.setAttribute("aria-label", "Syllabe");
+    input.placeholder = "ma-";
+    input.value = cmd.text ? `${cmd.text}${cmd.hyphen ? "-" : ""}` : "";
+    const verse = cmd.verse ?? 1;
+    Object.assign(input.style, { position: "fixed", left: `${r.left / zoom}px`, top: `${r.top / zoom}px`, width: `${Math.max(90, r.width) / zoom}px`, height: `${Math.max(28, r.height) / zoom}px`, zIndex: "10000" });
+    let done = false;
+    const close = () => {
+      done = true;
+      input.remove();
+      this.view?.focus?.();
+    };
+    const commit = () => {
+      if (done) return;
+      const list = this.state.lyrics ?? [];
+      const res = applyLyricTap(list, it.data, cmd, input.value);
+      this.state.lyricVerse = verse;
+      if (res) this.client.send({ type: "set_lyrics", syllables: res.syllables, label: res.label });
+      close();
+    };
+    input.addEventListener("keydown", (k) => {
+      k.stopPropagation();
+      if (k.key === "Enter") commit();
+      else if (k.key === "Escape") close();
+    });
+    input.addEventListener("blur", () => !done && commit());
+    document.body.append(input);
+    input.focus();
+    input.select();
   }
 
   #preview(cmd, it) {
