@@ -203,7 +203,10 @@ impl Engine {
     pub fn ahead_wait_ready(&mut self, n: usize, timeout: std::time::Duration) -> bool {
         let t0 = std::time::Instant::now();
         self.drain();
-        while !self.graph.ahead_ready(n) {
+        // Pendant un arrêt, un nouveau graphe ou un armement, les pistes de lecture reviennent au fil audio puis repartent : tant que ce va-et-vient
+        // n'est pas fini, « rien à attendre » ne veut pas dire « prêt » (sur une machine chargée, les fils de rendu mettent des millisecondes à
+        // répondre alors que le test enchaînerait des centaines de blocs).
+        while !self.graph.ahead_ready(n) || self.held.is_some() || self.restart_after || self.ahead.as_ref().is_some_and(AheadSystem::is_releasing) {
             if t0.elapsed() > timeout {
                 return false;
             }

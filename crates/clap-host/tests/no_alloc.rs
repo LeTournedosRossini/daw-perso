@@ -23,6 +23,6 @@ fn process_and_param_queue_never_allocate() {
             p.process(&input, &input, &mut out_l, &mut out_r).unwrap();
         }
     }
-    assert_eq!(violations(), 0, "allocation dans process()");
+    assert_eq!(violations(), 0, "allocation dans process() : {:?}", daw_audio_io::alloc_guard::first_violation());
     assert!(out_l.iter().any(|&s| s != 0.0));
 }

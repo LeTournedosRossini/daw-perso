@@ -253,7 +253,10 @@ mod imp {
     }
 
     fn worker(s: Arc<Shared>, me: usize, on_start: Option<Arc<dyn Fn(usize) + Send + Sync>>) {
-        if let Some(f) = on_start {
+        // Le crochet (qui peut faire entrer ce fil dans une zone surveillée) est gardé jusqu'à la fin du fil : le libérer ici, juste après
+        // son appel, ferait compter par le garde-fou d'allocation la libération de l'`Arc` (aléatoire : seul le dernier détenteur libère).
+        let on_start = on_start;
+        if let Some(f) = &on_start {
             f(me);
         }
         let mut seen = s.epoch.load(Acquire);
