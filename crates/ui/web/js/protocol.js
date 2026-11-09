@@ -145,7 +145,7 @@ export function validateCommand(m) {
     case "renew_monitor_address":
       return Number.isInteger(m.node) && m.node > 0 ? null : "renew_monitor_address : node (un retour)";
     case "set_monitor_role":
-      return Number.isInteger(m.node) && m.node > 0 && (Number.isInteger(m.role) && m.role >= 0 && m.role <= 3) ? null : "set_monitor_role : node (un retour) et role de 0 à 3 (1 = télécommande, 2 = régie, 3 = les deux)";
+      return Number.isInteger(m.node) && m.node > 0 && (Number.isInteger(m.role) && m.role >= 0 && m.role <= 7) ? null : "set_monitor_role : node (un retour) et role de 0 à 7 (1 = télécommande, 2 = régie, 4 = réglages fins, additionnés)";
     case "set_structure":
       if (!(Array.isArray(m.sections) && m.sections.every((s) => s && Array.isArray(s.at) && Array.isArray(s.dur) && typeof s.name === "string"))) return "set_structure : sections (liste de { at, dur, name }) requises";
       return m.sections.every((s) => s.category === undefined || s.category === null || CATEGORIES.includes(s.category)) ? null : "set_structure : catégorie inconnue";

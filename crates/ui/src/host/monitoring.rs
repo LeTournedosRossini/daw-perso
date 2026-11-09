@@ -81,6 +81,7 @@ impl Host {
     pub(super) fn stop_monitor(&mut self) -> Vec<Event> {
         self.monitor = None; // l'arrêt du serveur est dans son `Drop`
         self.monitor_grants.clear(); // le compte des droits repart au prochain démarrage
+        self.remote_open.clear();
         vec![self.monitor_event(None)]
     }
 
@@ -112,6 +113,7 @@ impl Host {
             self.monitor_generation = generation;
             m.forget_tokens(); // un autre projet : les numéros de nœuds ne désignent plus les mêmes retours
             self.monitor_grants.clear();
+            self.remote_open.clear();
             changed = true;
         }
         m.sync_returns(&tokens) || changed
@@ -169,8 +171,12 @@ impl Host {
             if role & crate::monitor::ROLE_TRANSPORT != 0 {
                 state["remote"] = self.remote_state();
             }
-            if role & crate::monitor::ROLE_MIXER != 0 {
-                state["mix"] = self.mix_state();
+            let fine = role & crate::monitor::ROLE_FINE != 0;
+            if role & (crate::monitor::ROLE_MIXER | crate::monitor::ROLE_FINE) != 0 {
+                state["mix"] = self.mix_state(fine);
+            }
+            if fine {
+                state["fine"] = self.fine_state(*ret);
             }
             out.push((*ret, state.to_string(), role));
         }
@@ -231,6 +237,12 @@ impl Host {
                     return Vec::new();
                 }
                 self.remote_request(ret, cmd)
+            }
+            SetRequest::Fx { ret, cmd } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.fx_request(ret, cmd)
             }
             SetRequest::MixGroup { ret, group, mute, solo, offset_db } => {
                 if !self.monitor_valid(ret, None) {

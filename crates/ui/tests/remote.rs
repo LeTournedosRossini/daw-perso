@@ -5,7 +5,9 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
+use daw_clap_host::{clap_insert_factory, Bundle};
 use daw_engine::Engine;
+use daw_ui::host::{PluginRef, PluginResolver};
 use daw_ui::demo::demo_session;
 use daw_ui::protocol::NodeInfo;
 use daw_ui::{Event, Host};
@@ -171,7 +173,7 @@ fn bad_remote_requests_and_refusals_are_reported_without_effect() {
 fn the_role_is_a_right_of_the_address_saved_with_the_project_and_revocable() {
     let mut rig = Rig::new();
     // Rôle inconnu et retour inexistant : refusés.
-    let ev = rig.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":7}}"#, rig.bus));
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":8}}"#, rig.bus));
     assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })));
     let ev = rig.h.command_json(r#"{"type":"set_monitor_role","node":1,"role":1}"#);
     assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })), "une piste n'est pas un retour");
@@ -231,7 +233,7 @@ fn rights_combine_transport_and_mixing_are_separate_bits_and_both_can_be_given()
     assert_eq!(st["role"], 3);
     assert!(st.get("remote").is_some() && st.get("mix").is_some() && st["sources"].is_array(), "son retour, le transport et la régie ensemble");
     // Au-delà des droits connus : refusé.
-    let ev = rig.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":4}}"#, rig.bus));
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":8}}"#, rig.bus));
     assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })));
     // Une adresse de simple musicien n'a ni l'un ni l'autre.
     rig.set_role(0);
@@ -422,4 +424,88 @@ fn the_mixing_desk_shows_the_project_groups_and_sets_mute_solo_and_a_level_that_
     assert_eq!(rig.mix(r#"{"group":999,"mute":true}"#), 200);
     rig.settle();
     assert_eq!(rig.state()["mix"]["groups"][0]["offset_db"].as_f64(), Some(12.0), "un groupe inconnu ne change rien");
+}
+
+fn plugin_resolver() -> PluginResolver {
+    let bundle = std::sync::Arc::new(Bundle::from_static_entry(daw_test_plugin::entry()).unwrap());
+    let id = daw_test_plugin::PLUGIN_ID.to_str().unwrap().to_string();
+    Box::new(move |e| (e.clap_id == id).then(|| (clap_insert_factory(std::sync::Arc::clone(&bundle), e.clap_id.clone()), PluginRef { clap_id: id.clone(), vendor: "daw-perso".into(), name: "Gain de test".into(), file: "test.clap".into() })))
+}
+
+impl Rig {
+    fn fx(&self, body: &str) -> u16 {
+        http(self.port, "POST", &format!("{}/fx", self.path), body).0
+    }
+}
+
+#[test]
+fn fine_settings_are_a_separate_right_limited_to_the_chosen_parameters_of_a_plugin() {
+    let mut rig = Rig::new();
+    rig.h.set_plugin_resolver(plugin_resolver());
+    let id = daw_test_plugin::PLUGIN_ID.to_str().unwrap();
+    let ev = rig.h.command_json(&format!(r#"{{"type":"add_plugin","node":1,"clap_id":"{id}","file":"test.clap"}}"#));
+    let ins = project(&ev).nodes.iter().find(|n| n.name == "Batterie").unwrap().inserts[0].id;
+    rig.h.command_json(&format!(r#"{{"type":"set_control_page","plugin_id":"{id}","name":"Gain de test","params":[{{"id":{},"name":"Gain"}}]}}"#, daw_test_plugin::PARAM_GAIN));
+
+    // Sans le droit : refusé (403), et l'état ne montre ni chaîne de plugins ni page.
+    rig.set_role(2);
+    assert_eq!(rig.fx(&format!(r#"{{"open":{ins}}}"#)), 403);
+    let st = rig.state();
+    assert!(st.get("fine").is_none());
+    assert_eq!(mix_node(&st, "Batterie")["inserts"].as_array().unwrap().len(), 0, "pas de chaîne sans les réglages fins");
+
+    // Le droit 4 seul : la tablette voit les pistes (lecture) mais ne règle rien dans la régie.
+    rig.set_role(4);
+    assert_eq!(rig.mix(r#"{"node":1,"db":-3}"#), 403, "le réglage de niveau de la régie reste un autre droit");
+    let st = rig.state();
+    let chain = mix_node(&st, "Batterie")["inserts"].clone();
+    assert_eq!((chain[0]["id"].as_u64(), chain[0]["page"].as_bool(), chain[0]["bypass"].as_bool()), (Some(u64::from(ins)), Some(true), Some(false)));
+    assert!(st["fine"]["page"].is_null(), "aucune page ouverte");
+
+    // Ouvrir la page : ses paramètres, valeur et texte du plugin.
+    assert_eq!(rig.fx(&format!(r#"{{"open":{ins}}}"#)), 200);
+    rig.settle();
+    let page = rig.state()["fine"]["page"].clone();
+    assert_eq!((page["insert"].as_u64(), page["name"].as_str(), page["track"].as_str()), (Some(u64::from(ins)), Some("Gain de test"), Some("Batterie")));
+    let gain = &page["params"][0];
+    assert_eq!(gain["name"], "Gain");
+    assert!(!gain["text"].as_str().unwrap().is_empty());
+
+    // Régler un paramètre de la page : appliqué, relu, borné à sa plage. Un paramètre hors de la page est refusé avec un message.
+    let gid = daw_test_plugin::PARAM_GAIN;
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{gid},"value":0.25}}"#)), 200);
+    rig.settle();
+    assert!((rig.state()["fine"]["page"]["params"][0]["value"].as_f64().unwrap() - 0.25).abs() < 1e-9);
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{gid},"value":1e9}}"#)), 200);
+    rig.settle();
+    let max = rig.state()["fine"]["page"]["params"][0]["max"].as_f64().unwrap();
+    assert!((rig.state()["fine"]["page"]["params"][0]["value"].as_f64().unwrap() - max).abs() < 1e-9, "borné au maximum du paramètre");
+    let other = daw_test_plugin::PARAM_EXTRA_LATENCY;
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{other},"value":10}}"#)), 200);
+    rig.settle();
+    let after = rig.h.command_json(&format!(r#"{{"type":"get_plugin_params","insert":{ins}}}"#));
+    let v = after.iter().find_map(|e| if let Event::PluginParams { params, .. } = e { params.iter().find(|p| p.id == other).map(|p| p.value) } else { None }).unwrap();
+    assert!(v.abs() < 1e-9, "le paramètre hors de la page n'a pas bougé ({v})");
+
+    // Toucher / lâcher et contournement : acceptés ; contourner se retrouve dans la chaîne.
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{gid},"touch":true}}"#)), 200);
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{gid},"touch":false}}"#)), 200);
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"bypass":true}}"#)), 200);
+    rig.settle();
+    assert_eq!(mix_node(&rig.state(), "Batterie")["inserts"][0]["bypass"], true);
+    // Fermer la page.
+    assert_eq!(rig.fx(r#"{"open":null}"#), 200);
+    rig.settle();
+    assert!(rig.state()["fine"]["page"].is_null());
+    // Invalides : 400 ; plugin inconnu : accepté par le serveur, refusé par l'hôte.
+    for bad in ["", "{}", r#"{"insert":1}"#, r#"{"insert":1,"param":2}"#, r#"{"insert":1,"param":2,"value":"x"}"#, r#"{"open":"a"}"#] {
+        assert_eq!(rig.fx(bad), 400, "{bad:?}");
+    }
+    assert_eq!(rig.fx(r#"{"open":9999}"#), 200);
+    // Un rôle sans le bit 4 (régie + transport) ne règle pas les plugins.
+    rig.set_role(3);
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"bypass":false}}"#)), 403);
+    // Les droits combinés vont jusqu'à 7 ; 8 est refusé (voir plus haut).
+    rig.set_role(7);
+    assert_eq!(rig.state()["role"], 7);
 }

@@ -603,6 +603,8 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .monitor-pop .mp-qr svg { display: block; width: 100%; height: 100%; }
 .monitor-pop .mp-url { font-size: 10px; word-break: break-all; user-select: all; color: var(--muted); justify-self: stretch; }
 .monitor-pop .mp-note { font-size: 11px; color: var(--muted); justify-self: stretch; }
+.monitor-pop .mp-role { justify-self: stretch; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; }
+.monitor-pop .mp-right { display: block; padding: 2px 0; }
 .monitor-pop .mp-log { justify-self: stretch; font-size: 11px; }
 .monitor-pop .mp-log summary { cursor: pointer; color: var(--muted); }
 .monitor-pop .mp-loglist { max-height: 140px; overflow: auto; margin: 4px 0; font-family: ui-monospace, monospace; font-size: 10px; word-break: break-all; }

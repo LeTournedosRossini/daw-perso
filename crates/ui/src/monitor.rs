@@ -38,6 +38,8 @@ pub enum SetRequest {
     Remote { ret: u32, cmd: RemoteCmd },
     /// Régie : réglage d'une piste ou d'un bus quelconque (seulement avec le droit `ROLE_MIXER`).
     Mix { ret: u32, cmd: MixCmd },
+    /// Réglages fins : un plugin d'une piste (seulement avec le droit `ROLE_FINE`).
+    Fx { ret: u32, cmd: FxCmd },
     /// Régie : muet, solo et/ou niveau (décalage absolu −12 à +12 dB) d'un groupe de **pistes** du projet (seulement avec le droit `ROLE_MIXER`).
     MixGroup { ret: u32, group: u32, mute: Option<bool>, solo: Option<bool>, offset_db: Option<f64> },
 }
@@ -72,6 +74,40 @@ fn parse_mix(v: &serde_json::Value) -> Option<MixCmd> {
     (cmd.db.is_some() || cmd.pan.is_some() || cmd.mute.is_some() || cmd.solo.is_some() || cmd.arm.is_some()).then_some(cmd)
 }
 
+/// Un réglage fin sur un plugin : sa page de contrôle ne s'ouvre que sur demande (la tablette en lit alors les valeurs dans son état), un paramètre de
+/// cette page se règle (le geste « toucher / lâcher » arme l'écriture de l'automation), un plugin se contourne.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FxCmd {
+    /// Ouvre la page de contrôle du plugin (`None` : la referme).
+    Open(Option<u32>),
+    Param { insert: u32, param: u32, value: f64 },
+    /// Le doigt touche (`true`) ou lâche (`false`) le contrôle : sert aux modes d'écriture de l'automation (Toucher, Latch).
+    Touch { insert: u32, param: u32, active: bool },
+    Bypass { insert: u32, on: bool },
+}
+
+/// Lit le corps d'un réglage fin. `None` si le corps n'est pas une demande connue et valide.
+fn parse_fx(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
+    let id = |k: &str| v[k].as_u64().filter(|n| *n <= u32::MAX as u64).map(|n| n as u32);
+    let cmd = if let Some(open) = v.get("open") {
+        match open {
+            serde_json::Value::Null => FxCmd::Open(None),
+            n => FxCmd::Open(Some(n.as_u64().filter(|x| *x <= u32::MAX as u64)? as u32)),
+        }
+    } else if let (Some(insert), Some(param)) = (id("insert"), id("param")) {
+        if let Some(value) = v["value"].as_f64() {
+            FxCmd::Param { insert, param, value: value.is_finite().then_some(value)? }
+        } else {
+            FxCmd::Touch { insert, param, active: v["touch"].as_bool()? }
+        }
+    } else if let Some(insert) = id("insert") {
+        FxCmd::Bypass { insert, on: v["bypass"].as_bool()? }
+    } else {
+        return None;
+    };
+    Some(SetRequest::Fx { ret, cmd })
+}
+
 /// Lit le corps d'un réglage de groupe de la régie : `group` plus au moins un de `mute`, `solo`, `offset_db`.
 fn parse_mix_group(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
     let group = v["group"].as_u64().filter(|n| *n <= u32::MAX as u64)? as u32;
@@ -95,8 +131,11 @@ fn parse_mix_group(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
 pub const ROLE_MUSICIAN: u8 = 0;
 pub const ROLE_TRANSPORT: u8 = 1;
 pub const ROLE_MIXER: u8 = 2;
+/// Réglages fins : les pages de contrôle des plugins (paramètres choisis, contournement) et le geste « toucher / lâcher » qui écrit l'automation.
+/// Séparé de la régie : changer des paramètres ou écrire de l'automation modifie le projet.
+pub const ROLE_FINE: u8 = 4;
 /// Tous les droits connus : un rôle au-delà est refusé.
-pub const ROLE_ALL: u8 = ROLE_TRANSPORT | ROLE_MIXER;
+pub const ROLE_ALL: u8 = ROLE_TRANSPORT | ROLE_MIXER | ROLE_FINE;
 
 /// Une commande de télécommande. Elle passe ensuite par les commandes ordinaires de l'hôte (mêmes refus, mêmes garde-fous).
 #[derive(Debug, Clone, PartialEq)]
@@ -396,17 +435,23 @@ fn post(req: &mut tiny_http::Request, shared: &Mutex<Shared>, tx: &Sender<SetReq
     let needed = match route {
         "cmd" => ROLE_TRANSPORT,
         "mix" => ROLE_MIXER,
+        "fx" => ROLE_FINE,
         _ => 0,
     };
     if role & needed != needed {
         shared.lock().unwrap().log(ip, Some(ret), route, "droit manquant".into(), 403);
-        let what = if route == "cmd" { "de télécommande" } else { "la régie" };
+        let what = match route {
+            "cmd" => "de télécommande",
+            "fx" => "les réglages fins",
+            _ => "la régie",
+        };
         return Response::from_string(format!("{{\"ok\":false,\"error\":\"cette adresse ne permet pas {what}\"}}")).with_status_code(403);
     }
     let mut body = String::new();
     let value = req.as_reader().take(MAX_BODY).read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<serde_json::Value>(&body).ok());
     let parsed = value.and_then(|v| match route {
         "cmd" => parse_remote(&v).map(|cmd| SetRequest::Remote { ret, cmd }),
+        "fx" => parse_fx(ret, &v),
         "mix" if v["group"].is_u64() => parse_mix_group(ret, &v),
         "mix" => parse_mix(&v).map(|cmd| SetRequest::Mix { ret, cmd }),
         _ => parse_request(ret, &v),
@@ -449,6 +494,7 @@ fn serve(server: Arc<Server>, shared: Arc<Mutex<Shared>>, tx: Sender<SetRequest>
             },
             (Method::Post, ["r", token, "cmd"]) => post(&mut req, &shared, &tx, ip, token, "cmd"),
             (Method::Post, ["r", token, "mix"]) => post(&mut req, &shared, &tx, ip, token, "mix"),
+            (Method::Post, ["r", token, "fx"]) => post(&mut req, &shared, &tx, ip, token, "fx"),
             (Method::Post, ["r", token, "set"]) => post(&mut req, &shared, &tx, ip, token, "set"),
             _ => unknown("chemin inconnu"),
         };

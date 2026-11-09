@@ -74,25 +74,38 @@ export function openMonitorPopup(anchor, state, client, node) {
       renew.addEventListener("click", () => {
         if (window.confirm(`Donner une nouvelle adresse au retour « ${node.name} » ? L'ancienne cessera de fonctionner : la tablette devra scanner de nouveau.`)) client.send({ type: "renew_monitor_address", node: node.id });
       });
-      const role = document.createElement("label");
+      // Droits de l'adresse (bits qui se combinent) : toute adresse règle son retour ; on ajoute la télécommande, la régie, les réglages fins.
+      const role = document.createElement("fieldset");
       role.className = "mp-role";
-      role.append("Cette adresse permet ");
-      const sel = document.createElement("select");
-      sel.setAttribute("aria-label", "Ce que permet cette adresse");
-      sel.append(
-        new Option("de régler ce retour seulement", "0"),
-        new Option("ce retour + la télécommande (lecture, enregistrement, sections, pré-roll)", "1"),
-        new Option("ce retour + la régie (niveau, pan, muet, solo, armement de toutes les pistes)", "2"),
-        new Option("ce retour + la télécommande + la régie", "3"),
-      );
-      sel.value = String(ret.role ?? 0);
-      sel.addEventListener("change", () => client.send({ type: "set_monitor_role", node: node.id, role: Number(sel.value) }));
-      role.append(sel);
+      const legend = document.createElement("legend");
+      legend.textContent = "Cette adresse permet, en plus de son retour :";
+      role.append(legend);
+      const RIGHTS = [
+        [1, "la télécommande (lecture, enregistrement, sections, pré-roll)"],
+        [2, "la régie (niveau, pan, muet, solo, armement de toutes les pistes)"],
+        [4, "les réglages fins (pages de contrôle des plugins, automation) — nécessite la régie pour voir les pistes"],
+      ];
+      const boxes = RIGHTS.map(([bit, label]) => {
+        const l = document.createElement("label");
+        l.className = "mp-right";
+        const c = document.createElement("input");
+        c.type = "checkbox";
+        c.checked = ((ret.role ?? 0) & bit) !== 0;
+        c.addEventListener("change", () => {
+          let next = boxes.reduce((acc, [box, b]) => acc | (box.checked ? b : 0), 0);
+          if (bit === 4 && c.checked) next |= 2; // les réglages fins passent par la régie (liste des pistes)
+          client.send({ type: "set_monitor_role", node: node.id, role: next });
+        });
+        l.append(c, ` ${label}`);
+        role.append(l);
+        return [c, bit];
+      });
       const warn = document.createElement("div");
       warn.className = "mp-note";
       const remote = (ret.role & 1) !== 0;
       const desk = (ret.role & 2) !== 0;
-      warn.textContent = `${remote ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). " : ""}${desk ? "Avec la régie, quiconque a cette adresse peut régler et armer toutes les pistes. " : ""}« Nouvelle adresse » révoque ces droits.${remote ? " Active l'arrêt automatique dans les Réglages si le réseau est incertain." : ""}`;
+      const fine = (ret.role & 4) !== 0;
+      warn.textContent = `${remote ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). " : ""}${desk ? "Avec la régie, quiconque a cette adresse peut régler et armer toutes les pistes. " : ""}${fine ? "Avec les réglages fins, quiconque a cette adresse peut changer des paramètres de plugins et écrire de l'automation (annulable). " : ""}« Nouvelle adresse » révoque ces droits.${remote ? " Active l'arrêt automatique dans les Réglages si le réseau est incertain." : ""}`;
       warn.hidden = ret.role === 0;
       const expired = document.createElement("div");
       expired.className = "mp-err";

@@ -9,7 +9,7 @@ use std::time::Instant;
 use daw_core_types::NodeId;
 
 use super::Host;
-use crate::monitor::{MixCmd, RemoteCmd, ROLE_ALL, ROLE_MIXER, ROLE_TRANSPORT};
+use crate::monitor::{FxCmd, MixCmd, RemoteCmd, ROLE_ALL, ROLE_FINE, ROLE_MIXER, ROLE_TRANSPORT};
 use crate::prefs::PreRollUnit;
 use crate::protocol::{Command, Event, TransportAction};
 
@@ -85,7 +85,7 @@ impl Host {
     }
 
     /// La régie d'une tablette : état de chaque nœud dans l'ordre d'affichage (niveau, panoramique, muet, solo, armement, crête récente).
-    pub(super) fn mix_state(&self) -> serde_json::Value {
+    pub(super) fn mix_state(&self, fine: bool) -> serde_json::Value {
         let g = self.session.graph();
         // L'ordre d'affichage du projet ; la sortie principale n'en fait pas partie : elle vient en dernier.
         let mut order: Vec<NodeId> = self.session.display_order().to_vec();
@@ -115,6 +115,8 @@ impl Host {
                     "db": (f64::from(daw_core_types::gain_to_db(st.gain)).clamp(-60.0, 6.0) * 10.0).round() / 10.0,
                     "pan": st.pan, "mute": st.mute, "solo": st.solo, "arm": st.arm,
                     "peak": (peak_db * 10.0).round() / 10.0,
+                    // Réglages fins : la chaîne de plugins de la piste (un plugin a une page de contrôle s'il en a une dans la banque).
+                    "inserts": if fine { n.inserts.iter().map(|i| serde_json::json!({ "id": i.id, "name": i.name, "bypass": i.bypass, "page": self.insert_has_page(i.id) })).collect::<Vec<_>>() } else { Vec::new() },
                 }))
             })
             .collect();
@@ -131,6 +133,70 @@ impl Host {
             })
             .collect();
         serde_json::json!({ "nodes": nodes, "groups": groups })
+    }
+
+    fn insert_has_page(&self, insert: u32) -> bool {
+        self.meta.plugins.get(&insert).is_some_and(|p| self.bank.get(&p.clap_id).is_some_and(|e| !e.params.is_empty()))
+    }
+
+    /// La page de contrôle ouverte par la tablette du retour `ret` : les paramètres choisis du plugin avec leurs valeurs et leurs textes.
+    pub(super) fn fine_state(&self, ret: u32) -> serde_json::Value {
+        let Some(&insert) = self.remote_open.get(&ret) else { return serde_json::json!({ "page": null }) };
+        let Some(Event::InsertPage { configured, params, missing, .. }) = self.insert_page_event(insert).into_iter().next() else { return serde_json::json!({ "page": null }) };
+        let owner = self.session.graph().nodes.iter().find(|n| n.inserts.iter().any(|i| i.id == insert));
+        let name = owner.and_then(|n| n.inserts.iter().find(|i| i.id == insert)).map(|i| i.name.clone()).unwrap_or_default();
+        serde_json::json!({ "page": { "insert": insert, "name": name, "track": owner.map(|n| n.name.clone()), "configured": configured, "missing": missing,
+            "params": params.iter().map(|p| serde_json::json!({ "id": p.id, "name": p.name, "min": p.min, "max": p.max, "default": p.default, "value": p.value, "text": p.text })).collect::<Vec<_>>() } })
+    }
+
+    /// Un réglage fin d'une tablette : la page d'un plugin s'ouvre, ses paramètres **choisis** se règlent (aucun autre), il se contourne. Le droit est relu ici.
+    pub(super) fn fx_request(&mut self, ret: u32, cmd: FxCmd) -> Vec<Event> {
+        if self.effective_role(ret) & ROLE_FINE == 0 {
+            return Vec::new();
+        }
+        let refuse = |this: &mut Self, m: &str| {
+            this.remote_msg = Some((Instant::now(), m.into()));
+            Vec::new()
+        };
+        let in_page = |this: &Self, insert: u32, param: u32| matches!(this.insert_page_event(insert).into_iter().next(), Some(Event::InsertPage { params, .. }) if params.iter().any(|p| p.id == param));
+        match cmd {
+            FxCmd::Open(None) => {
+                self.remote_open.remove(&ret);
+                Vec::new()
+            }
+            FxCmd::Open(Some(insert)) => {
+                if self.plugin_handle(insert).is_none() {
+                    return refuse(self, "plugin inconnu");
+                }
+                self.remote_open.insert(ret, insert);
+                self.remote_msg = None;
+                Vec::new()
+            }
+            FxCmd::Param { insert, param, value } => {
+                if !in_page(self, insert, param) {
+                    return refuse(self, "ce paramètre n'est pas dans la page de contrôle du plugin");
+                }
+                // Borne à la plage du paramètre.
+                let ph = self.plugin_handle(insert).expect("plugin déjà vérifié par la page");
+                let value = ph.params().iter().find(|p| p.id == param).map_or(value, |p| value.clamp(p.min.min(p.max), p.max.max(p.min)));
+                self.remote_msg = None;
+                self.command(Command::SetPluginParam { insert, param, value })
+            }
+            FxCmd::Touch { insert, param, active } => {
+                if !in_page(self, insert, param) {
+                    return refuse(self, "ce paramètre n'est pas dans la page de contrôle du plugin");
+                }
+                let Some(node) = self.session.graph().nodes.iter().position(|n| n.inserts.iter().any(|i| i.id == insert)) else { return refuse(self, "plugin inconnu") };
+                self.gesture_auto(node as u32, daw_engine::AutoTarget::InsertParam { insert, param }, active)
+            }
+            FxCmd::Bypass { insert, on } => {
+                if self.plugin_handle(insert).is_none() {
+                    return refuse(self, "plugin inconnu");
+                }
+                self.remote_msg = None;
+                self.command(Command::SetPluginBypass { insert, bypass: on })
+            }
+        }
     }
 
     /// Un réglage de groupe de la régie : passe par les mêmes fonctions que la page (écarts de niveau conservés). Le droit est relu ici aussi.
@@ -183,7 +249,7 @@ impl Host {
             return vec![Event::Error { command: "set_monitor_role".into(), message: "seul un retour de monitoring a un rôle de télécommande".into() }];
         }
         if !self.session.set_monitor_role_untracked(NodeId(node), role) {
-            return vec![Event::Error { command: "set_monitor_role".into(), message: format!("rôle inconnu (0 à {ROLE_ALL} : 1 = transport, 2 = régie, 3 = les deux)") }];
+            return vec![Event::Error { command: "set_monitor_role".into(), message: format!("rôle inconnu (0 à {ROLE_ALL} : 1 = transport, 2 = régie, 4 = réglages fins, additionnés)") }];
         }
         self.dirty = true;
         self.monitor_grants.insert(node, (role, Instant::now())); // redonner les mêmes droits les renouvelle

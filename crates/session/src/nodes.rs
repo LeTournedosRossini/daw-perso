@@ -398,7 +398,7 @@ impl Session {
     /// Change les droits de l'adresse d'un retour **sans historique** (réglage d'accès, pas une édition du morceau). Refuse un rôle au-delà de 3.
     pub fn set_monitor_role_untracked(&mut self, node: NodeId, role: u8) -> bool {
         match self.monitor_roles.get_mut(node.0 as usize) {
-            Some(r) if node.0 != 0 && role <= 3 => {
+            Some(r) if node.0 != 0 && role <= 7 => {
                 *r = role;
                 true
             }

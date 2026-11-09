@@ -14,6 +14,22 @@
   #hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   #lost { display: none; background: var(--bad); color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #lost.on { display: block; }
+  /* Réglages fins : feuille en bas de l'écran avec la page de contrôle d'un plugin (seize paramètres au plus, huit par huit) */
+  #fxpanel { position: fixed; left: 0; right: 0; bottom: 0; max-height: 72vh; overflow: auto; background: var(--panel); border-top: 2px solid var(--accent); border-radius: 14px 14px 0 0; padding: 8px 12px 14px; z-index: 20; box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5); }
+  #fxpanel[hidden] { display: none; }
+  #fxpanel .fx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #fxpanel .fx-head #fx-chain { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  #fxpanel button { min-height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; touch-action: manipulation; padding: 0 12px; }
+  #fxpanel button[aria-pressed="true"], #fxpanel button.cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #fxpanel .byp[aria-pressed="true"] { background: #f5a524; color: #000; border-color: #f5a524; }
+  #fx-tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
+  #fx-msg { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  #fx-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; }
+  #fx-params .fp { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; }
+  #fx-params .fp .pn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fx-params .fp output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
+  #fx-params .fp input[type=range] { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; touch-action: pan-y; }
+  .mx button.fx { min-width: 44px; }
   #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #expired.on { display: block; }
   .src { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 0; margin-bottom: 6px; }
@@ -112,6 +128,12 @@
 <h1 id="title">Mon retour</h1>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
+<div id="fxpanel" role="dialog" aria-label="Plugins de la piste" hidden>
+  <div class="fx-head"><strong id="fx-track"></strong><span id="fx-chain"></span><button id="fx-close" aria-label="Fermer">✕</button></div>
+  <div id="fx-tabs"></div>
+  <div id="fx-msg"></div>
+  <div id="fx-params"></div>
+</div>
 <div id="lost">Connexion perdue… nouvelle tentative.</div>
 <div id="solo-hint">Solo actif : tu n'entends que les sources en solo.</div>
 <div id="remote">
@@ -237,9 +259,11 @@ async function poll() {
     if (!res.ok) throw new Error(res.status);
     const st = await res.json();
     document.getElementById("expired").classList.toggle("on", !!st.expired);
+    fxState = st;
     showRemote(st.remote);
     showTabs(!!st.mix);
     showMix(st.mix);
+    showFx(st);
     document.getElementById("lost").classList.remove("on");
     document.getElementById("title").textContent = st.name;
     document.title = st.name;
@@ -344,6 +368,107 @@ function showRemote(r) {
   pre.setAttribute("aria-pressed", String(r.pre_roll_bars > 0));
   el("r-preplay").setAttribute("aria-pressed", String(!!r.play_pre_roll));
 }
+// ---- réglages fins (droit « réglages fins ») : page de contrôle d'un plugin de la piste ----------------------------------------------
+let fxState = null, fxNode = null, fxInsert = null, fxGroup = 0, fxShape = "", fxPending = new Map(), fxTimer = null;
+const fxRows = new Map(); // id du paramètre → { range, out, down }
+const postFx = (body) => fetch(base + "/fx", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+function laterFx(insert, param, value) {
+  fxPending.set(insert + ":" + param, { insert, param, value });
+  if (!fxTimer) fxTimer = setTimeout(() => {
+    fxTimer = null;
+    const batch = fxPending; fxPending = new Map();
+    for (const b of batch.values()) postFx(b);
+  }, 60);
+}
+function openFx(node) {
+  fxNode = node; fxInsert = null; fxGroup = 0; fxShape = "";
+  document.getElementById("fxpanel").hidden = false;
+  showFx(fxState);
+}
+function closeFx() {
+  fxNode = null; fxInsert = null; fxShape = "";
+  document.getElementById("fxpanel").hidden = true;
+  postFx({ open: null });
+}
+function selectFx(insert) {
+  fxInsert = insert; fxGroup = 0; fxShape = "";
+  postFx({ open: insert });
+}
+function showFx(st) {
+  const panel = document.getElementById("fxpanel");
+  if (fxNode == null || !st?.mix) return;
+  const node = st.mix.nodes.find((n) => n.id === fxNode);
+  if (!node || !(node.inserts ?? []).length) return closeFx();
+  document.getElementById("fx-track").textContent = node.name;
+  if (fxInsert == null || !node.inserts.some((i) => i.id === fxInsert)) selectFx((node.inserts.find((i) => i.page) ?? node.inserts[0]).id);
+  // La chaîne de plugins : un bouton pour choisir, un pour contourner.
+  const chain = document.getElementById("fx-chain");
+  const chainShape = JSON.stringify(node.inserts.map((i) => [i.id, i.name]));
+  if (chain.dataset.shape !== chainShape) {
+    chain.dataset.shape = chainShape;
+    chain.replaceChildren(...node.inserts.map((i) => {
+      const box = document.createElement("span");
+      const pick = document.createElement("button");
+      pick.textContent = i.name; pick.dataset.insert = i.id;
+      pick.addEventListener("click", () => selectFx(i.id));
+      const byp = document.createElement("button");
+      byp.className = "byp"; byp.textContent = "⏻"; byp.title = "Contourner"; byp.dataset.insert = i.id;
+      byp.addEventListener("click", () => postFx({ insert: i.id, bypass: byp.getAttribute("aria-pressed") !== "true" }));
+      box.append(pick, byp);
+      return box;
+    }));
+  }
+  for (const b of chain.querySelectorAll("button")) {
+    const ins = node.inserts.find((i) => String(i.id) === b.dataset.insert);
+    if (b.classList.contains("byp")) b.setAttribute("aria-pressed", String(!!ins?.bypass));
+    else b.classList.toggle("cur", ins?.id === fxInsert);
+  }
+  const cur = node.inserts.find((i) => i.id === fxInsert);
+  const page = st.fine?.page && st.fine.page.insert === fxInsert ? st.fine.page : null;
+  const msg = document.getElementById("fx-msg"), params = document.getElementById("fx-params"), tabs = document.getElementById("fx-tabs");
+  if (!page) {
+    fxRows.clear(); fxShape = ""; params.replaceChildren(); tabs.replaceChildren();
+    msg.textContent = cur && !cur.page ? "Aucune page de contrôle pour ce plugin : choisis ses paramètres sur l'ordinateur (étoile ☆ dans la fenêtre des plugins)." : "Lecture de la page…";
+    return;
+  }
+  msg.textContent = page.missing?.length ? "Introuvable dans le plugin : " + page.missing.join(", ") : "";
+  const groups = Math.ceil(page.params.length / 8);
+  if (fxGroup >= groups) fxGroup = 0;
+  const shape = JSON.stringify([page.insert, fxGroup, page.params.map((p) => [p.id, p.name, p.min, p.max])]);
+  if (shape !== fxShape) {
+    fxShape = shape; fxRows.clear();
+    tabs.replaceChildren(...(groups > 1 ? Array.from({ length: groups }, (_, g) => {
+      const b = document.createElement("button");
+      b.textContent = (g * 8 + 1) + "–" + Math.min(page.params.length, g * 8 + 8);
+      b.setAttribute("aria-pressed", String(g === fxGroup));
+      b.addEventListener("click", () => { fxGroup = g; fxShape = ""; showFx(fxState); });
+      return b;
+    }) : []));
+    params.replaceChildren(...page.params.slice(fxGroup * 8, fxGroup * 8 + 8).map((p) => {
+      const row = document.createElement("div");
+      row.className = "fp";
+      row.innerHTML = '<span class="pn"></span><output></output><input type="range">';
+      row.querySelector(".pn").textContent = p.name;
+      const range = row.querySelector("input");
+      range.min = p.min; range.max = p.max; range.step = (p.max - p.min) / 1000 || 1;
+      const r = { range, out: row.querySelector("output"), down: false };
+      range.addEventListener("pointerdown", () => { r.down = true; postFx({ insert: page.insert, param: p.id, touch: true }); });
+      for (const ev of ["pointerup", "pointercancel"]) range.addEventListener(ev, () => { if (r.down) { r.down = false; postFx({ insert: page.insert, param: p.id, touch: false }); } });
+      range.addEventListener("input", () => laterFx(page.insert, p.id, Number(range.value)));
+      range.addEventListener("dblclick", () => { range.value = p.default; laterFx(page.insert, p.id, p.default); });
+      fxRows.set(p.id, r);
+      return row;
+    }));
+    for (const b of tabs.children) b.setAttribute("aria-pressed", String(b.textContent.startsWith(String(fxGroup * 8 + 1))));
+  }
+  for (const p of page.params) {
+    const r = fxRows.get(p.id);
+    if (!r) continue;
+    r.out.textContent = p.text;
+    if (!r.down && !fxPending.has(page.insert + ":" + p.id)) r.range.value = p.value;
+  }
+}
+document.getElementById("fx-close").addEventListener("click", closeFx);
 // ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
 const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
 let mixShape = "", mixPending = new Map(), mixTimer = null;
@@ -360,9 +485,10 @@ function buildMix(n) {
   root.className = "mx" + (n.kind === "master" ? " master" : n.kind === "return" ? " ret" : "");
   root.style.setProperty("--c", n.color || "var(--accent)");
   const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
+  const fxBtn = n.inserts?.length ? '<button class="fx" aria-label="Plugins de la piste">fx ' + n.inserts.length + "</button>" : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
   const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
-  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + '</span><span class="db"></span></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + fxBtn + '</span><span class="db"></span></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
   const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
   r.range.min = DB_MIN; r.range.max = DB_MAX;
@@ -378,6 +504,7 @@ function buildMix(n) {
   }
   const flag = (btn, key) => btn?.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("x" + key + n.id, Date.now() + 700); postMix({ node: n.id, [key]: r[key] }); });
   flag(r.m, "mute"); flag(r.s, "solo"); flag(r.a, "arm");
+  root.querySelector(".fx")?.addEventListener("click", () => openFx(n.id));
   mixRows.set(n.id, r);
   return r;
 }
@@ -413,7 +540,7 @@ function showMix(mix) {
   const box = el("mixlist");
   if (!mix) { mixRows.clear(); mixGroupRows.clear(); mixShape = ""; box.replaceChildren(); return; }
   const groups = mix.groups ?? [];
-  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color]), groups.map((g) => [g.id, g.name, g.color])]);
+  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color, (n.inserts ?? []).length]), groups.map((g) => [g.id, g.name, g.color])]);
   if (shape !== mixShape) {
     mixShape = shape;
     mixRows.clear();
