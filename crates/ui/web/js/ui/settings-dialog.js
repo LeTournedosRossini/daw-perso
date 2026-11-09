@@ -73,6 +73,7 @@ export function prefsFromForm(f, metronome, base = {}) {
     threads: f.threads,
     ahead_ms: f.ahead_ms,
     ahead_threads: f.ahead_threads,
+    ...(f.auto_stop ? { auto_stop: f.auto_stop } : {}),
     metronome: { enabled: !!metronome.enabled, only_recording: !!metronome.only_recording, volume: metronome.volume ?? 0.8, count_in_bars: metronome.count_in_bars ?? 0, pre_roll: metronome.pre_roll ?? 0, post_roll: metronome.post_roll ?? 0, pre_roll_bars: metronome.pre_roll_bars ?? 0, pre_roll_unit: metronome.pre_roll_unit ?? "seconds" },
   };
 }
@@ -158,6 +159,10 @@ export class SettingsDialog {
     $("st-ahead").disabled = forced.has("ahead_ms");
     $("st-ahead-threads").value = String(p.ahead_threads);
     $("st-ahead-threads").disabled = forced.has("ahead_threads");
+    const as = p.auto_stop ?? { enabled: false, after_end_secs: 120, recording_secs: 300 };
+    $("st-as-on").checked = !!as.enabled;
+    $("st-as-end").value = String(as.after_end_secs);
+    $("st-as-rec").value = String(as.recording_secs);
     $("st-forced").textContent = forced.size ? `Réglage(s) imposé(s) par une variable d'environnement : ${[...forced].join(", ")}. Ils l'emportent sur ce fichier.` : "";
     $("st-forced").hidden = !forced.size;
 
@@ -185,6 +190,7 @@ export class SettingsDialog {
       threads: Number($("st-threads").value),
       ahead_ms: Number($("st-ahead").value),
       ahead_threads: Number($("st-ahead-threads").value),
+      auto_stop: { enabled: $("st-as-on").checked, after_end_secs: Number($("st-as-end").value), recording_secs: Number($("st-as-rec").value) },
     };
   }
 

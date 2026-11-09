@@ -48,7 +48,20 @@ export function openMonitorPopup(anchor, state, client, node) {
       renew.addEventListener("click", () => {
         if (window.confirm(`Donner une nouvelle adresse au retour « ${node.name} » ? L'ancienne cessera de fonctionner : la tablette devra scanner de nouveau.`)) client.send({ type: "renew_monitor_address", node: node.id });
       });
-      menu.append(qr, url, note, copy, renew);
+      const role = document.createElement("label");
+      role.className = "mp-role";
+      role.append("Cette adresse permet ");
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", "Ce que permet cette adresse");
+      sel.append(new Option("de régler ce retour seulement", "0"), new Option("ce retour + la télécommande (lecture, enregistrement, sections, pré-roll)", "1"));
+      sel.value = String(ret.role ?? 0);
+      sel.addEventListener("change", () => client.send({ type: "set_monitor_role", node: node.id, role: Number(sel.value) }));
+      role.append(sel);
+      const warn = document.createElement("div");
+      warn.className = "mp-note";
+      warn.textContent = ret.role === 1 ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). « Nouvelle adresse » la révoque. Active l'arrêt automatique dans les Réglages si le réseau est incertain." : "";
+      warn.hidden = ret.role !== 1;
+      menu.append(qr, url, note, role, warn, copy, renew);
     }
     if (m?.active) {
       const stop = document.createElement("button");

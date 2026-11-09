@@ -34,6 +34,47 @@ pub enum SetRequest {
     Group { ret: u32, group: u32, mute: Option<bool>, solo: Option<bool>, delta_db: Option<f64> },
     /// Place le décalage de niveau du groupe dans ce retour à `db` (absolu, −12 à +12) : le curseur de la tablette reste à sa place.
     GroupOffset { ret: u32, group: u32, db: f64 },
+    /// Télécommande : seulement acceptée d'une page dont le retour a le rôle « transport » (voir `Role`).
+    Remote { ret: u32, cmd: RemoteCmd },
+}
+
+/// Ce que peut faire la page d'un retour : `Musician` règle son retour ; `Transport` règle aussi le transport, les sections et le pré-roll.
+/// Le rôle est un droit du jeton (choisi par l'utilisateur dans la fenêtre du QR) : une page qui n'a pas le droit reçoit 403.
+pub const ROLE_MUSICIAN: u8 = 0;
+pub const ROLE_TRANSPORT: u8 = 1;
+
+/// Une commande de télécommande. Elle passe ensuite par les commandes ordinaires de l'hôte (mêmes refus, mêmes garde-fous).
+#[derive(Debug, Clone, PartialEq)]
+pub enum RemoteCmd {
+    /// Lecture / pause.
+    Toggle,
+    /// Arrêt (arrête aussi un enregistrement).
+    Stop,
+    /// Retour au début du projet.
+    Start,
+    /// Démarre l'enregistrement des pistes armées.
+    Record,
+    /// Va au début de la section d'indice `n` de la forme.
+    Section(u32),
+    /// Pré-roll en mesures (0 à 8).
+    PreRoll(u32),
+    /// Métronome allumé ou éteint.
+    Click(bool),
+}
+
+/// Lit le corps d'une commande de télécommande. `None` si ce n'est pas une commande connue et valide.
+fn parse_remote(v: &serde_json::Value) -> Option<RemoteCmd> {
+    let n = |k: &str| v[k].as_u64().filter(|x| *x <= 100_000).map(|x| x as u32);
+    Some(match v["cmd"].as_str()? {
+        "toggle" => RemoteCmd::Toggle,
+        "stop" => RemoteCmd::Stop,
+        "start" => RemoteCmd::Start,
+        "record" => RemoteCmd::Record,
+        "section" => RemoteCmd::Section(n("index")?),
+        "preroll" => RemoteCmd::PreRoll(n("bars").filter(|b| *b <= 8)?),
+        "click" => RemoteCmd::Click(v["on"].as_bool()?),
+        _ => return None,
+    })
 }
 
 /// Lit le corps d'une requête de réglage. `None` si ce n'est pas une demande valide.
@@ -68,8 +109,8 @@ fn parse_request(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
 
 #[derive(Default)]
 struct Shared {
-    /// jeton → (nœud du retour, instantané JSON de son mix).
-    returns: HashMap<String, (u32, String)>,
+    /// jeton → (nœud du retour, instantané JSON de son mix, rôle).
+    returns: HashMap<String, (u32, String, u8)>,
 }
 
 pub struct Monitor {
@@ -152,9 +193,9 @@ impl Monitor {
     }
 
     /// Publie l'instantané JSON du mix d'un retour (ce que la tablette lira).
-    pub fn publish(&mut self, ret: u32, json: String) {
+    pub fn publish(&mut self, ret: u32, json: String, role: u8) {
         if let Some(token) = self.tokens.get(&ret) {
-            self.shared.lock().unwrap().returns.insert(token.clone(), (ret, json));
+            self.shared.lock().unwrap().returns.insert(token.clone(), (ret, json, role));
         }
     }
 
@@ -185,15 +226,31 @@ fn serve(server: Arc<Server>, shared: Arc<Mutex<Shared>>, tx: Sender<SetRequest>
         let path = url.split('?').next().unwrap_or("");
         let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
         let method = req.method().clone();
-        let known = |token: &str| shared.lock().unwrap().returns.get(token).map(|(ret, json)| (*ret, json.clone()));
+        let known = |token: &str| shared.lock().unwrap().returns.get(token).map(|(ret, json, role)| (*ret, json.clone(), *role));
         let reply = match (&method, parts.as_slice()) {
             (Method::Get, ["r", token]) if known(token).is_some() => Response::from_string(PAGE).with_header(header("Content-Type", "text/html; charset=utf-8")),
             (Method::Get, ["r", token, "state"]) => match known(token) {
-                Some((_, json)) => Response::from_string(json).with_header(header("Content-Type", "application/json; charset=utf-8")),
+                Some((_, json, _)) => Response::from_string(json).with_header(header("Content-Type", "application/json; charset=utf-8")),
+                None => not_found(),
+            },
+            (Method::Post, ["r", token, "cmd"]) => match known(token) {
+                // Télécommande : refusée (403) pour un jeton de simple musicien, sans même lire le corps.
+                Some((_, _, role)) if role < ROLE_TRANSPORT => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas de télécommande\"}").with_status_code(403),
+                Some((ret, _, _)) => {
+                    let mut body = String::new();
+                    let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
+                    match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_remote(&v)) {
+                        Some(cmd) => {
+                            let _ = tx.send(SetRequest::Remote { ret, cmd });
+                            Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
+                        }
+                        None => Response::from_string("{\"ok\":false}").with_status_code(400),
+                    }
+                }
                 None => not_found(),
             },
             (Method::Post, ["r", token, "set"]) => match known(token) {
-                Some((ret, _)) => {
+                Some((ret, _, _)) => {
                     let mut body = String::new();
                     let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
                     match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_request(ret, &v)) {

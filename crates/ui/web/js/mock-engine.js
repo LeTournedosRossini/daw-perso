@@ -155,7 +155,7 @@ export class MockEngine extends EngineClient {
 
   /** Aperçu du serveur des retours : une fausse adresse et un faux code QR (le vrai serveur est dans l'hôte). */
   #emitMonitor() {
-    const returns = this.monitorOn ? this.project.nodes.filter((n) => n.kind === "bus" && n.phys).map((n) => ({ node: n.id, name: n.name, url: `http://192.168.0.10:8780/r/${this.#token(n)}`, qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="160" height="160"><rect width="4" height="4" fill="#fff"/><path d="M0 0h2v2H0zM2 2h2v2H2z"/></svg>' })) : [];
+    const returns = this.monitorOn ? this.project.nodes.filter((n) => n.kind === "bus" && n.phys).map((n) => ({ node: n.id, name: n.name, role: n.monitor_role ?? 0, url: `http://192.168.0.10:8780/r/${this.#token(n)}`, qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="160" height="160"><rect width="4" height="4" fill="#fff"/><path d="M0 0h2v2H0zM2 2h2v2H2z"/></svg>' })) : [];
     this.emit("monitor", { active: !!this.monitorOn, port: this.monitorOn ? 8780 : 0, returns, error: null });
   }
 
@@ -975,6 +975,17 @@ export class MockEngine extends EngineClient {
           return false;
         }
         n.monitor_token = "";
+        this.#markDirty();
+        this.#emitMonitor();
+        return true;
+      }
+      case "set_monitor_role": {
+        const n = this.node(msg.node);
+        if (!n?.phys) {
+          this.emit("error", { command: msg.type, message: "seul un retour de monitoring a un rôle de télécommande" });
+          return false;
+        }
+        n.monitor_role = msg.role;
         this.#markDirty();
         this.#emitMonitor();
         return true;

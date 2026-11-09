@@ -56,6 +56,8 @@ export function validatePrefs(p) {
   if (!(Number.isInteger(p.threads) && p.threads >= 1 && p.threads <= 16)) return "fils de calcul : de 1 à 16";
   if (!(Number.isInteger(p.ahead_ms) && (p.ahead_ms === 0 || (p.ahead_ms >= 10 && p.ahead_ms <= 500)))) return "avance : 0 (désactivée) ou de 10 à 500 ms";
   if (!(Number.isInteger(p.ahead_threads) && p.ahead_threads >= 1 && p.ahead_threads <= 8)) return "fils de rendu : de 1 à 8";
+  const as = p.auto_stop;
+  if (as !== undefined && (!as || typeof as.enabled !== "boolean" || !(Number.isInteger(as.after_end_secs) && as.after_end_secs >= 10 && as.after_end_secs <= 3600) || !(Number.isInteger(as.recording_secs) && as.recording_secs >= 10 && as.recording_secs <= 3600))) return "arrêt automatique : de 10 à 3 600 secondes";
   const m = p.metronome;
   if (!m || !(m.volume >= 0 && m.volume <= 1.5) || !(Number.isInteger(m.count_in_bars) && m.count_in_bars >= 0 && m.count_in_bars <= 2) || !(m.pre_roll >= 0 && m.pre_roll <= 10) || !(m.post_roll >= 0 && m.post_roll <= 10) || !(m.pre_roll_bars == null || (Number.isInteger(m.pre_roll_bars) && m.pre_roll_bars >= 0 && m.pre_roll_bars <= 8)) || !(m.pre_roll_unit == null || ["seconds", "bars"].includes(m.pre_roll_unit))) {
     return "métronome : volume 0 à 1,5, pré-compte 0 à 2 mesures, pré-roll et post-roll 0 à 10 s";
@@ -129,6 +131,8 @@ export function validateCommand(m) {
       return Number.isInteger(m.insert) && m.insert >= 0 && (m.source === null || (Number.isInteger(m.source) && m.source > 0)) ? null : "set_insert_sidechain : insert et source (un nœud, ou null)";
     case "renew_monitor_address":
       return Number.isInteger(m.node) && m.node > 0 ? null : "renew_monitor_address : node (un retour)";
+    case "set_monitor_role":
+      return Number.isInteger(m.node) && m.node > 0 && (m.role === 0 || m.role === 1) ? null : "set_monitor_role : node (un retour) et role 0 (retour seulement) ou 1 (retour + télécommande)";
     case "set_structure":
       if (!(Array.isArray(m.sections) && m.sections.every((s) => s && Array.isArray(s.at) && Array.isArray(s.dur) && typeof s.name === "string"))) return "set_structure : sections (liste de { at, dur, name }) requises";
       return m.sections.every((s) => s.category === undefined || s.category === null || CATEGORIES.includes(s.category)) ? null : "set_structure : catégorie inconnue";

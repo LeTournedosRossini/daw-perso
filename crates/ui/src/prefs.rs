@@ -54,6 +54,32 @@ impl MetroPrefs {
     }
 }
 
+/// Arrêt automatique du transport (désactivé par défaut) : protège d'une lecture ou d'une prise oubliée, par exemple quand le réseau d'une
+/// télécommande tombe en plein enregistrement. Après `after_end_secs` secondes passées la fin du dernier élément du projet ; pendant une prise,
+/// après `recording_secs` secondes passées la fin du dernier élément **et** le début de la prise (rien derrière).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoStopPrefs {
+    pub enabled: bool,
+    pub after_end_secs: u32,
+    pub recording_secs: u32,
+}
+
+impl Default for AutoStopPrefs {
+    fn default() -> Self {
+        AutoStopPrefs { enabled: false, after_end_secs: 120, recording_secs: 300 }
+    }
+}
+
+impl AutoStopPrefs {
+    fn validate(&self) -> Result<(), String> {
+        if !(10..=3600).contains(&self.after_end_secs) || !(10..=3600).contains(&self.recording_secs) {
+            return Err("arrêt automatique : de 10 à 3 600 secondes".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -69,11 +95,12 @@ pub struct Prefs {
     /// Fils de rendu du calcul en avance.
     pub ahead_threads: u32,
     pub metronome: MetroPrefs,
+    pub auto_stop: AutoStopPrefs,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default() }
     }
 }
 
@@ -109,7 +136,8 @@ impl Prefs {
         if !(1..=8).contains(&self.ahead_threads) {
             return Err("fils de rendu : de 1 à 8".into());
         }
-        self.metronome.validate()
+        self.metronome.validate()?;
+        self.auto_stop.validate()
     }
 }
 

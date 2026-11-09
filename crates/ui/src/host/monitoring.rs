@@ -35,7 +35,7 @@ impl Host {
         let returns = self
             .monitor_returns()
             .into_iter()
-            .filter_map(|(node, name)| m.url(node).map(|url| MonitorReturn { node, name, qr: Monitor::qr_svg(&url), url }))
+            .filter_map(|(node, name)| m.url(node).map(|url| MonitorReturn { node, name, qr: Monitor::qr_svg(&url), url, role: self.session.monitor_role(NodeId(node)) }))
             .collect();
         Event::Monitor { active: true, port: m.port(), returns, error }
     }
@@ -101,7 +101,7 @@ impl Host {
     }
 
     /// Le mix de chaque retour : toutes les pistes et tous les bus (sauf les retours et la sortie principale), avec le niveau de leur envoi.
-    fn monitor_publish(&mut self) {
+    pub(super) fn monitor_publish(&mut self) {
         let returns = self.monitor_returns();
         let g = self.session.graph();
         let mut out = Vec::new();
@@ -128,11 +128,16 @@ impl Host {
                 })
                 .collect();
             let groups: Vec<serde_json::Value> = self.session.effective_group_list(Some(NodeId(*ret))).iter().map(|gr| serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "offset_db": self.group_offset(gr.id, Some(*ret)) })).collect();
-            out.push((*ret, serde_json::json!({ "name": name, "sources": sources, "groups": groups }).to_string()));
+            let role = self.session.monitor_role(NodeId(*ret));
+            let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role });
+            if role >= crate::monitor::ROLE_TRANSPORT {
+                state["remote"] = self.remote_state();
+            }
+            out.push((*ret, state.to_string(), role));
         }
         if let Some(m) = self.monitor.as_mut() {
-            for (ret, json) in out {
-                m.publish(ret, json);
+            for (ret, json, role) in out {
+                m.publish(ret, json, role);
             }
         }
     }
@@ -181,6 +186,12 @@ impl Host {
                     return Vec::new();
                 }
                 self.set_group_offset(group, db, Some(ret))
+            }
+            SetRequest::Remote { ret, cmd } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.remote_request(ret, cmd)
             }
         }
     }

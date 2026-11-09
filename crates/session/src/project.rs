@@ -157,6 +157,10 @@ struct LyricDto {
     end: Option<FracDto>,
 }
 
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
+}
+
 fn one_verse() -> u8 {
     1
 }
@@ -254,6 +258,9 @@ struct NodeDto {
     /// Jeton secret de l'adresse de tablette (retours ; format 17).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     monitor_token: String,
+    /// Rôle de la télécommande du retour (facultatif, 0 si absent : le musicien ne règle que son retour).
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    monitor_role: u8,
     /// Filtre d'entrée MIDI de la piste (format 18) : absent ou vide, tout est accepté.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     midi_filter: Vec<MidiRuleDto>,
@@ -648,6 +655,7 @@ impl Session {
                 phys: n.phys.map(|p| PhysDto { first: p.first, stereo: p.stereo, mono: p.mono }),
                 group: self.node_group.get(n.id.0 as usize).copied().unwrap_or(0),
                 monitor_token: self.monitor_tokens.get(n.id.0 as usize).cloned().unwrap_or_default(),
+                monitor_role: self.monitor_roles.get(n.id.0 as usize).copied().unwrap_or(0),
                 vel_curve: (n.vel_curve != daw_engine::VelocityCurve::default()).then(|| VelCurveDto { enabled: n.vel_curve.enabled, bend: n.vel_curve.bend, smooth: n.vel_curve.smooth, min: n.vel_curve.min, max: n.vel_curve.max, fixed: n.vel_curve.fixed }),
                 input_dyn: (n.input_dyn != daw_engine::InputDynamics::default()).then(|| DynDto { enabled: n.input_dyn.enabled, gate_db: n.input_dyn.gate_db, threshold_db: n.input_dyn.threshold_db, ratio: n.input_dyn.ratio, attack_ms: n.input_dyn.attack_ms, release_ms: n.input_dyn.release_ms, makeup_db: n.input_dyn.makeup_db, record: n.input_dyn.record }),
                 midi_filter: self.midi_filters.get(n.id.0 as usize).map(|v| v.iter().map(|r| MidiRuleDto { device: r.device.clone(), channels: r.channels }).collect()).unwrap_or_default(),
@@ -920,6 +928,9 @@ impl Session {
             }
             if !n.monitor_token.is_empty() {
                 s.set_monitor_token_untracked(NodeId(i as u32), &n.monitor_token);
+            }
+            if n.monitor_role != 0 {
+                s.set_monitor_role_untracked(NodeId(i as u32), n.monitor_role);
             }
             if let Some(rg) = &n.ret_groups {
                 let groups: Vec<crate::groups::Group> = rg.groups.iter().map(|g| crate::groups::Group { id: g.id, name: g.name.clone(), color: g.color.clone() }).collect();

@@ -49,6 +49,8 @@ pub struct MonitorReturn {
     pub name: String,
     pub url: String,
     pub qr: String,
+    /// Rôle de la télécommande de ce retour (0 : retour seulement, 1 : retour + transport).
+    pub role: u8,
 }
 
 /// Une section de la carte de structure, telle que la page la lit et l'écrit (positions en fractions de ronde `[n, d]`).
@@ -115,6 +117,8 @@ pub enum Command {
     StopMonitor,
     /// Donne une adresse neuve au retour `node` (l'ancienne cesse de fonctionner) : les adresses des retours sont gardées dans le projet.
     RenewMonitorAddress { node: u32 },
+    /// Rôle de la télécommande d'un retour : 0 = son retour seulement, 1 = aussi le transport, les sections et le pré-roll.
+    SetMonitorRole { node: u32, role: u8 },
     /// Remplace la carte de structure (sections nommées : intro, couplet, refrain...) : une action annulable, refusée en entier si invalide.
     SetStructure { sections: Vec<SectionDto>, label: Option<String> },
     /// Remplace les paroles (syllabes en temps musical, couplets 1 à 8) : une action annulable, refusée en entier si invalide.
@@ -526,6 +530,7 @@ impl Command {
             Command::StartMonitor { .. } => "start_monitor",
             Command::StopMonitor => "stop_monitor",
             Command::RenewMonitorAddress { .. } => "renew_monitor_address",
+            Command::SetMonitorRole { .. } => "set_monitor_role",
             Command::ImportChords { .. } => "import_chords",
             Command::ExportChords { .. } => "export_chords",
             Command::SetLoopRecord { .. } => "set_loop_record",

@@ -46,6 +46,30 @@
   .grp .trim input { width: 100%; height: 32px; margin: 0; background: transparent; touch-action: pan-y; }
   #solo-hint { display: none; background: #ffd400; color: #000; padding: 6px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #solo-hint.on { display: block; }
+  /* Télécommande (seulement si l'utilisateur a donné ce droit à cette adresse) */
+  #remote { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 14px; }
+  #remote.on { display: block; }
+  #remote .bar { display: flex; gap: 8px; }
+  #remote button { height: 52px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: 20px; font-weight: 600; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  #remote .bar button { flex: 1; }
+  #remote button:disabled { opacity: .4; }
+  #remote #r-rec { position: relative; overflow: hidden; color: var(--bad); }
+  #remote #r-rec.on { background: var(--bad); color: #fff; border-color: var(--bad); animation: blink 1s steps(2, start) infinite; }
+  #remote #r-rec i { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--bad); }
+  #remote #r-rec.hold i { width: 100%; transition: width .7s linear; }
+  @keyframes blink { 50% { opacity: .65; } }
+  #remote #r-play[aria-pressed="true"] { background: #3ecf5a; color: #000; border-color: #3ecf5a; }
+  #remote .stat { display: flex; justify-content: space-between; align-items: center; margin: 8px 2px 2px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #remote .stat b { color: var(--text); font-size: 16px; }
+  #remote .msg { display: none; margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 14px; }
+  #remote .msg.on { display: block; }
+  #remote .line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  #remote .line > span { color: var(--muted); font-size: 14px; margin-right: 4px; }
+  #remote .line button { height: 40px; min-width: 44px; padding: 0 12px; font-size: 16px; }
+  #remote .line button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #remote .secs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-top: 10px; }
+  #remote .secs button { height: 44px; font-size: 15px; border-left: 6px solid var(--c, var(--accent)); text-align: left; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #remote .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -53,6 +77,13 @@
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="lost">Connexion perdue… nouvelle tentative.</div>
 <div id="solo-hint">Solo actif : tu n'entends que les sources en solo.</div>
+<div id="remote">
+  <div class="bar"><button id="r-start" aria-label="Retour au début">⏮</button><button id="r-play" aria-label="Lecture / pause" aria-pressed="false">▶</button><button id="r-stop" aria-label="Arrêt">■</button><button id="r-rec" aria-label="Enregistrer : maintenir appuyé">●<i></i></button></div>
+  <div class="stat"><span id="r-state">Arrêt</span><b id="r-bar">Mesure 1</b></div>
+  <div class="msg" id="r-msg"></div>
+  <div class="line"><span>Pré-roll (mesures)</span><span id="r-pre"></span><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
+  <div class="secs" id="r-secs"></div>
+</div>
 <div id="list"></div>
 <script>
 "use strict";
@@ -165,6 +196,7 @@ async function poll() {
     const res = await fetch(base + "/state", { cache: "no-store" });
     if (!res.ok) throw new Error(res.status);
     const st = await res.json();
+    showRemote(st.remote);
     document.getElementById("lost").classList.remove("on");
     document.getElementById("title").textContent = st.name;
     document.title = st.name;
@@ -206,6 +238,69 @@ async function poll() {
       if (!holding("gs" + g.id)) { r.solo = mem.length > 0 && mem.every((x) => x.solo); press(r.s, r.solo); }
     }
   } catch { document.getElementById("lost").classList.add("on"); }
+}
+// ---- télécommande (page d'un retour à rôle « transport ») -----------------------------------------------------------------
+const cmd = (body) => fetch(base + "/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+const el = (id) => document.getElementById(id);
+let remoteShape = "", recHold = null;
+const HOLD_MS = 700; // enregistrer demande un appui long : un contact involontaire ne lance pas une prise
+function wireRemote() {
+  el("r-start").addEventListener("click", () => cmd({ cmd: "start" }));
+  el("r-play").addEventListener("click", () => cmd({ cmd: "toggle" }));
+  el("r-stop").addEventListener("click", () => cmd({ cmd: "stop" }));
+  el("r-click").addEventListener("click", () => cmd({ cmd: "click", on: el("r-click").getAttribute("aria-pressed") !== "true" }));
+  const rec = el("r-rec");
+  const cancel = () => { clearTimeout(recHold); recHold = null; rec.classList.remove("hold"); };
+  rec.addEventListener("pointerdown", (e) => {
+    if (rec.classList.contains("on")) { cmd({ cmd: "stop" }); return; } // pendant une prise, un simple appui l'arrête
+    e.preventDefault();
+    rec.classList.add("hold");
+    recHold = setTimeout(() => { cancel(); cmd({ cmd: "record" }); }, HOLD_MS);
+  });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) rec.addEventListener(ev, cancel);
+  rec.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+function showRemote(r) {
+  const box = el("remote");
+  box.classList.toggle("on", !!r);
+  if (!r) return;
+  if (!wireRemote.done) { wireRemote(); wireRemote.done = true; }
+  el("r-play").setAttribute("aria-pressed", String(!!r.playing));
+  el("r-play").textContent = r.playing ? "⏸" : "▶";
+  el("r-rec").classList.toggle("on", !!r.recording);
+  el("r-rec").title = r.recording ? "Appuie pour arrêter" : "Maintiens appuyé pour enregistrer";
+  el("r-state").textContent = r.recording ? "● Enregistrement" : r.playing ? "Lecture" : r.armed ? "Arrêt · " + r.armed + " piste" + (r.armed > 1 ? "s" : "") + " armée" + (r.armed > 1 ? "s" : "") : "Arrêt · aucune piste armée";
+  el("r-bar").textContent = "Mesure " + r.bar;
+  el("r-click").setAttribute("aria-pressed", String(!!r.click));
+  const msg = el("r-msg");
+  msg.textContent = r.msg || "";
+  msg.classList.toggle("on", !!r.msg);
+  const shape = JSON.stringify([r.sections, r.recording]);
+  if (shape !== remoteShape) {
+    remoteShape = shape;
+    el("r-secs").replaceChildren(...(r.sections ?? []).map((s, i) => {
+      const b = document.createElement("button");
+      b.style.setProperty("--c", s.color || "var(--accent)");
+      b.textContent = s.name;
+      const small = document.createElement("small");
+      small.textContent = "m." + s.bar;
+      b.append(small);
+      b.disabled = !!r.recording; // on ne déplace pas la tête pendant une prise
+      b.addEventListener("click", () => cmd({ cmd: "section", index: i }));
+      return b;
+    }));
+  }
+  const pre = el("r-pre");
+  if (!pre.children.length) {
+    for (const n of [0, 1, 2, 4]) {
+      const b = document.createElement("button");
+      b.textContent = n === 0 ? "Aucun" : String(n);
+      b.dataset.n = n;
+      b.addEventListener("click", () => cmd({ cmd: "preroll", bars: n }));
+      pre.append(b);
+    }
+  }
+  for (const b of pre.children) b.setAttribute("aria-pressed", String(Number(b.dataset.n) === r.pre_roll_bars));
 }
 poll();
 setInterval(poll, 400);

@@ -170,6 +170,13 @@
         <div class="st-field"><span>Pré-roll</span><span><input type="number" id="st-m-pre" min="0" max="10" step="0.5"> <select id="st-m-pre-unit" aria-label="Unité du pré-roll"><option value="seconds">secondes</option><option value="bars">mesures</option></select></span></div>
         <label class="st-field"><span>Post-roll (s)</span><input type="number" id="st-m-post" min="0" max="10" step="0.5"></label>
       </fieldset>
+      <fieldset class="st-group">
+        <legend>Arrêt automatique (utile avec une télécommande)</legend>
+        <label class="st-field"><span>Arrêter le transport tout seul</span><input type="checkbox" id="st-as-on"></label>
+        <label class="st-field"><span>En lecture : secondes après la fin du dernier élément</span><input type="number" id="st-as-end" min="10" max="3600" step="10"></label>
+        <label class="st-field"><span>En enregistrement : secondes sans rien derrière</span><input type="number" id="st-as-rec" min="10" max="3600" step="10"></label>
+        <p class="st-note">Évite de laisser tourner la lecture ou une prise si la tablette perd le réseau. Une prise s'arrête comme à un arrêt normal : le clip est posé, rien n'est perdu. Jamais en boucle.</p>
+      </fieldset>
       <p id="st-restart-note" class="st-note warn" hidden>Le pilote, le tampon et les fils de calcul enregistrés ne sont pas ceux qui tournent : ils s'appliqueront au prochain démarrage de l'application.</p>
       <p id="st-message" class="st-message" role="alert" hidden></p>
       <p id="st-path" class="st-note"></p>

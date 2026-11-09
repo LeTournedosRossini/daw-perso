@@ -786,3 +786,5 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .score-window .sc-lyrpop { position: absolute; right: 10px; top: 44px; z-index: 5; width: min(300px, calc(100% - 20px)); }
 .score-window .sc-lyrpop textarea { padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text); font: inherit; resize: vertical; }
 .score-window .sc-lyrpop label { display: grid; }
+.monitor-pop .mp-role { display: grid; gap: 4px; font-size: 12px; margin: 8px 0 4px; color: var(--muted); }
+.monitor-pop .mp-role select { width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font: inherit; }

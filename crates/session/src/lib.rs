@@ -237,6 +237,8 @@ pub struct Session {
     /// Jeton secret de l'adresse de la tablette de chaque retour (parallèle à `graph.nodes`, vide : pas encore donné). Enregistré avec le
     /// projet : l'adresse d'un retour ne change plus d'une session à l'autre.
     monitor_tokens: Vec<String>,
+    /// Rôle de la télécommande de chaque retour (0 : le musicien règle son retour seulement ; 1 : aussi le transport, les sections et le pré-roll).
+    monitor_roles: Vec<u8>,
     /// Filtre d'entrée MIDI de chaque piste (parallèle à `graph.nodes`) : liste de règles, vide = tout accepter.
     midi_filters: Vec<Vec<midi_filter::MidiRule>>,
 }
@@ -289,7 +291,7 @@ impl Session {
         let inputs = vec![nodes::NodeInput::default(); graph.nodes.len()];
         let node_group = vec![0u32; graph.nodes.len()];
         let node_group_len = graph.nodes.len();
-        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
+        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
         let _ = s.sync_all(); // identique à l'entrée (conversion exacte) ; sinon le graphe reste tel quel
         s
     }

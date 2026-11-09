@@ -47,6 +47,8 @@ pub struct NodeRecord {
     member_of: Vec<u32>,
     /// Jeton de l'adresse de tablette du nœud (s'il est un retour).
     monitor_token: String,
+    /// Rôle de la télécommande du retour (voir `Session::monitor_role`).
+    monitor_role: u8,
     /// Effets d'autres nœuds (numéro du nœud, identifiant) dont la chaîne latérale venait de lui : retirée avec lui, rendue avec lui.
     dropped_sidechains: Vec<(u32, daw_engine::InsertId)>,
     /// Filtre d'entrée MIDI de la piste.
@@ -158,6 +160,7 @@ impl Session {
             ret_groups: None,
             member_of: Vec::new(),
             monitor_token: String::new(),
+            monitor_role: 0,
             dropped_sidechains: Vec::new(),
             midi_filter: Vec::new(),
             display_pos: self.order.len(),
@@ -213,6 +216,7 @@ impl Session {
             group: self.node_group[n],
             ret_groups: self.ret_groups[n].clone(),
             monitor_token: self.monitor_tokens[n].clone(),
+            monitor_role: self.monitor_roles[n],
             midi_filter: self.midi_filters[n].clone(),
             member_of: self.ret_groups.iter().map(|g| g.as_ref().and_then(|g| g.of.get(n).copied()).unwrap_or(0)).collect(),
             display_pos: self.order.iter().position(|&o| o == node).unwrap_or(self.order.len()),
@@ -386,6 +390,22 @@ impl Session {
         }
     }
 
+    /// Rôle de la télécommande d'un retour : 0 = le musicien ne règle que son retour ; 1 = en plus le transport, les sections et le pré-roll.
+    pub fn monitor_role(&self, node: NodeId) -> u8 {
+        self.monitor_roles.get(node.0 as usize).copied().unwrap_or(0)
+    }
+
+    /// Change le rôle de la télécommande d'un retour **sans historique** (réglage d'accès, pas une édition du morceau). Refuse un rôle inconnu.
+    pub fn set_monitor_role_untracked(&mut self, node: NodeId, role: u8) -> bool {
+        match self.monitor_roles.get_mut(node.0 as usize) {
+            Some(r) if node.0 != 0 && role <= 1 => {
+                *r = role;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Coupe / solo d'un envoi **sans historique** (comme le niveau d'un envoi). Rend `false` si l'envoi n'existe pas.
     pub fn set_send_flags_untracked(&mut self, node: NodeId, to: NodeId, mute: Option<bool>, solo: Option<bool>) -> bool {
         match self.graph.nodes.get_mut(node.0 as usize).and_then(|n| n.sends.iter_mut().find(|s| s.to == to)) {
@@ -497,6 +517,7 @@ impl Session {
         self.node_group.insert(at, r.group);
         self.ret_groups.insert(at, r.ret_groups.clone());
         self.monitor_tokens.insert(at, r.monitor_token.clone());
+        self.monitor_roles.insert(at, r.monitor_role);
         self.midi_filters.insert(at, r.midi_filter.clone());
         for (j, slot) in self.ret_groups.iter_mut().enumerate() {
             if j == at {
@@ -561,6 +582,7 @@ impl Session {
         self.node_group.remove(at);
         self.ret_groups.remove(at);
         self.monitor_tokens.remove(at);
+        self.monitor_roles.remove(at);
         self.midi_filters.remove(at);
         for g in self.ret_groups.iter_mut().flatten() {
             if at < g.of.len() {
