@@ -4,13 +4,42 @@
 // Le module n'a pas de mémoire propre : il dit ce que l'utilisateur veut, le DAW exécute et renvoie le clip.
 // Les notes gardent leurs **indices** (liste triée du DAW) : on ne filtre jamais les notes cachées par le rognage, le module ne dessine que la partie visible.
 
-import { fadd, fcmp, fnorm } from "./notes-model.js";
+import { fadd, fsub, fcmp, fnorm } from "./notes-model.js";
 
 export const STAVES = ["treble", "bass", "grand"];
 export const DEFAULT_VELOCITY = 0.8;
 
 /** Réglages de vue par défaut d'un clip (affichage seulement : rien de cela n'est dans le MIDI). */
-export const defaultPresentation = () => ({ staff: "treble", grid: [1, 16], keyFifths: 0 });
+// Grille d'écriture : `'auto'` laisse le module choisir, mesure par mesure, la plus grossière qui porte tous les débuts de notes à un tick près
+// (plancher 1/16 binaire et 1/24 de triolet ; une prise jouée en direct retombe sur 1/16 arrondi).
+export const defaultPresentation = () => ({ staff: "treble", grid: "auto", keyFifths: 0 });
+
+/**
+ * Position, dans la mesure qui contient `start` (fraction de ronde), où un morceau commence : `null` quand il commence sur un début de mesure.
+ * `meters` : les chiffrages du projet `[{ bar, num, den }]` (mesure 0 = la première), calculés en fractions exactes. Le module en fait une
+ * mesure raccourcie qui garde son numéro (`clip.startInBar`).
+ */
+export function startInBarOf(start, meters) {
+  const list = [...(meters?.length ? meters : [{ bar: 0, num: 4, den: 4 }])].sort((x, y) => x.bar - y.bar);
+  let segStart = [0, 1];
+  let seg = list[0];
+  for (let i = 0; i < list.length; i++) {
+    const cur = list[i];
+    if (i > 0) {
+      const prev = list[i - 1];
+      const next = fadd(segStart, fnorm([(cur.bar - prev.bar) * prev.num, prev.den]));
+      if (fcmp(next, start) > 0) break;
+      segStart = next;
+    }
+    seg = cur;
+  }
+  const rel = fsub(start, segStart);
+  if (rel[0] <= 0) return null;
+  // k = nombre de mesures entières dans `rel` (division exacte par la longueur de mesure num/den).
+  const k = Math.floor((rel[0] * seg.den) / (rel[1] * seg.num));
+  const within = fsub(rel, fnorm([k * seg.num, seg.den]));
+  return within[0] > 0 ? within : null;
+}
 
 /** Portée proposée d'après la tessiture : notes graves → clé de fa, étendues → deux portées, sinon clé de sol. */
 export function suggestStaff(notes) {
@@ -22,7 +51,7 @@ export function suggestStaff(notes) {
 }
 
 /** L'événement `notes` d'un clip (positions `[n, d]` depuis le début de la matière) et ses réglages de vue → entrée de `setClips`. */
-export function scoreClipInput(detail, { name = "", node = null, presentation = defaultPresentation(), lyrics = [] } = {}) {
+export function scoreClipInput(detail, { name = "", node = null, presentation = defaultPresentation(), lyrics = [], startInBar = null } = {}) {
   return {
     id: detail.clip,
     name,
@@ -33,6 +62,7 @@ export function scoreClipInput(detail, { name = "", node = null, presentation = 
     notes: detail.notes.map((n) => ({ start: n.start, len: n.len, key: n.key, velocity: n.velocity, channel: n.channel ?? 0, voice: n.voice ?? 1 })),
     selection: [...(detail.selection ?? [])],
     ...(lyrics.length ? { lyrics } : {}),
+    ...(startInBar ? { startInBar } : {}),
     presentation: { ...defaultPresentation(), ...presentation },
   };
 }

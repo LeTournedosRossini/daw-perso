@@ -6,8 +6,8 @@
 import { createScoreView } from "../vendor/scorsaire-score-view/scorsaire-score-view.js";
 import { fifthsAt, keyChangesWithin, keyAt, markerAt, KEY_CHOICES, choiceOf, snapWhole } from "../chord-model.js";
 import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
-import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction } from "../score-adapter.js";
-import { GRIDS, gridById, noteId, displayGrid } from "../notes-model.js";
+import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction, startInBarOf } from "../score-adapter.js";
+import { GRIDS, gridById, noteId } from "../notes-model.js";
 import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockIndices } from "../section-blocks.js";
 import { applyLyricTap, lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
@@ -834,7 +834,7 @@ export class ScoreWindow {
     const it = this.items.get(b.clip);
     const c = this.#clip(b.clip);
     const sel = b.indexMap ? toBlockIndices(it.sel, b.indexMap) : it.sel;
-    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(b.data.notes, [1, 1]), keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data), ...(this.lyrLine ? { lyricsLine: true } : {}) } });
+    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), startInBar: startInBarOf(b.data.start, this.state.project?.meters), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data), ...(this.lyrLine ? { lyricsLine: true } : {}) } });
     // Avec un seul clip affiché, son nom sous chaque titre de section n'apprend rien : on le cache (avec plusieurs pistes il dit laquelle c'est).
     const named = this.ids.length > 1 || !b.section ? inp : { ...inp, hideName: true };
     return b.section ? { ...named, section: b.section } : named;

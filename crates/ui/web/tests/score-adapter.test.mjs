@@ -17,7 +17,9 @@ test("l'entrée de setClips garde tous les indices (même les notes cachées par
   const c = scoreClipInput(detail, { name: "Arpège", node: 3 });
   assert.equal(c.notes.length, 3);
   assert.deepEqual([c.id, c.start, c.len, c.offset, c.selection], [1000012, [4, 1], [2, 1], [1, 2], [1]]);
-  assert.deepEqual(c.presentation, { staff: "treble", grid: [1, 16], keyFifths: 0 });
+  assert.deepEqual(c.presentation, { staff: "treble", grid: "auto", keyFifths: 0 }, "grille d'écriture automatique (le module choisit mesure par mesure)");
+  assert.equal("startInBar" in c, false, "pas de mesure raccourcie par défaut");
+  assert.deepEqual(scoreClipInput(detail, { startInBar: [1, 4] }).startInBar, [1, 4]);
   assert.equal(c.notes[0].channel, 3);
   assert.deepEqual(scoreClipInput(detail, { presentation: { staff: "bass" } }).presentation.staff, "bass");
   assert.deepEqual(scoreTiming({ tempo_map: [{ pos: [0, 1], num: 120, den: 1 }], meters: [{ bar: 0, num: 4, den: 4 }, { bar: 4, num: 3, den: 4 }] }).meters, [{ bar: 1, num: 4, den: 4 }, { bar: 5, num: 3, den: 4 }], "mesures à partir de 1 pour le module");
@@ -94,4 +96,19 @@ test("voix d'affichage : lues dans l'événement, écrites par `add` et par la c
   assert.deepEqual(editToCommands({ type: "voice", indices: [9], voice: 2 }, detail), []);
   assert.notEqual(validateCommand({ type: "edit_notes", clip: 1000012, edits: [{ index: 0, voice: 0 }] }), null);
   assert.notEqual(validateCommand({ type: "add_notes", clip: 1000012, notes: [{ start: [0, 1], len: [1, 8], key: 60, velocity: 0.5, voice: 7 }] }), null);
+});
+
+test("startInBarOf : où, dans sa mesure, un morceau commence (fractions exactes)", async () => {
+  const { startInBarOf } = await import("../js/score-adapter.js");
+  const m44 = [{ bar: 0, num: 4, den: 4 }];
+  assert.equal(startInBarOf([0, 1], m44), null);
+  assert.equal(startInBarOf([2, 1], m44), null, "début de la mesure 3");
+  assert.deepEqual(startInBarOf([9, 4], m44), [1, 4], "une noire après le début de la mesure 3 (2 rondes)");
+  assert.deepEqual(startInBarOf([25, 3], m44), [1, 3], "8 mesures de 1 ronde + 1/3 de ronde (clip glissé librement)");
+  assert.deepEqual(startInBarOf([5, 8], undefined), [5, 8], "sans chiffrage : 4/4 par défaut");
+  // Chiffrage qui change : 4/4 pendant 2 mesures (2 rondes) puis 3/4 (3/4 de ronde par mesure).
+  const mixed = [{ bar: 0, num: 4, den: 4 }, { bar: 2, num: 3, den: 4 }];
+  assert.equal(startInBarOf([2, 1], mixed), null, "début de la mesure 3, première en 3/4");
+  assert.equal(startInBarOf([11, 4], mixed), null, "début de la mesure 4 (2 + 3/4)");
+  assert.deepEqual(startInBarOf([5, 2], mixed), [1, 2], "5/2 = 10/4 : la mesure 3 (en 3/4) commence à 8/4, 2/4 de ronde plus loin");
 });
