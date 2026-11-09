@@ -303,7 +303,7 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .track-menu .tm-del { justify-content: center; border: 1px solid var(--rec); color: var(--rec); }
 .track-menu .tm-del[disabled] { opacity: .4; cursor: default; }
 
-.piano-roll { position: fixed; left: 24px; top: 90px; z-index: 39; width: min(820px, calc((100vw - 48px) / var(--ui-zoom, 1))); height: min(520px, calc((100vh - 110px) / var(--ui-zoom, 1))); min-width: 360px; min-height: 260px; resize: both; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
+.piano-roll { position: fixed; left: 24px; top: 90px; z-index: 39; width: min(820px, calc((100vw - 48px) / var(--ui-zoom, 1))); height: min(520px, calc((100vh - 110px) / var(--ui-zoom, 1))); min-width: 360px; min-height: 260px; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
 .piano-roll[hidden] { display: none; }
 .piano-roll > header { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .piano-roll h2 { margin: 0 auto 0 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -611,6 +611,11 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .monitor-pop .mp-logrow.bad { color: var(--rec); }
 .monitor-pop .mp-err { font-size: 12px; color: var(--rec); justify-self: stretch; }
 .monitor-pop button { justify-self: stretch; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: inherit; cursor: pointer; }
+
+/* Poignée de redimensionnement des fenêtres flottantes (`float-frame.js`) */
+.float-grip { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: none; z-index: 50; background: linear-gradient(135deg, transparent 0 55%, var(--muted) 55% 60%, transparent 60% 72%, var(--muted) 72% 77%, transparent 77%); opacity: 0.7; border-bottom-right-radius: 12px; }
+.float-grip:hover { opacity: 1; }
+.piano-roll[hidden] .float-grip { display: none; }
 
 /* ---- groupes de pistes ---------------------------------------------------------------------------------------------------------- */
 .mx-gtag { font-size: 10px; line-height: 1.2; padding: 1px 5px; border-radius: 8px; color: #000; background: var(--g, var(--muted)); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }

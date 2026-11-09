@@ -10,6 +10,7 @@ import { LANE_DEFS, laneById, isVelocity, eventsOf, valueOfY, yOfValue, withPoin
 import { canvasPoint, pixelRatio } from "../ui-scale.js";
 import { sampleToX, xToSample } from "../time.js";
 import { getScale } from "../ui-scale.js";
+import { makeFloatable } from "./float-frame.js";
 import { pinchFactors, pinchMode, GRIDS, gridById, snapAbs, matToAbs, absToMat, moveGroup, resizeGroup, diffEdits, keyName, isBlack, noteId, fnum, fadd, fsub, fcmp } from "../notes-model.js";
 
 const KEYS_W = 56;
@@ -29,6 +30,8 @@ export class PianoRoll {
     this.state = state;
     this.client = client;
     this.root = document.getElementById("piano-roll");
+    // Fenêtre flottante : déplaçable par son bandeau, redimensionnable par une poignée à nous (la poignée native ne marche pas sous WebKitGTK).
+    makeFloatable(this.root, { key: "daw-pr-frame", minW: 360, minH: 260 });
     this.keys = document.getElementById("pr-keys");
     this.roll = document.getElementById("pr-roll");
     this.vel = document.getElementById("pr-vel");
