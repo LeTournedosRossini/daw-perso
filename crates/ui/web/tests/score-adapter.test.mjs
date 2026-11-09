@@ -17,7 +17,7 @@ test("l'entrée de setClips garde tous les indices (même les notes cachées par
   const c = scoreClipInput(detail, { name: "Arpège", node: 3 });
   assert.equal(c.notes.length, 3);
   assert.deepEqual([c.id, c.start, c.len, c.offset, c.selection], [1000012, [4, 1], [2, 1], [1, 2], [1]]);
-  assert.deepEqual(c.presentation, { staff: "treble", grid: "auto", keyFifths: 0 }, "grille d'écriture automatique (le module choisit mesure par mesure)");
+  assert.deepEqual(c.presentation, { staff: "treble", grid: "auto", autoTolerance: 4, keyFifths: 0 }, "grille d'écriture automatique (le module choisit mesure par mesure, tolérance de 4 ticks pour les triolets joués)");
   assert.equal("startInBar" in c, false, "pas de mesure raccourcie par défaut");
   assert.deepEqual(scoreClipInput(detail, { startInBar: [1, 4] }).startInBar, [1, 4]);
   assert.equal(c.notes[0].channel, 3);

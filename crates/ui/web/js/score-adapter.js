@@ -12,7 +12,8 @@ export const DEFAULT_VELOCITY = 0.8;
 /** Réglages de vue par défaut d'un clip (affichage seulement : rien de cela n'est dans le MIDI). */
 // Grille d'écriture : `'auto'` laisse le module choisir, mesure par mesure, la plus grossière qui porte tous les débuts de notes à un tick près
 // (plancher 1/16 binaire et 1/24 de triolet ; une prise jouée en direct retombe sur 1/16 arrondi).
-export const defaultPresentation = () => ({ staff: "treble", grid: "auto", keyFifths: 0 });
+// autoTolerance : marge en ticks (960 par noire) de la grille automatique ; 4 reconnaît un triolet joué à la main (par défaut le module tolère 1 tick).
+export const defaultPresentation = () => ({ staff: "treble", grid: "auto", autoTolerance: 4, keyFifths: 0 });
 
 /**
  * Position, dans la mesure qui contient `start` (fraction de ronde), où un morceau commence : `null` quand il commence sur un début de mesure.
