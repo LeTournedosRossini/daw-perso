@@ -322,6 +322,29 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
     Ok(())
 }
 
+/// Linux : le moteur joue par JACK (sous PipeWire : lancer l'application avec `pw-jack`, voir `tools/lancer-linux.sh`). Deux sorties reliées aux
+/// premières sorties physiques et deux entrées reliées aux premières entrées physiques ; la taille du tampon est celle du serveur. Pas d'objectif de
+/// basse latence sous Linux (décision du 4 novembre 2026). Pas encore : entrées MIDI, compensation de latence d'entrée, plus de deux sorties.
+#[cfg(target_os = "linux")]
+fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<(), String> {
+    use daw_audio_io::jack_backend::{run_playback, PlayOptions};
+    let eff = effective();
+    log("ouverture de JACK (sous PipeWire : lancer avec pw-jack)");
+    let (app2, rx2, route2) = (app.clone(), Arc::clone(rx), Arc::clone(route));
+    let opts = PlayOptions { seconds: 24 * 3600, ..PlayOptions::default() };
+    let report = run_playback(&opts, move |rate| {
+        log(&format!("JACK ouvert : {rate} Hz, 2 entrées, 2 sorties"));
+        // Taille maximale d'un bloc du moteur : un appel plus grand est découpé en blocs internes, sans allocation.
+        let (engine, mut host) = build_host(rate, 1024, 2, &route2, &eff, true).expect("projet de démonstration valide");
+        host.set_audio_outputs(2);
+        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true };
+        let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
+        (EngineProc(engine), control)
+    })?;
+    log(&format!("JACK arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
+    Ok(())
+}
+
 /// Sans pilote audio (autre plateforme, ou pilote indisponible) : le moteur tourne quand même, au rythme de l'horloge,
 /// sans son. L'interface reste utilisable (position, niveaux, commandes).
 fn run_silent(app: &AppHandle, rx: SharedRx, route: &SharedRoute) {
@@ -360,7 +383,15 @@ fn engine_thread(app: AppHandle, rx: SharedRx) {
             run_silent(&app, rx, &route);
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = run_with_jack(&app, &rx, &route) {
+            log(&format!("JACK indisponible : {e} — moteur sans son"));
+            let _ = app.emit(EVENT, &Event::Error { command: "audio".into(), message: format!("JACK indisponible ({e}) : moteur sans son. Sous PipeWire, lance l'application avec « pw-jack ». ") });
+            run_silent(&app, rx, &route);
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         log("plateforme sans pilote branché : moteur sans son");
         run_silent(&app, rx, &route);
