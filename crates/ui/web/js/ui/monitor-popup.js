@@ -53,14 +53,21 @@ export function openMonitorPopup(anchor, state, client, node) {
       role.append("Cette adresse permet ");
       const sel = document.createElement("select");
       sel.setAttribute("aria-label", "Ce que permet cette adresse");
-      sel.append(new Option("de régler ce retour seulement", "0"), new Option("ce retour + la télécommande (lecture, enregistrement, sections, pré-roll)", "1"));
+      sel.append(
+        new Option("de régler ce retour seulement", "0"),
+        new Option("ce retour + la télécommande (lecture, enregistrement, sections, pré-roll)", "1"),
+        new Option("ce retour + la régie (niveau, pan, muet, solo, armement de toutes les pistes)", "2"),
+        new Option("ce retour + la télécommande + la régie", "3"),
+      );
       sel.value = String(ret.role ?? 0);
       sel.addEventListener("change", () => client.send({ type: "set_monitor_role", node: node.id, role: Number(sel.value) }));
       role.append(sel);
       const warn = document.createElement("div");
       warn.className = "mp-note";
-      warn.textContent = ret.role === 1 ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). « Nouvelle adresse » la révoque. Active l'arrêt automatique dans les Réglages si le réseau est incertain." : "";
-      warn.hidden = ret.role !== 1;
+      const remote = (ret.role & 1) !== 0;
+      const desk = (ret.role & 2) !== 0;
+      warn.textContent = `${remote ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). " : ""}${desk ? "Avec la régie, quiconque a cette adresse peut régler et armer toutes les pistes. " : ""}« Nouvelle adresse » révoque ces droits.${remote ? " Active l'arrêt automatique dans les Réglages si le réseau est incertain." : ""}`;
+      warn.hidden = ret.role === 0;
       menu.append(qr, url, note, role, warn, copy, renew);
     }
     if (m?.active) {

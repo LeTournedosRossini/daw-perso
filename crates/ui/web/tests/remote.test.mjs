@@ -6,10 +6,11 @@ import { validateCommand, validatePrefs } from "../js/protocol.js";
 import { prefsFromForm } from "../js/ui/settings-dialog.js";
 import { MockEngine } from "../js/mock-engine.js";
 
-test("set_monitor_role : un retour et un rôle 0 ou 1 seulement", () => {
+test("set_monitor_role : un retour et des droits de 0 à 3 (bits : télécommande, régie)", () => {
   assert.equal(validateCommand({ type: "set_monitor_role", node: 7, role: 1 }), null);
   assert.equal(validateCommand({ type: "set_monitor_role", node: 7, role: 0 }), null);
-  for (const bad of [{ node: 7, role: 2 }, { node: 7, role: "1" }, { node: 0, role: 1 }, { node: 7 }, { role: 1 }]) {
+  for (const role of [2, 3]) assert.equal(validateCommand({ type: "set_monitor_role", node: 7, role }), null, `droits combinés ${role}`);
+  for (const bad of [{ node: 7, role: 4 }, { node: 7, role: -1 }, { node: 7, role: "1" }, { node: 0, role: 1 }, { node: 7 }, { role: 1 }]) {
     assert.match(validateCommand({ type: "set_monitor_role", ...bad }) ?? "", /set_monitor_role/, JSON.stringify(bad));
   }
 });

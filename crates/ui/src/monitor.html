@@ -70,6 +70,38 @@
   #remote .secs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-top: 10px; }
   #remote .secs button { height: 44px; font-size: 15px; border-left: 6px solid var(--c, var(--accent)); text-align: left; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #remote .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  /* Régie (droit « mixage ») : onglets et une tranche par piste */
+  #tabs { display: none; gap: 6px; margin: 0 0 12px; }
+  #tabs.on { display: flex; }
+  #tabs button { flex: 1; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  #tabs button[aria-selected="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #mixlist { display: none; }
+  body.tab-mix #mixlist { display: block; }
+  body.tab-mix #list, body.tab-mix #solo-hint, body.tab-mix #hint { display: none; }
+  .mx { background: var(--panel); border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); border-radius: 10px; padding: 6px 12px 4px; margin-bottom: 6px; }
+  .mx.master { border-left-color: var(--text); }
+  .mx.ret .name::after { content: " (retour)"; color: var(--muted); font-weight: 400; font-size: 13px; }
+  .mx .row { display: flex; align-items: center; gap: 8px; }
+  .mx .name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mx .db { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 4.5em; text-align: right; }
+  .mx .btns { display: flex; gap: 6px; flex: none; }
+  .mx button { min-width: 40px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  .mx button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
+  .mx button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
+  .mx button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .mx .meter { height: 5px; border-radius: 3px; background: var(--line); margin: 4px 0 0; overflow: hidden; }
+  .mx .meter i { display: block; height: 100%; width: 0; background: #3ecf5a; transition: width .12s linear; }
+  .mx .meter i.y { background: #ffcc00; }
+  .mx .meter i.r { background: #ff3b47; }
+  .mx input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 30px; margin: 0; background: transparent; touch-action: pan-y; }
+  .mx input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--line) var(--fill, 0%)); }
+  .mx input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  .mx input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+  .mx input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -11px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+  .mx input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+  .mx .panrow { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .mx .panrow input { flex: 1; }
+  .mx .panrow .pv { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -84,7 +116,9 @@
   <div class="line"><span>Pré-roll (mesures)</span><span id="r-pre"></span><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
 </div>
+<div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
 <div id="list"></div>
+<div id="mixlist"></div>
 <script>
 "use strict";
 const base = location.pathname.replace(/\/$/, "");
@@ -197,6 +231,8 @@ async function poll() {
     if (!res.ok) throw new Error(res.status);
     const st = await res.json();
     showRemote(st.remote);
+    showTabs(!!st.mix);
+    showMix(st.mix);
     document.getElementById("lost").classList.remove("on");
     document.getElementById("title").textContent = st.name;
     document.title = st.name;
@@ -301,6 +337,85 @@ function showRemote(r) {
     }
   }
   for (const b of pre.children) b.setAttribute("aria-pressed", String(Number(b.dataset.n) === r.pre_roll_bars));
+}
+// ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
+const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
+let mixShape = "", mixPending = new Map(), mixTimer = null;
+const postMix = (body) => fetch(base + "/mix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+function flushMix() {
+  mixTimer = null;
+  for (const [node, v] of mixPending) postMix({ node, ...v });
+  mixPending = new Map();
+}
+const laterMix = (node, patch) => { mixPending.set(node, { ...(mixPending.get(node) ?? {}), ...patch }); if (!mixTimer) mixTimer = setTimeout(flushMix, 60); };
+const fmtPan = (p) => (Math.abs(p) < 0.02 ? "C" : (p < 0 ? "G " : "D ") + Math.round(Math.abs(p) * 100));
+function buildMix(n) {
+  const root = document.createElement("div");
+  root.className = "mx" + (n.kind === "master" ? " master" : n.kind === "return" ? " ret" : "");
+  root.style.setProperty("--c", n.color || "var(--accent)");
+  const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
+  const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
+  const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
+  root.innerHTML = '<div class="row"><span class="name"></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + '</span><span class="db"></span></div><div class="meter"><i></i></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
+  const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), meter: root.querySelector(".meter i"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
+  root.querySelector(".name").textContent = n.name;
+  r.range.min = DB_MIN; r.range.max = DB_MAX;
+  r.range.addEventListener("pointerdown", () => (r.down = true));
+  for (const ev of ["pointerup", "pointercancel", "blur"]) r.range.addEventListener(ev, () => (r.down = false));
+  r.range.addEventListener("input", () => { const db = Number(r.range.value); r.range.style.setProperty("--fill", ((db - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"); r.out.textContent = fmt(db); laterMix(n.id, { db }); });
+  r.range.addEventListener("dblclick", () => { r.range.value = 0; r.range.dispatchEvent(new Event("input")); });
+  if (r.pan) {
+    r.pan.addEventListener("pointerdown", () => (r.panDown = true));
+    for (const ev of ["pointerup", "pointercancel", "blur"]) r.pan.addEventListener(ev, () => (r.panDown = false));
+    r.pan.addEventListener("input", () => { const pan = Number(r.pan.value); r.pv.textContent = fmtPan(pan); laterMix(n.id, { pan }); });
+    r.pan.addEventListener("dblclick", () => { r.pan.value = 0; r.pan.dispatchEvent(new Event("input")); });
+  }
+  const flag = (btn, key) => btn?.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("x" + key + n.id, Date.now() + 700); postMix({ node: n.id, [key]: r[key] }); });
+  flag(r.m, "mute"); flag(r.s, "solo"); flag(r.a, "arm");
+  mixRows.set(n.id, r);
+  return r;
+}
+function showMix(mix) {
+  const box = el("mixlist");
+  if (!mix) { mixRows.clear(); mixShape = ""; box.replaceChildren(); return; }
+  const shape = JSON.stringify(mix.nodes.map((n) => [n.id, n.name, n.kind, n.color]));
+  if (shape !== mixShape) {
+    mixShape = shape;
+    mixRows.clear();
+    box.replaceChildren(...mix.nodes.map((n) => buildMix(n).root));
+  }
+  const anySolo = mix.nodes.some((n) => n.solo);
+  for (const n of mix.nodes) {
+    const r = mixRows.get(n.id);
+    if (!r) continue;
+    r.root.querySelector(".name").textContent = n.name;
+    if (!r.down && !mixPending.has(n.id)) { r.range.value = n.db; r.range.style.setProperty("--fill", ((n.db - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"); r.out.textContent = fmt(n.db); }
+    if (r.pan && !r.panDown && !mixPending.has(n.id)) { r.pan.value = n.pan; r.pv.textContent = fmtPan(n.pan); }
+    if (!holding("xmute" + n.id)) { r.mute = !!n.mute; press(r.m, r.mute); }
+    if (r.s && !holding("xsolo" + n.id)) { r.solo = !!n.solo; press(r.s, r.solo); }
+    if (r.a && !holding("xarm" + n.id)) { r.arm = !!n.arm; press(r.a, r.arm); }
+    r.root.style.opacity = r.mute || (anySolo && !n.solo && n.kind !== "master") ? ".55" : "1";
+    const w = Math.max(0, Math.min(100, ((n.peak + 60) / 60) * 100));
+    r.meter.style.width = w + "%";
+    r.meter.className = n.peak >= -3 ? "r" : n.peak >= -12 ? "y" : "";
+  }
+}
+function showTabs(hasMix) {
+  const tabs = el("tabs");
+  tabs.classList.toggle("on", !!hasMix);
+  if (!hasMix) { document.body.classList.remove("tab-mix"); return; }
+  if (!showTabs.wired) {
+    showTabs.wired = true;
+    const pick = (mix) => {
+      document.body.classList.toggle("tab-mix", mix);
+      el("tab-mix").setAttribute("aria-selected", String(mix));
+      el("tab-me").setAttribute("aria-selected", String(!mix));
+      store.put("tab-" + base, mix ? "mix" : "me");
+    };
+    el("tab-me").addEventListener("click", () => pick(false));
+    el("tab-mix").addEventListener("click", () => pick(true));
+    pick(store.get("tab-" + base) === "mix");
+  }
 }
 poll();
 setInterval(poll, 400);

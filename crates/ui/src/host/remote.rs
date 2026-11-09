@@ -9,7 +9,7 @@ use std::time::Instant;
 use daw_core_types::NodeId;
 
 use super::Host;
-use crate::monitor::{RemoteCmd, ROLE_TRANSPORT};
+use crate::monitor::{MixCmd, RemoteCmd, ROLE_ALL, ROLE_MIXER, ROLE_TRANSPORT};
 use crate::prefs::PreRollUnit;
 use crate::protocol::{Command, Event, TransportAction};
 
@@ -42,7 +42,7 @@ impl Host {
     /// Une commande d'une tablette autorisée. Les refus de l'hôte (aucune piste armée, enregistrement en cours…) sont gardés pour la tablette.
     pub(super) fn remote_request(&mut self, ret: u32, cmd: RemoteCmd) -> Vec<Event> {
         // Le rôle est relu ici aussi : il a pu changer entre la requête et ce tick.
-        if self.session.monitor_role(NodeId(ret)) < ROLE_TRANSPORT {
+        if self.session.monitor_role(NodeId(ret)) & ROLE_TRANSPORT == 0 {
             return Vec::new();
         }
         let events = match cmd {
@@ -78,13 +78,74 @@ impl Host {
         events
     }
 
+    /// La régie d'une tablette : état de chaque nœud dans l'ordre d'affichage (niveau, panoramique, muet, solo, armement, crête récente).
+    pub(super) fn mix_state(&self) -> serde_json::Value {
+        let g = self.session.graph();
+        // L'ordre d'affichage du projet ; la sortie principale n'en fait pas partie : elle vient en dernier.
+        let mut order: Vec<NodeId> = self.session.display_order().to_vec();
+        if !order.contains(&NodeId(0)) {
+            order.push(NodeId(0));
+        }
+        let nodes: Vec<serde_json::Value> = order
+            .iter()
+            .filter_map(|id| {
+                let n = g.nodes.get(id.0 as usize)?;
+                let st = self.nodes.get(id.0 as usize)?;
+                let kind = match n.kind {
+                    daw_engine::NodeKind::Master => "master",
+                    daw_engine::NodeKind::Bus if n.phys.is_some() => "return",
+                    daw_engine::NodeKind::Bus => "bus",
+                    daw_engine::NodeKind::Track(_) => "track",
+                };
+                let peak = self.peak_hold.get(&id.0).map_or(0.0, |p| p.0);
+                let peak_db = if peak <= 1e-6 { -120.0 } else { (20.0 * f64::from(peak).log10()).max(-120.0) };
+                let color = match self.session.node_color(*id) {
+                    "" => "#9aa3b2",
+                    c => c,
+                };
+                Some(serde_json::json!({
+                    "id": id.0, "name": n.name, "kind": kind, "color": color,
+                    "db": (f64::from(daw_core_types::gain_to_db(st.gain)).clamp(-60.0, 6.0) * 10.0).round() / 10.0,
+                    "pan": st.pan, "mute": st.mute, "solo": st.solo, "arm": st.arm,
+                    "peak": (peak_db * 10.0).round() / 10.0,
+                }))
+            })
+            .collect();
+        serde_json::json!({ "nodes": nodes })
+    }
+
+    /// Un réglage de régie, avec le droit relu à l'exécution. Passe par `set_node` (mêmes refus que la page : armement d'un bus, pendant une prise…).
+    pub(super) fn mix_request(&mut self, ret: u32, cmd: MixCmd) -> Vec<Event> {
+        if self.session.monitor_role(NodeId(ret)) & ROLE_MIXER == 0 {
+            return Vec::new();
+        }
+        let Some(n) = self.session.graph().nodes.get(cmd.node as usize) else {
+            self.remote_msg = Some((Instant::now(), "piste inconnue".into()));
+            return Vec::new();
+        };
+        let master = cmd.node == 0;
+        let is_track = matches!(n.kind, daw_engine::NodeKind::Track(_));
+        if (master && (cmd.pan.is_some() || cmd.solo.is_some() || cmd.arm.is_some())) || (cmd.arm.is_some() && !is_track) {
+            self.remote_msg = Some((Instant::now(), "ce réglage n'existe pas pour ce nœud".into()));
+            return Vec::new();
+        }
+        let gain = cmd.db.map(|db| if db <= -60.0 { 0.0 } else { daw_core_types::db_to_gain(db.clamp(-60.0, 6.0) as f32) });
+        let pan = cmd.pan.map(|p| p.clamp(-1.0, 1.0) as f32);
+        let events = self.command(Command::SetNode { node: cmd.node, gain, pan, mute: cmd.mute, solo: cmd.solo, arm: cmd.arm, monitor: None, invert: None });
+        match events.iter().find(|e| matches!(e, Event::Error { .. })) {
+            Some(Event::Error { message, .. }) => self.remote_msg = Some((Instant::now(), message.clone())),
+            _ => self.remote_msg = None,
+        }
+        events
+    }
+
     /// Change le rôle de la télécommande d'un retour (0 : son retour seulement ; 1 : aussi le transport). Sans historique, compte comme modification.
     pub(super) fn set_monitor_role(&mut self, node: u32, role: u8) -> Vec<Event> {
         if !self.session.graph().nodes.get(node as usize).is_some_and(|n| n.phys.is_some()) {
             return vec![Event::Error { command: "set_monitor_role".into(), message: "seul un retour de monitoring a un rôle de télécommande".into() }];
         }
         if !self.session.set_monitor_role_untracked(NodeId(node), role) {
-            return vec![Event::Error { command: "set_monitor_role".into(), message: "rôle inconnu (0 : retour seulement, 1 : retour + transport)".into() }];
+            return vec![Event::Error { command: "set_monitor_role".into(), message: format!("rôle inconnu (0 à {ROLE_ALL} : 1 = transport, 2 = régie, 3 = les deux)") }];
         }
         self.dirty = true;
         if self.monitor.is_some() {

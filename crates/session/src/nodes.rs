@@ -390,15 +390,15 @@ impl Session {
         }
     }
 
-    /// Rôle de la télécommande d'un retour : 0 = le musicien ne règle que son retour ; 1 = en plus le transport, les sections et le pré-roll.
+    /// Droits de l'adresse d'un retour (bits) : 0 = règle son retour seulement ; 1 = + télécommande (transport, sections, pré-roll) ; 2 = + régie (mixage de toutes les pistes) ; 3 = les deux.
     pub fn monitor_role(&self, node: NodeId) -> u8 {
         self.monitor_roles.get(node.0 as usize).copied().unwrap_or(0)
     }
 
-    /// Change le rôle de la télécommande d'un retour **sans historique** (réglage d'accès, pas une édition du morceau). Refuse un rôle inconnu.
+    /// Change les droits de l'adresse d'un retour **sans historique** (réglage d'accès, pas une édition du morceau). Refuse un rôle au-delà de 3.
     pub fn set_monitor_role_untracked(&mut self, node: NodeId, role: u8) -> bool {
         match self.monitor_roles.get_mut(node.0 as usize) {
-            Some(r) if node.0 != 0 && role <= 1 => {
+            Some(r) if node.0 != 0 && role <= 3 => {
                 *r = role;
                 true
             }

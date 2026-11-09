@@ -36,12 +36,49 @@ pub enum SetRequest {
     GroupOffset { ret: u32, group: u32, db: f64 },
     /// Télécommande : seulement acceptée d'une page dont le retour a le rôle « transport » (voir `Role`).
     Remote { ret: u32, cmd: RemoteCmd },
+    /// Régie : réglage d'une piste ou d'un bus quelconque (seulement avec le droit `ROLE_MIXER`).
+    Mix { ret: u32, cmd: MixCmd },
 }
 
-/// Ce que peut faire la page d'un retour : `Musician` règle son retour ; `Transport` règle aussi le transport, les sections et le pré-roll.
-/// Le rôle est un droit du jeton (choisi par l'utilisateur dans la fenêtre du QR) : une page qui n'a pas le droit reçoit 403.
+/// Un réglage de régie sur un nœud (piste, bus, retour ou sortie principale). Chaque champ est facultatif ; au moins un est présent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MixCmd {
+    pub node: u32,
+    /// Niveau en dB (borné à −60 / +6 par l'hôte ; −60 = coupé).
+    pub db: Option<f64>,
+    /// Panoramique de −1 (gauche) à +1.
+    pub pan: Option<f64>,
+    pub mute: Option<bool>,
+    pub solo: Option<bool>,
+    /// Armement de la piste pour l'enregistrement (refusé par l'hôte pour un bus, et pendant une prise).
+    pub arm: Option<bool>,
+}
+
+/// Lit le corps d'un réglage de régie. `None` si le nœud manque, si une valeur n'est pas du bon type ou pas finie, ou s'il n'y a rien à régler.
+fn parse_mix(v: &serde_json::Value) -> Option<MixCmd> {
+    let node = v["node"].as_u64().filter(|n| *n <= u32::MAX as u64)? as u32;
+    let flag = |k: &str| match &v[k] {
+        serde_json::Value::Null => Some(None),
+        serde_json::Value::Bool(b) => Some(Some(*b)),
+        _ => None,
+    };
+    let num = |k: &str| match &v[k] {
+        serde_json::Value::Null => Some(None),
+        n => n.as_f64().filter(|x| x.is_finite()).map(Some),
+    };
+    let cmd = MixCmd { node, db: num("db")?, pan: num("pan")?, mute: flag("mute")?, solo: flag("solo")?, arm: flag("arm")? };
+    (cmd.db.is_some() || cmd.pan.is_some() || cmd.mute.is_some() || cmd.solo.is_some() || cmd.arm.is_some()).then_some(cmd)
+}
+
+/// Droits d'une adresse, en bits qui se combinent (le rôle est un **ensemble de droits** du jeton, choisi par l'utilisateur dans la fenêtre du QR) :
+/// toute adresse règle **son** retour (rôle 0) ; `ROLE_TRANSPORT` ajoute la télécommande (transport, sections, pré-roll) ; `ROLE_MIXER` ajoute la
+/// régie (niveau, panoramique, muet, solo, armement de **toutes** les pistes, avec leurs vumètres). 3 = musicien + transport + régie. Une page qui n'a
+/// pas le droit reçoit 403.
 pub const ROLE_MUSICIAN: u8 = 0;
 pub const ROLE_TRANSPORT: u8 = 1;
+pub const ROLE_MIXER: u8 = 2;
+/// Tous les droits connus : un rôle au-delà est refusé.
+pub const ROLE_ALL: u8 = ROLE_TRANSPORT | ROLE_MIXER;
 
 /// Une commande de télécommande. Elle passe ensuite par les commandes ordinaires de l'hôte (mêmes refus, mêmes garde-fous).
 #[derive(Debug, Clone, PartialEq)]
@@ -235,13 +272,29 @@ fn serve(server: Arc<Server>, shared: Arc<Mutex<Shared>>, tx: Sender<SetRequest>
             },
             (Method::Post, ["r", token, "cmd"]) => match known(token) {
                 // Télécommande : refusée (403) pour un jeton de simple musicien, sans même lire le corps.
-                Some((_, _, role)) if role < ROLE_TRANSPORT => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas de télécommande\"}").with_status_code(403),
+                Some((_, _, role)) if role & ROLE_TRANSPORT == 0 => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas de télécommande\"}").with_status_code(403),
                 Some((ret, _, _)) => {
                     let mut body = String::new();
                     let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
                     match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_remote(&v)) {
                         Some(cmd) => {
                             let _ = tx.send(SetRequest::Remote { ret, cmd });
+                            Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
+                        }
+                        None => Response::from_string("{\"ok\":false}").with_status_code(400),
+                    }
+                }
+                None => not_found(),
+            },
+            (Method::Post, ["r", token, "mix"]) => match known(token) {
+                // Régie : refusée (403) sans le droit, avant de lire le corps.
+                Some((_, _, role)) if role & ROLE_MIXER == 0 => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas la régie\"}").with_status_code(403),
+                Some((ret, _, _)) => {
+                    let mut body = String::new();
+                    let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
+                    match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_mix(&v)) {
+                        Some(cmd) => {
+                            let _ = tx.send(SetRequest::Mix { ret, cmd });
                             Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
                         }
                         None => Response::from_string("{\"ok\":false}").with_status_code(400),

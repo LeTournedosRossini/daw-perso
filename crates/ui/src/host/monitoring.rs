@@ -130,8 +130,11 @@ impl Host {
             let groups: Vec<serde_json::Value> = self.session.effective_group_list(Some(NodeId(*ret))).iter().map(|gr| serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "offset_db": self.group_offset(gr.id, Some(*ret)) })).collect();
             let role = self.session.monitor_role(NodeId(*ret));
             let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role });
-            if role >= crate::monitor::ROLE_TRANSPORT {
+            if role & crate::monitor::ROLE_TRANSPORT != 0 {
                 state["remote"] = self.remote_state();
+            }
+            if role & crate::monitor::ROLE_MIXER != 0 {
+                state["mix"] = self.mix_state();
             }
             out.push((*ret, state.to_string(), role));
         }
@@ -192,6 +195,12 @@ impl Host {
                     return Vec::new();
                 }
                 self.remote_request(ret, cmd)
+            }
+            SetRequest::Mix { ret, cmd } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.mix_request(ret, cmd)
             }
         }
     }

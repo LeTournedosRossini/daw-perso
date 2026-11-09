@@ -75,6 +75,16 @@ impl Rig {
         http(self.port, "POST", &format!("{}/cmd", self.path), body).0
     }
 
+    fn mix(&self, body: &str) -> u16 {
+        http(self.port, "POST", &format!("{}/mix", self.path), body).0
+    }
+
+    fn set_role(&mut self, role: u8) {
+        let ev = self.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":{role}}}"#, self.bus));
+        assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+        self.settle();
+    }
+
     fn state(&self) -> serde_json::Value {
         let (status, body) = http(self.port, "GET", &format!("{}/state", self.path), "");
         assert_eq!(status, 200);
@@ -193,4 +203,87 @@ fn the_role_is_a_right_of_the_address_saved_with_the_project_and_revocable() {
     rig.settle();
     assert_eq!(rig.cmd(r#"{"cmd":"toggle"}"#), 403);
     assert!(rig.state().get("remote").is_none());
+}
+
+fn mix_node(st: &serde_json::Value, name: &str) -> serde_json::Value {
+    st["mix"]["nodes"].as_array().unwrap().iter().find(|n| n["name"] == name).unwrap_or_else(|| panic!("pas de « {name} » dans la régie : {st}")).clone()
+}
+
+#[test]
+fn rights_combine_transport_and_mixing_are_separate_bits_and_both_can_be_given() {
+    let mut rig = Rig::new();
+    // Transport seulement : la régie est refusée et absente de l'état.
+    rig.set_role(1);
+    assert_eq!(rig.mix(r#"{"node":1,"db":-6}"#), 403);
+    assert!(rig.state().get("mix").is_none());
+    // Régie seulement : la télécommande est refusée, la régie marche.
+    rig.set_role(2);
+    assert_eq!(rig.cmd(r#"{"cmd":"toggle"}"#), 403);
+    assert!(rig.state().get("remote").is_none());
+    assert_eq!(rig.mix(r#"{"node":1,"db":-6}"#), 200);
+    // Les deux : musicien + transport + régie avec la même adresse.
+    rig.set_role(3);
+    assert_eq!(rig.cmd(r#"{"cmd":"toggle"}"#), 200);
+    assert_eq!(rig.mix(r#"{"node":1,"db":-6}"#), 200);
+    let st = rig.state();
+    assert_eq!(st["role"], 3);
+    assert!(st.get("remote").is_some() && st.get("mix").is_some() && st["sources"].is_array(), "son retour, le transport et la régie ensemble");
+    // Au-delà des droits connus : refusé.
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_monitor_role","node":{},"role":4}}"#, rig.bus));
+    assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })));
+    // Une adresse de simple musicien n'a ni l'un ni l'autre.
+    rig.set_role(0);
+    assert_eq!((rig.cmd(r#"{"cmd":"toggle"}"#), rig.mix(r#"{"node":1,"db":-6}"#)), (403, 403));
+}
+
+#[test]
+fn the_mixing_desk_sets_level_pan_mute_solo_and_arming_of_any_track_with_the_usual_refusals() {
+    let mut rig = Rig::new();
+    rig.set_role(2);
+    let st = rig.state();
+    let names: Vec<String> = st["mix"]["nodes"].as_array().unwrap().iter().map(|n| n["name"].as_str().unwrap().to_string()).collect();
+    for want in ["Batterie", "Guitare", "Retour Marie", "Master"] {
+        assert!(names.iter().any(|n| n == want), "{want} dans {names:?}");
+    }
+    assert_eq!(mix_node(&st, "Retour Marie")["kind"], "return");
+    assert_eq!(mix_node(&st, "Master")["kind"], "master");
+    assert_eq!(mix_node(&st, "Guitare")["kind"], "track");
+    let guitar = mix_node(&st, "Guitare")["id"].as_u64().unwrap();
+
+    // Niveau, panoramique, muet, solo : appliqués par l'hôte, relus dans l'état.
+    assert_eq!(rig.mix(&format!(r#"{{"node":{guitar},"db":-6,"pan":-0.5,"mute":true}}"#)), 200);
+    assert_eq!(rig.mix(&format!(r#"{{"node":{guitar},"solo":true}}"#)), 200);
+    rig.settle();
+    let g = mix_node(&rig.state(), "Guitare");
+    assert!((g["db"].as_f64().unwrap() + 6.0).abs() < 0.2, "{g}");
+    assert!((g["pan"].as_f64().unwrap() + 0.5).abs() < 1e-3, "{g}");
+    assert_eq!((g["mute"].as_bool(), g["solo"].as_bool()), (Some(true), Some(true)));
+    // Borné : +40 dB devient +6 dB, −90 dB coupe, un panoramique hors de ±1 est ramené.
+    assert_eq!(rig.mix(&format!(r#"{{"node":{guitar},"db":40,"pan":9}}"#)), 200);
+    rig.settle();
+    let g = mix_node(&rig.state(), "Guitare");
+    assert!((g["db"].as_f64().unwrap() - 6.0).abs() < 0.2 && g["pan"].as_f64() == Some(1.0), "{g}");
+    // Armement d'une piste : accepté (sans entrée choisie il reste possible). Pour un bus ou la sortie principale : refusé avec un message.
+    assert_eq!(rig.mix(&format!(r#"{{"node":{guitar},"arm":true}}"#)), 200);
+    rig.settle();
+    assert_eq!(mix_node(&rig.state(), "Guitare")["arm"], true);
+    let ret = mix_node(&rig.state(), "Retour Marie")["id"].as_u64().unwrap();
+    assert_eq!(rig.mix(&format!(r#"{{"node":{ret},"arm":true}}"#)), 200);
+    rig.settle();
+    assert_eq!(mix_node(&rig.state(), "Retour Marie")["arm"], false, "un retour ne s'arme pas");
+    assert_eq!(rig.mix(r#"{"node":0,"pan":0.3}"#), 200);
+    rig.settle();
+    assert_eq!(mix_node(&rig.state(), "Master")["pan"].as_f64(), Some(0.0), "la sortie principale n'a pas de panoramique réglable");
+    // Le niveau de la sortie principale se règle ; son panoramique non.
+    assert_eq!(rig.mix(r#"{"node":0,"db":-3}"#), 200);
+    rig.settle();
+    assert!((mix_node(&rig.state(), "Master")["db"].as_f64().unwrap() + 3.0).abs() < 0.2);
+    // Demandes invalides : 400 sans effet.
+    for bad in ["", "pas du json", "{}", r#"{"node":1}"#, r#"{"db":-3}"#, r#"{"node":1,"db":"fort"}"#, r#"{"node":1,"mute":"oui"}"#, r#"{"node":-1,"db":0}"#] {
+        assert_eq!(rig.mix(bad), 400, "{bad:?}");
+    }
+    // Un nœud inconnu : accepté par le serveur, refusé par l'hôte avec un message pour la tablette.
+    assert_eq!(rig.mix(r#"{"node":999,"db":0}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["nodes"].as_array().unwrap().len(), names.len(), "rien n'a changé");
 }
