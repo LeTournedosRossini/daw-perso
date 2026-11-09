@@ -558,6 +558,11 @@ fn automation_modes_are_set_per_track_and_per_chosen_parameter_with_the_fine_rig
     rig.settle();
     let armed: Vec<String> = rig.h.command_json(r#"{"type":"get_project"}"#).iter().find_map(|e| if let Event::Project(p) = e { Some(p.write_arms.iter().map(|a| format!("{}:{}", a.node, a.mode)).collect()) } else { None }).unwrap_or_default();
     assert!(armed.iter().any(|a| a == "1:touch") && !armed.iter().any(|a| a.starts_with("2:")), "{armed:?}");
+    // Toucher / lâcher le volume ou le pan d'une piste : acceptés ; une autre cible : 400.
+    assert_eq!(rig.fx(r#"{"touch":true,"node":1,"target":"gain"}"#), 200);
+    assert_eq!(rig.fx(r#"{"touch":false,"node":1,"target":"gain"}"#), 200);
+    assert_eq!(rig.fx(r#"{"touch":true,"node":1,"target":"pan"}"#), 200);
+    assert_eq!(rig.fx(r#"{"touch":true,"node":1,"target":"insert"}"#), 400);
     // Invalides : 400.
     for bad in [r#"{"auto":"bogus","node":1,"target":"gain"}"#, r#"{"auto":"touch","target":"gain"}"#, r#"{"auto":"touch","node":1}"#, r#"{"auto":"touch","node":1,"target":"volume"}"#, r#"{"auto":"touch","node":1,"target":"insert","insert":3}"#] {
         assert_eq!(rig.fx(bad), 400, "{bad}");

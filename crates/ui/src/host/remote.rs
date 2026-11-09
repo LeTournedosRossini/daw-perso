@@ -202,6 +202,16 @@ impl Host {
                 let Some(node) = self.session.graph().nodes.iter().position(|n| n.inserts.iter().any(|i| i.id == insert)) else { return refuse(self, "plugin inconnu") };
                 self.gesture_auto(node as u32, daw_engine::AutoTarget::InsertParam { insert, param }, active)
             }
+            FxCmd::TouchTrack { node, target, active } => {
+                if self.session.graph().nodes.get(node as usize).is_none() {
+                    return refuse(self, "piste inconnue");
+                }
+                let t = match target {
+                    FxTarget::Gain => daw_engine::AutoTarget::Gain,
+                    _ => daw_engine::AutoTarget::Pan,
+                };
+                self.gesture_auto(node, t, active)
+            }
             FxCmd::Auto { node, target, mode } => {
                 if self.session.graph().nodes.get(node as usize).is_none() {
                     return refuse(self, "piste inconnue");

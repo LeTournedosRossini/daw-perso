@@ -84,6 +84,8 @@ pub enum FxCmd {
     /// Le doigt touche (`true`) ou lâche (`false`) le contrôle : sert aux modes d'écriture de l'automation (Toucher, Latch).
     Touch { insert: u32, param: u32, active: bool },
     Bypass { insert: u32, on: bool },
+    /// Le doigt touche (`true`) ou lâche (`false`) le volume ou le panoramique d'une piste : alimente les modes d'écriture Toucher et Latch.
+    TouchTrack { node: u32, target: FxTarget, active: bool },
     /// Mode d'automation d'un paramètre : `none` (désarme), `read`, `trim`, `off` (mode de la courbe), `touch`, `latch`, `write` (armement pour l'écriture).
     Auto { node: u32, target: FxTarget, mode: String },
 }
@@ -111,6 +113,13 @@ fn parse_fx(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
             _ => return None,
         };
         FxCmd::Auto { node, target, mode: mode.to_string() }
+    } else if let (Some(node), Some(t), Some(active)) = (id("node"), v["target"].as_str(), v["touch"].as_bool()) {
+        let target = match t {
+            "gain" => FxTarget::Gain,
+            "pan" => FxTarget::Pan,
+            _ => return None,
+        };
+        FxCmd::TouchTrack { node, target, active }
     } else if let Some(open) = v.get("open") {
         match open {
             serde_json::Value::Null => FxCmd::Open(None),
