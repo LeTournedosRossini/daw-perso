@@ -5,14 +5,14 @@
 //! il lit un instantané JSON publié par l'hôte (`Monitor::publish`) et dépose les demandes de réglage dans une file que l'hôte vide à chaque
 //! `tick` (`Monitor::take_requests`). L'hôte reste donc le seul à modifier le projet (historique, état « modifié », moteur).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::io::Read;
-use std::net::UdpSocket;
+use std::net::{IpAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tiny_http::{Header, Method, Response, Server};
 
@@ -147,10 +147,106 @@ fn parse_request(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
     Some(SetRequest::Flags { ret, node, mute, solo })
 }
 
+/// Nombre d'entrées gardées dans le journal des commandes reçues.
+const JOURNAL_LEN: usize = 300;
+/// Demandes de réglage d'une adresse inconnue tolérées par minute et par client avant de répondre 429 (une page périmée qui relit son état
+/// toutes les 400 ms en fait 150 par minute : elle ne doit pas être bloquée, un balayage d'adresses oui).
+const MISSES_PER_MINUTE: u32 = 300;
+
+/// Seau à jetons : `burst` demandes d'un coup, puis `per_sec` par seconde.
+#[derive(Debug, Clone, Copy)]
+struct Bucket {
+    tokens: f64,
+    last: Instant,
+}
+
+impl Bucket {
+    fn take(&mut self, now: Instant, burst: f64, per_sec: f64) -> bool {
+        self.tokens = (self.tokens + now.duration_since(self.last).as_secs_f64() * per_sec).min(burst);
+        self.last = now;
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Limites de débit des routes qui commandent (par adresse). Le transport est lent par nature ; les faders envoient en continu (la page groupe
+/// ses envois toutes les 60 ms, soit ~17 par seconde).
+fn limits(route: &str) -> (f64, f64) {
+    match route {
+        "cmd" => (8.0, 2.0),
+        _ => (60.0, 40.0),
+    }
+}
+
+/// Une commande reçue, pour le journal (ce que le serveur a vu, pas ce que l'hôte en a fait).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct JournalEntry {
+    /// Instant de réception, en millisecondes depuis 1970.
+    pub t_ms: u64,
+    /// Adresse du client.
+    pub ip: String,
+    /// Retour dont l'adresse a été utilisée (`None` : adresse inconnue).
+    pub ret: Option<u32>,
+    /// `cmd` (télécommande), `mix` (régie), `set` (retour) ; `?` pour une adresse inconnue.
+    pub route: String,
+    /// La commande lue (jamais le corps brut) ou la raison.
+    pub what: String,
+    /// Code de la réponse : 200 acceptée, 400 invalide, 403 droit manquant, 404 adresse inconnue, 429 trop de demandes.
+    pub status: u16,
+}
+
 #[derive(Default)]
 struct Shared {
     /// jeton → (nœud du retour, instantané JSON de son mix, rôle).
     returns: HashMap<String, (u32, String, u8)>,
+    /// (jeton, route) → seau à jetons.
+    buckets: HashMap<(String, &'static str), Bucket>,
+    /// client → (début de la minute, demandes à une adresse inconnue).
+    misses: HashMap<IpAddr, (Instant, u32)>,
+    journal: VecDeque<JournalEntry>,
+}
+
+impl Shared {
+    fn log(&mut self, ip: Option<IpAddr>, ret: Option<u32>, route: &str, what: String, status: u16) {
+        let t_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        if self.journal.len() >= JOURNAL_LEN {
+            self.journal.pop_front();
+        }
+        self.journal.push_back(JournalEntry { t_ms, ip: ip.map_or_else(|| "?".into(), |a| a.to_string()), ret, route: route.into(), what, status });
+    }
+
+    /// Compte une demande à une adresse inconnue ; `false` quand ce client en fait trop. Seule la première de chaque minute entre dans le journal.
+    fn miss(&mut self, ip: Option<IpAddr>, what: &str) -> bool {
+        let Some(ip) = ip else { return true };
+        let now = Instant::now();
+        let e = self.misses.entry(ip).or_insert((now, 0));
+        if now.duration_since(e.0).as_secs() >= 60 {
+            *e = (now, 0);
+        }
+        e.1 += 1;
+        let (count, over) = (e.1, e.1 > MISSES_PER_MINUTE);
+        if self.misses.len() > 1024 {
+            self.misses.retain(|_, (t, _)| now.duration_since(*t).as_secs() < 60);
+        }
+        if count == 1 || count == MISSES_PER_MINUTE + 1 {
+            self.log(Some(ip), None, "?", format!("{what}{}", if over { " (trop de demandes : bloqué une minute)" } else { "" }), if over { 429 } else { 404 });
+        }
+        !over
+    }
+
+    /// Une commande de l'adresse `token` sur la route `route` est-elle dans la limite de débit ?
+    fn allow(&mut self, token: &str, route: &'static str) -> bool {
+        let (burst, per_sec) = limits(route);
+        let now = Instant::now();
+        if self.buckets.len() > 256 {
+            self.buckets.retain(|_, b| now.duration_since(b.last).as_secs() < 60);
+        }
+        self.buckets.entry((token.to_owned(), route)).or_insert(Bucket { tokens: burst, last: now }).take(now, burst, per_sec)
+    }
 }
 
 pub struct Monitor {
@@ -239,6 +335,11 @@ impl Monitor {
         }
     }
 
+    /// Le journal des commandes reçues (les plus récentes en dernier), au plus `JOURNAL_LEN`.
+    pub fn journal(&self) -> Vec<JournalEntry> {
+        self.shared.lock().unwrap().journal.iter().cloned().collect()
+    }
+
     /// Les demandes de réglage reçues depuis le dernier appel.
     pub fn take_requests(&mut self) -> Vec<SetRequest> {
         self.rx.try_iter().collect()
@@ -260,66 +361,77 @@ fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("en-tête valide")
 }
 
+fn json_ok() -> Response<std::io::Cursor<Vec<u8>>> {
+    Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
+}
+
+/// Une requête POST de réglage ou de commande. Ordre des contrôles : adresse connue, limite de débit, droit, corps. Chaque issue entre au journal.
+fn post(req: &mut tiny_http::Request, shared: &Mutex<Shared>, tx: &Sender<SetRequest>, ip: Option<IpAddr>, token: &str, route: &'static str) -> Response<std::io::Cursor<Vec<u8>>> {
+    let known = shared.lock().unwrap().returns.get(token).map(|(ret, _, role)| (*ret, *role));
+    let Some((ret, role)) = known else {
+        return if shared.lock().unwrap().miss(ip, &format!("POST {route} sur une adresse inconnue")) { not_found() } else { too_many() };
+    };
+    if !shared.lock().unwrap().allow(token, route) {
+        shared.lock().unwrap().log(ip, Some(ret), route, "trop de demandes".into(), 429);
+        return too_many();
+    }
+    let needed = match route {
+        "cmd" => ROLE_TRANSPORT,
+        "mix" => ROLE_MIXER,
+        _ => 0,
+    };
+    if role & needed != needed {
+        shared.lock().unwrap().log(ip, Some(ret), route, "droit manquant".into(), 403);
+        let what = if route == "cmd" { "de télécommande" } else { "la régie" };
+        return Response::from_string(format!("{{\"ok\":false,\"error\":\"cette adresse ne permet pas {what}\"}}")).with_status_code(403);
+    }
+    let mut body = String::new();
+    let value = req.as_reader().take(MAX_BODY).read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<serde_json::Value>(&body).ok());
+    let parsed = value.and_then(|v| match route {
+        "cmd" => parse_remote(&v).map(|cmd| SetRequest::Remote { ret, cmd }),
+        "mix" => parse_mix(&v).map(|cmd| SetRequest::Mix { ret, cmd }),
+        _ => parse_request(ret, &v),
+    });
+    match parsed {
+        Some(r) => {
+            // Le journal garde la commande lue (jamais le corps brut).
+            shared.lock().unwrap().log(ip, Some(ret), route, format!("{r:?}"), 200);
+            let _ = tx.send(r);
+            json_ok()
+        }
+        None => {
+            shared.lock().unwrap().log(ip, Some(ret), route, "corps invalide".into(), 400);
+            Response::from_string("{\"ok\":false}").with_status_code(400)
+        }
+    }
+}
+
+fn too_many() -> Response<std::io::Cursor<Vec<u8>>> {
+    Response::from_string("{\"ok\":false,\"error\":\"trop de demandes\"}").with_status_code(429).with_header(header("Retry-After", "1"))
+}
+
 fn serve(server: Arc<Server>, shared: Arc<Mutex<Shared>>, tx: Sender<SetRequest>) {
     while let Ok(mut req) = server.recv() {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("");
         let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
         let method = req.method().clone();
+        let ip = req.remote_addr().map(|a| a.ip());
         let known = |token: &str| shared.lock().unwrap().returns.get(token).map(|(ret, json, role)| (*ret, json.clone(), *role));
+        let unknown = |what: &str| if shared.lock().unwrap().miss(ip, what) { not_found() } else { too_many() };
         let reply = match (&method, parts.as_slice()) {
-            (Method::Get, ["r", token]) if known(token).is_some() => Response::from_string(PAGE).with_header(header("Content-Type", "text/html; charset=utf-8")),
+            (Method::Get, ["r", token]) => match known(token) {
+                Some(_) => Response::from_string(PAGE).with_header(header("Content-Type", "text/html; charset=utf-8")),
+                None => unknown("GET page d'une adresse inconnue"),
+            },
             (Method::Get, ["r", token, "state"]) => match known(token) {
                 Some((_, json, _)) => Response::from_string(json).with_header(header("Content-Type", "application/json; charset=utf-8")),
-                None => not_found(),
+                None => unknown("GET état d'une adresse inconnue"),
             },
-            (Method::Post, ["r", token, "cmd"]) => match known(token) {
-                // Télécommande : refusée (403) pour un jeton de simple musicien, sans même lire le corps.
-                Some((_, _, role)) if role & ROLE_TRANSPORT == 0 => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas de télécommande\"}").with_status_code(403),
-                Some((ret, _, _)) => {
-                    let mut body = String::new();
-                    let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
-                    match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_remote(&v)) {
-                        Some(cmd) => {
-                            let _ = tx.send(SetRequest::Remote { ret, cmd });
-                            Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
-                        }
-                        None => Response::from_string("{\"ok\":false}").with_status_code(400),
-                    }
-                }
-                None => not_found(),
-            },
-            (Method::Post, ["r", token, "mix"]) => match known(token) {
-                // Régie : refusée (403) sans le droit, avant de lire le corps.
-                Some((_, _, role)) if role & ROLE_MIXER == 0 => Response::from_string("{\"ok\":false,\"error\":\"cette adresse ne permet pas la régie\"}").with_status_code(403),
-                Some((ret, _, _)) => {
-                    let mut body = String::new();
-                    let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
-                    match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_mix(&v)) {
-                        Some(cmd) => {
-                            let _ = tx.send(SetRequest::Mix { ret, cmd });
-                            Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
-                        }
-                        None => Response::from_string("{\"ok\":false}").with_status_code(400),
-                    }
-                }
-                None => not_found(),
-            },
-            (Method::Post, ["r", token, "set"]) => match known(token) {
-                Some((ret, _, _)) => {
-                    let mut body = String::new();
-                    let ok = req.as_reader().take(MAX_BODY).read_to_string(&mut body).is_ok();
-                    match ok.then(|| serde_json::from_str::<serde_json::Value>(&body).ok()).flatten().and_then(|v| parse_request(ret, &v)) {
-                        Some(r) => {
-                            let _ = tx.send(r);
-                            Response::from_string("{\"ok\":true}").with_header(header("Content-Type", "application/json"))
-                        }
-                        None => Response::from_string("{\"ok\":false}").with_status_code(400),
-                    }
-                }
-                None => not_found(),
-            },
-            _ => not_found(),
+            (Method::Post, ["r", token, "cmd"]) => post(&mut req, &shared, &tx, ip, token, "cmd"),
+            (Method::Post, ["r", token, "mix"]) => post(&mut req, &shared, &tx, ip, token, "mix"),
+            (Method::Post, ["r", token, "set"]) => post(&mut req, &shared, &tx, ip, token, "set"),
+            _ => unknown("chemin inconnu"),
         };
         let _ = req.respond(reply.with_header(header("Cache-Control", "no-store")).with_header(header("X-Content-Type-Options", "nosniff")));
     }

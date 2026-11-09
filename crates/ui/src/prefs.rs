@@ -95,6 +95,21 @@ impl Default for TransportPrefs {
     }
 }
 
+/// Sécurité de la télécommande : un droit « transport » ou « régie » donné à une adresse expire au bout de `elevated_hours` heures (0 : jamais) ;
+/// l'adresse règle alors de nouveau son seul retour jusqu'à ce qu'on renouvelle les droits (fenêtre du QR). Le compte repart à chaque démarrage du
+/// serveur des retours, à chaque changement de droits et à chaque nouvelle adresse.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemotePrefs {
+    pub elevated_hours: u32,
+}
+
+impl Default for RemotePrefs {
+    fn default() -> Self {
+        RemotePrefs { elevated_hours: 12 }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -112,11 +127,12 @@ pub struct Prefs {
     pub metronome: MetroPrefs,
     pub auto_stop: AutoStopPrefs,
     pub transport: TransportPrefs,
+    pub remote: RemotePrefs,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), remote: RemotePrefs::default() }
     }
 }
 
@@ -151,6 +167,9 @@ impl Prefs {
         }
         if !(1..=8).contains(&self.ahead_threads) {
             return Err("fils de rendu : de 1 à 8".into());
+        }
+        if self.remote.elevated_hours > 168 {
+            return Err("droits de la télécommande : de 0 (illimité) à 168 heures".into());
         }
         self.metronome.validate()?;
         self.auto_stop.validate()

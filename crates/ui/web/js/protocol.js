@@ -58,6 +58,8 @@ export function validatePrefs(p) {
   if (!(Number.isInteger(p.ahead_threads) && p.ahead_threads >= 1 && p.ahead_threads <= 8)) return "fils de rendu : de 1 à 8";
   const as = p.auto_stop;
   if (as !== undefined && (!as || typeof as.enabled !== "boolean" || !(Number.isInteger(as.after_end_secs) && as.after_end_secs >= 10 && as.after_end_secs <= 3600) || !(Number.isInteger(as.recording_secs) && as.recording_secs >= 10 && as.recording_secs <= 3600))) return "arrêt automatique : de 10 à 3 600 secondes";
+  const rm = p.remote;
+  if (rm !== undefined && (!rm || !(Number.isInteger(rm.elevated_hours) && rm.elevated_hours >= 0 && rm.elevated_hours <= 168))) return "droits de la télécommande : de 0 (illimité) à 168 heures";
   const tp = p.transport;
   if (tp !== undefined && (!tp || typeof tp.play_pre_roll !== "boolean" || typeof tp.return_on_stop !== "boolean")) return "transport : deux cases à cocher";
   const m = p.metronome;
@@ -85,6 +87,7 @@ export function validateCommand(m) {
     case "start_monitor":
       return m.port === undefined || (Number.isInteger(m.port) && m.port >= 0 && m.port <= 65535) ? null : "start_monitor : port entre 0 et 65535";
     case "stop_monitor":
+    case "get_monitor_log":
       return null;
     case "set_track_midi_filter":
       if (!Number.isInteger(m.node) || m.node <= 0 || !Array.isArray(m.rules) || m.rules.length > 16) return "set_track_midi_filter : node et rules (16 au plus)";

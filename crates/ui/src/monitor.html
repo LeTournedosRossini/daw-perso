@@ -14,6 +14,8 @@
   #hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   #lost { display: none; background: var(--bad); color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #lost.on { display: block; }
+  #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  #expired.on { display: block; }
   .src { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 0; margin-bottom: 6px; }
   .src .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .src .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -107,6 +109,7 @@
 <body>
 <h1 id="title">Mon retour</h1>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
+<div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
 <div id="lost">Connexion perdue… nouvelle tentative.</div>
 <div id="solo-hint">Solo actif : tu n'entends que les sources en solo.</div>
 <div id="remote">
@@ -231,6 +234,7 @@ async function poll() {
     const res = await fetch(base + "/state", { cache: "no-store" });
     if (!res.ok) throw new Error(res.status);
     const st = await res.json();
+    document.getElementById("expired").classList.toggle("on", !!st.expired);
     showRemote(st.remote);
     showTabs(!!st.mix);
     showMix(st.mix);

@@ -177,6 +177,11 @@
         <p class="st-note">Sans retour, l'arrêt est une pause : la lecture reprend où elle s'est arrêtée. Le pré-roll de l'enregistrement, lui, reste toujours actif.</p>
       </fieldset>
       <fieldset class="st-group">
+        <legend>Sécurité de la télécommande</legend>
+        <label class="st-field"><span>Les droits « télécommande » et « régie » d'une adresse expirent après (heures, 0 = jamais)</span><input type="number" id="st-rm-hours" min="0" max="168" step="1"></label>
+        <p class="st-note">Passé ce délai l'adresse ne règle plus que son retour, jusqu'à ce que tu renouvelles ses droits dans la fenêtre du QR. Le compte repart au démarrage du serveur des retours. Le journal des commandes reçues est dans cette même fenêtre.</p>
+      </fieldset>
+      <fieldset class="st-group">
         <legend>Arrêt automatique (utile avec une télécommande)</legend>
         <label class="st-field"><span>Arrêter le transport tout seul</span><input type="checkbox" id="st-as-on"></label>
         <label class="st-field"><span>En lecture : secondes après la fin du dernier élément</span><input type="number" id="st-as-end" min="10" max="3600" step="10"></label>

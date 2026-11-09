@@ -19,6 +19,9 @@ const basePrefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms
 
 test("l'arrêt automatique se règle de 10 à 3 600 secondes, et reste facultatif", () => {
   assert.equal(validatePrefs(basePrefs), null);
+  assert.equal(validatePrefs({ ...basePrefs, remote: { elevated_hours: 0 } }), null);
+  for (const bad of [{ elevated_hours: 169 }, { elevated_hours: -1 }, { elevated_hours: 1.5 }, null]) assert.match(validatePrefs({ ...basePrefs, remote: bad }) ?? "", /télécommande/, JSON.stringify(bad));
+  assert.equal(validateCommand({ type: "get_monitor_log" }), null);
   assert.equal(validatePrefs({ ...basePrefs, transport: { play_pre_roll: true, return_on_stop: false } }), null);
   assert.match(validatePrefs({ ...basePrefs, transport: { play_pre_roll: 1, return_on_stop: true } }) ?? "", /transport/);
   assert.equal(validatePrefs({ ...basePrefs, auto_stop: { enabled: true, after_end_secs: 120, recording_secs: 300 } }), null);

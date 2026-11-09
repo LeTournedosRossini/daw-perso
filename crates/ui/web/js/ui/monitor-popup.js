@@ -9,6 +9,32 @@ export function openMonitorPopup(anchor, state, client, node) {
   menu.className = "track-menu monitor-pop";
   menu.setAttribute("role", "dialog");
   menu.setAttribute("aria-label", `Retour ${node.name}`);
+  // Journal des commandes reçues par le serveur (les 12 dernières de ce retour, rafraîchi à l'ouverture et sur demande).
+  let entries = [];
+  const journalBox = () => {
+    const box = document.createElement("details");
+    box.className = "mp-log";
+    const sum = document.createElement("summary");
+    sum.textContent = "Journal des commandes reçues";
+    const list = document.createElement("div");
+    list.className = "mp-loglist";
+    const mine = entries.filter((e) => e.ret === node.id || e.ret === null).slice(-12).reverse();
+    list.replaceChildren(...(mine.length ? mine : [Object.assign(document.createElement("div"), { textContent: "Rien reçu pour l'instant." })]).map((e) => {
+      const row = document.createElement("div");
+      row.className = "mp-logrow" + (e.status === 200 ? "" : " bad");
+      const t = e.t_ms ? new Date(e.t_ms).toLocaleTimeString() : "";
+      row.textContent = e.route ? `${t} · ${e.ip} · ${e.route} · ${e.status} · ${e.what}` : e.textContent;
+      return row;
+    }));
+    const refresh = document.createElement("button");
+    refresh.textContent = "Actualiser";
+    refresh.addEventListener("click", () => client.send({ type: "get_monitor_log" }));
+    box.append(sum, list, refresh);
+    box.open = open;
+    box.addEventListener("toggle", () => { open = box.open; if (box.open) client.send({ type: "get_monitor_log" }); });
+    return box;
+  };
+  let open = false;
   const render = () => {
     const m = state.monitor;
     const ret = m?.active ? m.returns.find((r) => r.node === node.id) : null;
@@ -68,7 +94,15 @@ export function openMonitorPopup(anchor, state, client, node) {
       const desk = (ret.role & 2) !== 0;
       warn.textContent = `${remote ? "Avec la télécommande, quiconque a cette adresse peut lancer la lecture et l'enregistrement (appui long). " : ""}${desk ? "Avec la régie, quiconque a cette adresse peut régler et armer toutes les pistes. " : ""}« Nouvelle adresse » révoque ces droits.${remote ? " Active l'arrêt automatique dans les Réglages si le réseau est incertain." : ""}`;
       warn.hidden = ret.role === 0;
-      menu.append(qr, url, note, role, warn, copy, renew);
+      const expired = document.createElement("div");
+      expired.className = "mp-err";
+      expired.hidden = !ret.expired;
+      expired.textContent = "Les droits de cette adresse ont expiré : elle ne règle plus que son retour. Choisis de nouveau le droit ci-dessus (ou « Renouveler ») pour les redonner.";
+      const renewRights = document.createElement("button");
+      renewRights.textContent = "Renouveler les droits";
+      renewRights.hidden = !ret.expired;
+      renewRights.addEventListener("click", () => client.send({ type: "set_monitor_role", node: node.id, role: ret.role ?? 0 }));
+      menu.append(qr, url, note, role, warn, expired, renewRights, copy, renew, journalBox());
     }
     if (m?.active) {
       const stop = document.createElement("button");
@@ -81,6 +115,7 @@ export function openMonitorPopup(anchor, state, client, node) {
     }
   };
   const off = client.on("monitor", () => (menu.isConnected ? render() : off?.()));
+  const offLog = client.on("monitor_log", (e) => { entries = e.entries ?? []; if (menu.isConnected) render(); else offLog?.(); });
   render();
   showMenu(menu, anchor);
   if (!state.monitor?.active) client.send({ type: "start_monitor" });

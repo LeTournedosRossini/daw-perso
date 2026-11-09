@@ -51,6 +51,8 @@ pub struct MonitorReturn {
     pub qr: String,
     /// Rôle de la télécommande de ce retour (0 : retour seulement, 1 : retour + transport).
     pub role: u8,
+    /// Les droits donnés à cette adresse ont expiré (voir `remote.elevated_hours` des préférences) : elle ne règle plus que son retour.
+    pub expired: bool,
 }
 
 /// Une section de la carte de structure, telle que la page la lit et l'écrit (positions en fractions de ronde `[n, d]`).
@@ -117,6 +119,8 @@ pub enum Command {
     StopMonitor,
     /// Donne une adresse neuve au retour `node` (l'ancienne cesse de fonctionner) : les adresses des retours sont gardées dans le projet.
     RenewMonitorAddress { node: u32 },
+    /// Demande le journal des commandes reçues par le serveur des retours (réponse : événement `monitor_log`).
+    GetMonitorLog,
     /// Rôle de la télécommande d'un retour : 0 = son retour seulement, 1 = aussi le transport, les sections et le pré-roll.
     SetMonitorRole { node: u32, role: u8 },
     /// Remplace la carte de structure (sections nommées : intro, couplet, refrain...) : une action annulable, refusée en entier si invalide.
@@ -531,6 +535,7 @@ impl Command {
             Command::StopMonitor => "stop_monitor",
             Command::RenewMonitorAddress { .. } => "renew_monitor_address",
             Command::SetMonitorRole { .. } => "set_monitor_role",
+            Command::GetMonitorLog => "get_monitor_log",
             Command::ImportChords { .. } => "import_chords",
             Command::ExportChords { .. } => "export_chords",
             Command::SetLoopRecord { .. } => "set_loop_record",
@@ -1381,6 +1386,8 @@ pub enum Event {
     Punch { enabled: bool },
     /// La piste d'accords au format `flibuste-carte` (`track`), avec son numéro de révision et, après un import, ce qui a été ignoré.
     /// État du serveur des retours : actif ou non, et pour chaque retour (bus qui sort sur la carte son) son adresse et son code QR (SVG).
+    /// Journal des commandes reçues par le serveur des retours (les plus récentes en dernier).
+    MonitorLog { entries: Vec<crate::monitor::JournalEntry> },
     Monitor { active: bool, port: u16, returns: Vec<MonitorReturn>, error: Option<String> },
     Chords { revision: u32, track: serde_json::Value, skipped: Vec<String>, structure: Vec<SectionDto>, lyrics: Vec<LyricDto> },
     /// Ce que la page doit connaître pour saisir des accords et des gammes : dictionnaire de qualités de Scorsaire (identifiant,

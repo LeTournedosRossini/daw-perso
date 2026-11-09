@@ -43,7 +43,7 @@ impl Host {
     /// Une commande d'une tablette autorisée. Les refus de l'hôte (aucune piste armée, enregistrement en cours…) sont gardés pour la tablette.
     pub(super) fn remote_request(&mut self, ret: u32, cmd: RemoteCmd) -> Vec<Event> {
         // Le rôle est relu ici aussi : il a pu changer entre la requête et ce tick.
-        if self.session.monitor_role(NodeId(ret)) & ROLE_TRANSPORT == 0 {
+        if self.effective_role(ret) & ROLE_TRANSPORT == 0 {
             return Vec::new();
         }
         let events = match cmd {
@@ -122,7 +122,7 @@ impl Host {
 
     /// Un réglage de régie, avec le droit relu à l'exécution. Passe par `set_node` (mêmes refus que la page : armement d'un bus, pendant une prise…).
     pub(super) fn mix_request(&mut self, ret: u32, cmd: MixCmd) -> Vec<Event> {
-        if self.session.monitor_role(NodeId(ret)) & ROLE_MIXER == 0 {
+        if self.effective_role(ret) & ROLE_MIXER == 0 {
             return Vec::new();
         }
         let Some(n) = self.session.graph().nodes.get(cmd.node as usize) else {
@@ -154,6 +154,7 @@ impl Host {
             return vec![Event::Error { command: "set_monitor_role".into(), message: format!("rôle inconnu (0 à {ROLE_ALL} : 1 = transport, 2 = régie, 3 = les deux)") }];
         }
         self.dirty = true;
+        self.monitor_grants.insert(node, (role, Instant::now())); // redonner les mêmes droits les renouvelle
         if self.monitor.is_some() {
             self.monitor_publish();
         }

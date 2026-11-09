@@ -35,7 +35,7 @@ impl Host {
         let returns = self
             .monitor_returns()
             .into_iter()
-            .filter_map(|(node, name)| m.url(node).map(|url| MonitorReturn { node, name, qr: Monitor::qr_svg(&url), url, role: self.session.monitor_role(NodeId(node)) }))
+            .filter_map(|(node, name)| m.url(node).map(|url| MonitorReturn { node, name, qr: Monitor::qr_svg(&url), url, role: self.session.monitor_role(NodeId(node)), expired: self.monitor_role_expired(node) }))
             .collect();
         Event::Monitor { active: true, port: m.port(), returns, error }
     }
@@ -56,8 +56,31 @@ impl Host {
         }
     }
 
+    /// Les droits de la télécommande d'un retour, expiration comprise : 0 quand ils sont périmés (`remote.elevated_hours` des préférences).
+    pub(super) fn effective_role(&self, ret: u32) -> u8 {
+        let role = self.session.monitor_role(NodeId(ret));
+        let secs = u64::from(self.prefs.remote.elevated_hours) * 3600;
+        match self.monitor_grants.get(&ret) {
+            Some((granted, since)) if role != 0 && secs > 0 && *granted == role && since.elapsed().as_secs() >= secs => 0,
+            _ => role,
+        }
+    }
+
+    /// Vieillit les droits donnés (pour les tests : l'expiration se compte en heures).
+    #[doc(hidden)]
+    pub fn age_monitor_grants(&mut self, by: Duration) {
+        for (_, (_, since)) in self.monitor_grants.iter_mut() {
+            *since = since.checked_sub(by).unwrap_or(*since);
+        }
+    }
+
+    fn monitor_role_expired(&self, ret: u32) -> bool {
+        self.session.monitor_role(NodeId(ret)) != 0 && self.effective_role(ret) == 0
+    }
+
     pub(super) fn stop_monitor(&mut self) -> Vec<Event> {
         self.monitor = None; // l'arrêt du serveur est dans son `Drop`
+        self.monitor_grants.clear(); // le compte des droits repart au prochain démarrage
         vec![self.monitor_event(None)]
     }
 
@@ -74,12 +97,21 @@ impl Host {
             }
             tokens.push((id, self.session.monitor_token(NodeId(id)).to_owned()));
         }
+        // Droits : le compte repart quand le rôle change (ou qu'on le voit pour la première fois).
+        let roles: Vec<(u32, u8)> = tokens.iter().map(|(id, _)| (*id, self.session.monitor_role(NodeId(*id)))).collect();
+        self.monitor_grants.retain(|id, _| roles.iter().any(|(r, _)| r == id));
+        for (id, role) in roles {
+            if self.monitor_grants.get(&id).is_none_or(|(r, _)| *r != role) {
+                self.monitor_grants.insert(id, (role, Instant::now()));
+            }
+        }
         let generation = self.generation;
         let Some(m) = self.monitor.as_mut() else { return false };
         let mut changed = false;
         if self.monitor_generation != generation {
             self.monitor_generation = generation;
             m.forget_tokens(); // un autre projet : les numéros de nœuds ne désignent plus les mêmes retours
+            self.monitor_grants.clear();
             changed = true;
         }
         m.sync_returns(&tokens) || changed
@@ -92,6 +124,7 @@ impl Host {
             return vec![Event::Error { command: "renew_monitor_address".into(), message: "seul un retour de monitoring a une adresse".into() }];
         }
         self.session.set_monitor_token_untracked(NodeId(node), "");
+        self.monitor_grants.remove(&node);
         self.dirty = true;
         if self.monitor.is_some() {
             self.monitor_sync();
@@ -128,8 +161,11 @@ impl Host {
                 })
                 .collect();
             let groups: Vec<serde_json::Value> = self.session.effective_group_list(Some(NodeId(*ret))).iter().map(|gr| serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "offset_db": self.group_offset(gr.id, Some(*ret)) })).collect();
-            let role = self.session.monitor_role(NodeId(*ret));
+            let role = self.effective_role(*ret);
             let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role });
+            if self.monitor_role_expired(*ret) {
+                state["expired"] = true.into();
+            }
             if role & crate::monitor::ROLE_TRANSPORT != 0 {
                 state["remote"] = self.remote_state();
             }

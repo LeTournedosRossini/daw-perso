@@ -289,3 +289,84 @@ fn the_mixing_desk_sets_level_pan_mute_solo_and_arming_of_any_track_with_the_usu
     rig.settle();
     assert_eq!(rig.state()["mix"]["nodes"].as_array().unwrap().len(), names.len(), "rien n'a changé");
 }
+
+fn journal(rig: &mut Rig) -> Vec<(String, u16, String)> {
+    let ev = rig.h.command_json(r#"{"type":"get_monitor_log"}"#);
+    ev.iter()
+        .find_map(|e| if let Event::MonitorLog { entries } = e { Some(entries.iter().map(|x| (x.route.clone(), x.status, x.what.clone())).collect()) } else { None })
+        .expect("événement monitor_log")
+}
+
+#[test]
+fn commands_are_rate_limited_per_address_and_everything_is_journaled() {
+    let mut rig = Rig::new();
+    rig.set_role(3);
+    // Rafale de commandes de transport : le seau en laisse passer quelques-unes puis répond 429 ; la régie a sa propre limite.
+    let codes: Vec<u16> = (0..20).map(|_| rig.cmd(r#"{"cmd":"click","on":true}"#)).collect();
+    assert!(codes.iter().filter(|c| **c == 200).count() >= 8, "la rafale initiale passe : {codes:?}");
+    assert!(codes.contains(&429), "puis la limite répond 429 : {codes:?}");
+    assert_eq!(rig.mix(r#"{"node":1,"db":-3}"#), 200, "la régie a son propre seau");
+    // Une commande invalide et une adresse inconnue entrent aussi au journal ; le corps brut n'y est jamais.
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(rig.cmd(r#"{"cmd":"explode"}"#), 400);
+    assert_eq!(http(rig.port, "POST", "/r/0000/cmd", "{}").0, 404);
+    let log = journal(&mut rig);
+    assert!(log.iter().any(|(r, s, w)| r == "cmd" && *s == 200 && w.contains("Click")), "{log:?}");
+    assert!(log.iter().any(|(r, s, _)| r == "cmd" && *s == 429));
+    assert!(log.iter().any(|(r, s, w)| r == "mix" && *s == 200 && w.contains("node: 1")));
+    assert!(log.iter().any(|(r, s, w)| r == "cmd" && *s == 400 && w == "corps invalide"));
+    assert!(log.iter().any(|(r, s, _)| r == "?" && *s == 404));
+    assert!(!log.iter().any(|(_, _, w)| w.contains("explode")), "pas de corps brut dans le journal");
+}
+
+#[test]
+fn a_flood_on_unknown_addresses_is_blocked_but_a_valid_address_still_works() {
+    let mut rig = Rig::new();
+    rig.set_role(1);
+    let mut blocked = false;
+    for _ in 0..320 {
+        if http(rig.port, "GET", "/r/deadbeef/state", "").0 == 429 {
+            blocked = true;
+            break;
+        }
+    }
+    assert!(blocked, "au-delà de 300 demandes par minute à une adresse inconnue, le client est bloqué");
+    assert_eq!(rig.state()["role"], 1, "l'adresse valide répond toujours");
+    assert_eq!(rig.cmd(r#"{"cmd":"click","on":false}"#), 200);
+}
+
+#[test]
+fn elevated_rights_expire_after_the_configured_hours_and_can_be_renewed() {
+    let mut rig = Rig::new();
+    rig.set_role(3);
+    assert_eq!(rig.cmd(r#"{"cmd":"click","on":true}"#), 200);
+    assert_eq!(rig.mix(r#"{"node":1,"db":-1}"#), 200);
+    // 11 h plus tard : toujours valides ; 13 h plus tard (réglage par défaut : 12 h) : expirés.
+    rig.h.age_monitor_grants(Duration::from_secs(11 * 3600));
+    rig.settle();
+    assert_eq!(rig.state()["role"], 3);
+    rig.h.age_monitor_grants(Duration::from_secs(2 * 3600));
+    rig.settle();
+    let st = rig.state();
+    assert_eq!(st["role"], 0, "les droits ont expiré");
+    assert_eq!(st["expired"], true);
+    assert!(st.get("remote").is_none() && st.get("mix").is_none());
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(rig.cmd(r#"{"cmd":"toggle"}"#), 403);
+    assert_eq!(rig.mix(r#"{"node":1,"db":-2}"#), 403);
+    // Le retour de la tablette reste réglable.
+    assert_eq!(http(rig.port, "POST", &format!("{}/set", rig.path), r#"{"node":1,"db":-6}"#).0, 200);
+    // Redonner les mêmes droits les renouvelle.
+    rig.set_role(3);
+    let st = rig.state();
+    assert_eq!(st["role"], 3);
+    assert!(st.get("expired").is_none());
+    // Une heure à 0 : jamais d'expiration.
+    let ev = rig.h.command_json(r#"{"type":"set_prefs","prefs":{"remote":{"elevated_hours":0}}}"#);
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    rig.h.age_monitor_grants(Duration::from_secs(1000 * 3600));
+    rig.settle();
+    assert_eq!(rig.state()["role"], 3);
+    let ev = rig.h.command_json(r#"{"type":"set_prefs","prefs":{"remote":{"elevated_hours":200}}}"#);
+    assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })), "200 h refusé");
+}
