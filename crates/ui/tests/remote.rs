@@ -370,3 +370,56 @@ fn elevated_rights_expire_after_the_configured_hours_and_can_be_renewed() {
     let ev = rig.h.command_json(r#"{"type":"set_prefs","prefs":{"remote":{"elevated_hours":200}}}"#);
     assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })), "200 h refusé");
 }
+
+#[test]
+fn the_mixing_desk_shows_the_project_groups_and_sets_mute_solo_and_a_level_that_stays_in_place() {
+    let mut rig = Rig::new();
+    let p = rig.h.command_json(r#"{"type":"get_project"}"#);
+    let (drums, bass, guitar) = (node(&p, "Batterie").id, node(&p, "Basse").id, node(&p, "Guitare").id);
+    let ev = rig.h.command_json(&format!(r##"{{"type":"create_group","name":"Rythmique","color":"#ff8800","nodes":[{drums},{bass}]}}"##));
+    let gid = project(&ev).groups[0].id;
+    // Sans le droit de régie : refusé (403) et l'état ne montre rien.
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"mute":true}}"#)), 403);
+    rig.set_role(2);
+    let st = rig.state();
+    let g = &st["mix"]["groups"][0];
+    assert_eq!((g["id"].as_u64(), g["name"].as_str(), g["count"].as_u64(), g["mute"].as_bool(), g["offset_db"].as_f64()), (Some(u64::from(gid)), Some("Rythmique"), Some(2), Some(false), Some(0.0)), "{g}");
+    assert_eq!(mix_node(&st, "Batterie")["group"].as_u64(), Some(u64::from(gid)));
+    assert_eq!(mix_node(&st, "Guitare")["group"].as_u64(), Some(0));
+    let db = |st: &serde_json::Value, n: &str| mix_node(st, n)["db"].as_f64().unwrap();
+    let (d0, b0, g0) = (db(&st, "Batterie"), db(&st, "Basse"), db(&st, "Guitare"));
+
+    // Muet et solo du groupe : tous les membres, et eux seuls.
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"mute":true,"solo":true}}"#)), 200);
+    rig.settle();
+    let st = rig.state();
+    assert_eq!(st["mix"]["groups"][0]["mute"], true);
+    assert_eq!(st["mix"]["groups"][0]["solo"], true);
+    assert_eq!((mix_node(&st, "Batterie")["mute"].as_bool(), mix_node(&st, "Basse")["mute"].as_bool(), mix_node(&st, "Guitare")["mute"].as_bool()), (Some(true), Some(true), Some(false)));
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"mute":false,"solo":false}}"#)), 200);
+
+    // Niveau : décalage absolu qui reste en place, écarts conservés, borné à ±12 dB ; revenir à 0 rend les niveaux d'origine.
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"offset_db":-6}}"#)), 200);
+    rig.settle();
+    let st = rig.state();
+    assert!((db(&st, "Batterie") - (d0 - 6.0)).abs() < 0.25 && (db(&st, "Basse") - (b0 - 6.0)).abs() < 0.25, "{st}");
+    assert!((db(&st, "Guitare") - g0).abs() < 0.05, "les non-membres ne bougent pas");
+    assert_eq!(st["mix"]["groups"][0]["offset_db"].as_f64(), Some(-6.0));
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"offset_db":-6}}"#)), 200); // la même valeur ne s'applique pas deux fois
+    rig.settle();
+    assert!((db(&rig.state(), "Batterie") - (d0 - 6.0)).abs() < 0.25);
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"offset_db":0}}"#)), 200);
+    rig.settle();
+    assert!((db(&rig.state(), "Batterie") - d0).abs() < 0.25, "retour à 0 = niveau d'origine");
+    assert_eq!(rig.mix(&format!(r#"{{"group":{gid},"offset_db":99}}"#)), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["groups"][0]["offset_db"].as_f64(), Some(12.0));
+
+    // Invalides : 400 ; groupe inconnu : accepté par le serveur, refusé par l'hôte avec un message pour la tablette.
+    for bad in [format!(r#"{{"group":{gid}}}"#), format!(r#"{{"group":{gid},"mute":"oui"}}"#), format!(r#"{{"group":{gid},"offset_db":"fort"}}"#)] {
+        assert_eq!(rig.mix(&bad), 400, "{bad}");
+    }
+    assert_eq!(rig.mix(r#"{"group":999,"mute":true}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["groups"][0]["offset_db"].as_f64(), Some(12.0), "un groupe inconnu ne change rien");
+}

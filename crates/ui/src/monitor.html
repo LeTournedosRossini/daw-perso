@@ -82,6 +82,8 @@
   body.tab-mix #list, body.tab-mix #solo-hint, body.tab-mix #hint { display: none; }
   .mx { background: var(--panel); border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); border-radius: 10px; padding: 6px 12px 4px; margin-bottom: 6px; }
   .mx.master { border-left-color: var(--text); }
+  .mx.grp { background: color-mix(in srgb, var(--c, var(--accent)) 14%, var(--panel)); }
+  .mx.grp .name::before { content: "Groupe · "; color: var(--muted); font-weight: 400; font-size: 13px; }
   .mx.ret .name::after { content: " (retour)"; color: var(--muted); font-weight: 400; font-size: 13px; }
   .mx .row { display: flex; align-items: center; gap: 8px; }
   .mx .name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -379,14 +381,53 @@ function buildMix(n) {
   mixRows.set(n.id, r);
   return r;
 }
+// Groupes de pistes du projet : muet, solo et niveau relatif (−12 à +12 dB, reste en place) agissant sur toutes les pistes du groupe.
+const mixGroupRows = new Map();
+let groupPending = new Map(), groupTimer = null;
+const laterGroup = (group, patch) => {
+  groupPending.set(group, { ...(groupPending.get(group) ?? {}), ...patch });
+  if (!groupTimer) groupTimer = setTimeout(() => {
+    groupTimer = null;
+    const batch = groupPending; groupPending = new Map();
+    for (const [g, p] of batch) postMix({ group: g, ...p });
+  }, 60);
+};
+function buildMixGroup(g) {
+  const root = document.createElement("div");
+  root.className = "mx grp";
+  root.style.setProperty("--c", g.color || "var(--accent)");
+  root.innerHTML = '<div class="row"><span class="name"></span><span class="btns"><button class="m" aria-label="Couper le groupe">M</button><button class="s" aria-label="Solo du groupe">S</button></span><span class="db"></span></div><input class="lvl" type="range" min="-12" max="12" step="0.5" aria-label="Niveau du groupe">';
+  const r = { root, range: root.querySelector(".lvl"), out: root.querySelector(".db"), m: root.querySelector(".m"), s: root.querySelector(".s"), down: false, mute: false, solo: false };
+  r.range.addEventListener("pointerdown", () => (r.down = true));
+  for (const ev of ["pointerup", "pointercancel", "blur"]) r.range.addEventListener(ev, () => (r.down = false));
+  const fill = () => r.range.style.setProperty("--fill", ((Number(r.range.value) + 12) / 24) * 100 + "%");
+  r.range.addEventListener("input", () => { const db = Number(r.range.value); fill(); r.out.textContent = fmt(db); laterGroup(g.id, { offset_db: db }); });
+  r.range.addEventListener("dblclick", () => { r.range.value = 0; r.range.dispatchEvent(new Event("input")); });
+  r.fill = fill;
+  const flag = (btn, key) => btn.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("g" + key + g.id, Date.now() + 700); postMix({ group: g.id, [key]: r[key] }); });
+  flag(r.m, "mute"); flag(r.s, "solo");
+  mixGroupRows.set(g.id, r);
+  return r;
+}
 function showMix(mix) {
   const box = el("mixlist");
-  if (!mix) { mixRows.clear(); mixShape = ""; box.replaceChildren(); return; }
-  const shape = JSON.stringify(mix.nodes.map((n) => [n.id, n.name, n.kind, n.color]));
+  if (!mix) { mixRows.clear(); mixGroupRows.clear(); mixShape = ""; box.replaceChildren(); return; }
+  const groups = mix.groups ?? [];
+  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color]), groups.map((g) => [g.id, g.name, g.color])]);
   if (shape !== mixShape) {
     mixShape = shape;
     mixRows.clear();
-    box.replaceChildren(...mix.nodes.map((n) => buildMix(n).root));
+    mixGroupRows.clear();
+    box.replaceChildren(...groups.map((g) => buildMixGroup(g).root), ...mix.nodes.map((n) => buildMix(n).root));
+    for (const g of groups) mixGroupRows.get(g.id).root.querySelector(".name").textContent = g.name;
+  }
+  for (const g of groups) {
+    const r = mixGroupRows.get(g.id);
+    if (!r) continue;
+    r.root.querySelector(".name").textContent = g.name + " (" + g.count + ")";
+    if (!r.down && !groupPending.has(g.id)) { r.range.value = g.offset_db; r.fill(); r.out.textContent = fmt(g.offset_db); }
+    if (!holding("gmute" + g.id)) { r.mute = !!g.mute; press(r.m, r.mute); }
+    if (!holding("gsolo" + g.id)) { r.solo = !!g.solo; press(r.s, r.solo); }
   }
   const anySolo = mix.nodes.some((n) => n.solo);
   for (const n of mix.nodes) {

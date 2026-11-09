@@ -38,6 +38,8 @@ pub enum SetRequest {
     Remote { ret: u32, cmd: RemoteCmd },
     /// Régie : réglage d'une piste ou d'un bus quelconque (seulement avec le droit `ROLE_MIXER`).
     Mix { ret: u32, cmd: MixCmd },
+    /// Régie : muet, solo et/ou niveau (décalage absolu −12 à +12 dB) d'un groupe de **pistes** du projet (seulement avec le droit `ROLE_MIXER`).
+    MixGroup { ret: u32, group: u32, mute: Option<bool>, solo: Option<bool>, offset_db: Option<f64> },
 }
 
 /// Un réglage de régie sur un nœud (piste, bus, retour ou sortie principale). Chaque champ est facultatif ; au moins un est présent.
@@ -68,6 +70,22 @@ fn parse_mix(v: &serde_json::Value) -> Option<MixCmd> {
     };
     let cmd = MixCmd { node, db: num("db")?, pan: num("pan")?, mute: flag("mute")?, solo: flag("solo")?, arm: flag("arm")? };
     (cmd.db.is_some() || cmd.pan.is_some() || cmd.mute.is_some() || cmd.solo.is_some() || cmd.arm.is_some()).then_some(cmd)
+}
+
+/// Lit le corps d'un réglage de groupe de la régie : `group` plus au moins un de `mute`, `solo`, `offset_db`.
+fn parse_mix_group(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
+    let group = v["group"].as_u64().filter(|n| *n <= u32::MAX as u64)? as u32;
+    let flag = |k: &str| match &v[k] {
+        serde_json::Value::Null => Some(None),
+        serde_json::Value::Bool(b) => Some(Some(*b)),
+        _ => None,
+    };
+    let offset_db = match &v["offset_db"] {
+        serde_json::Value::Null => None,
+        n => Some(n.as_f64().filter(|x| x.is_finite())?.clamp(-12.0, 12.0)),
+    };
+    let (mute, solo) = (flag("mute")?, flag("solo")?);
+    (mute.is_some() || solo.is_some() || offset_db.is_some()).then_some(SetRequest::MixGroup { ret, group, mute, solo, offset_db })
 }
 
 /// Droits d'une adresse, en bits qui se combinent (le rôle est un **ensemble de droits** du jeton, choisi par l'utilisateur dans la fenêtre du QR) :
@@ -389,6 +407,7 @@ fn post(req: &mut tiny_http::Request, shared: &Mutex<Shared>, tx: &Sender<SetReq
     let value = req.as_reader().take(MAX_BODY).read_to_string(&mut body).ok().and_then(|_| serde_json::from_str::<serde_json::Value>(&body).ok());
     let parsed = value.and_then(|v| match route {
         "cmd" => parse_remote(&v).map(|cmd| SetRequest::Remote { ret, cmd }),
+        "mix" if v["group"].is_u64() => parse_mix_group(ret, &v),
         "mix" => parse_mix(&v).map(|cmd| SetRequest::Mix { ret, cmd }),
         _ => parse_request(ret, &v),
     });

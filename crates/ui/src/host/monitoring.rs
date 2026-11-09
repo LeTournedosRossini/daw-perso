@@ -232,6 +232,12 @@ impl Host {
                 }
                 self.remote_request(ret, cmd)
             }
+            SetRequest::MixGroup { ret, group, mute, solo, offset_db } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.mix_group_request(ret, group, mute, solo, offset_db)
+            }
             SetRequest::Mix { ret, cmd } => {
                 if !self.monitor_valid(ret, None) {
                     return Vec::new();

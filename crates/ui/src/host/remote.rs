@@ -109,15 +109,47 @@ impl Host {
                     "" => "#9aa3b2",
                     c => c,
                 };
+                let group = self.session.node_group(*id);
                 Some(serde_json::json!({
-                    "id": id.0, "name": n.name, "kind": kind, "color": color,
+                    "id": id.0, "name": n.name, "kind": kind, "color": color, "group": group,
                     "db": (f64::from(daw_core_types::gain_to_db(st.gain)).clamp(-60.0, 6.0) * 10.0).round() / 10.0,
                     "pan": st.pan, "mute": st.mute, "solo": st.solo, "arm": st.arm,
                     "peak": (peak_db * 10.0).round() / 10.0,
                 }))
             })
             .collect();
-        serde_json::json!({ "nodes": nodes })
+        // Groupes du projet (ceux de la page, pas ceux d'un retour) : état muet / solo des membres et décalage de niveau en cours.
+        let groups: Vec<serde_json::Value> = self
+            .session
+            .effective_group_list(None)
+            .iter()
+            .map(|gr| {
+                let members = self.session.effective_members(gr.id, None);
+                let all = |f: &dyn Fn(&super::NodeState) -> bool| !members.is_empty() && members.iter().all(|m| self.nodes.get(m.0 as usize).is_some_and(f));
+                let any_solo = members.iter().any(|m| self.nodes.get(m.0 as usize).is_some_and(|s| s.solo));
+                serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "count": members.len(), "mute": all(&|s| s.mute), "solo": any_solo, "offset_db": self.group_offset(gr.id, None) })
+            })
+            .collect();
+        serde_json::json!({ "nodes": nodes, "groups": groups })
+    }
+
+    /// Un réglage de groupe de la régie : passe par les mêmes fonctions que la page (écarts de niveau conservés). Le droit est relu ici aussi.
+    pub(super) fn mix_group_request(&mut self, ret: u32, group: u32, mute: Option<bool>, solo: Option<bool>, offset_db: Option<f64>) -> Vec<Event> {
+        if self.effective_role(ret) & ROLE_MIXER == 0 {
+            return Vec::new();
+        }
+        let mut events = Vec::new();
+        if mute.is_some() || solo.is_some() {
+            events.extend(self.set_group(group, mute, solo, None, None));
+        }
+        if let Some(db) = offset_db {
+            events.extend(self.set_group_offset(group, db, None));
+        }
+        match events.iter().find(|e| matches!(e, Event::Error { .. })) {
+            Some(Event::Error { message, .. }) => self.remote_msg = Some((Instant::now(), message.clone())),
+            _ => self.remote_msg = None,
+        }
+        events
     }
 
     /// Un réglage de régie, avec le droit relu à l'exécution. Passe par `set_node` (mêmes refus que la page : armement d'un bus, pendant une prise…).
