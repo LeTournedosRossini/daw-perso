@@ -5,10 +5,10 @@
 
 import { createScoreView } from "../vendor/scorsaire-score-view/scorsaire-score-view.js";
 import { fifthsAt, keyChangesWithin, keyAt, markerAt, KEY_CHOICES, choiceOf, snapWhole } from "../chord-model.js";
-import { fadd, fsub } from "../notes-model.js";
+import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction } from "../score-adapter.js";
 import { GRIDS, gridById, noteId, displayGrid } from "../notes-model.js";
-import { lyricsForClip } from "../lyrics-model.js";
+import { lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
 import { clampDockRows, clampWindowPos, dragPos, DOCK_ROWS_DEFAULT } from "../window-pos.js";
@@ -55,6 +55,7 @@ export class ScoreWindow {
         <span class="sc-group sc-voices" role="group" aria-label="Voix d'entrée" hidden>Voix <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span>
         <span class="sc-group sc-tovoice" role="group" aria-label="Mettre la sélection dans une voix" hidden>Sélection → <button data-t="1">1</button><button data-t="2">2</button><button data-t="3">3</button><button data-t="4">4</button></span>
         <span class="sc-group" role="group" aria-label="Taille de la portée"><button class="sc-smaller" title="Portée plus petite" aria-label="Portée plus petite">A−</button><span class="sc-size"></span><button class="sc-bigger" title="Portée plus grande" aria-label="Portée plus grande">A＋</button></span>
+        <button class="sc-lyr" title="Écrire les paroles du clip : une syllabe par note">Paroles…</button>
         <label class="sc-seek"><input type="checkbox" class="sc-seekbox"> Placer la tête de lecture</label>
         <button class="sc-roll" title="Ouvrir le clip courant dans le piano roll">Piano roll</button>
         <button class="sc-dockbtn" title="Ancrer la partition sous la piste"></button>
@@ -128,6 +129,7 @@ export class ScoreWindow {
     this.root.querySelector(".sc-smaller").addEventListener("click", () => this.setScale(this.#step(-1)));
     this.root.querySelector(".sc-bigger").addEventListener("click", () => this.setScale(this.#step(1)));
     this.root.querySelector(".sc-seekbox").addEventListener("change", (e) => this.view?.setTool(e.target.checked ? "seek" : "edit"));
+    this.root.querySelector(".sc-lyr").addEventListener("click", () => this.#lyricsPopup());
     this.root.querySelector(".sc-roll").addEventListener("click", () => this.cur != null && this.onOpenRoll?.(this.cur));
     this.root.querySelector(".close").addEventListener("click", () => this.close());
     // Les touches de la partition (flèches, Suppr, Alt + flèches…) ne doivent pas déclencher les raccourcis du DAW ; Ctrl+Z, Ctrl+S et la barre d'espace passent.
@@ -281,6 +283,80 @@ export class ScoreWindow {
     } catch {
       /* grille refusée par le module : l'aimantation reste celle de l'écriture */
     }
+  }
+
+  /**
+   * Paroles du clip courant : un texte (« ma-man est la plus bel-le ») posé sur les notes, une syllabe par instant de note (un accord compte pour
+   * un seul), dans le couplet choisi, à partir de la première note — ou de la première note sélectionnée s'il y en a. Il remplace les paroles de
+   * ce couplet sur la partie du clip concernée. Une seule action annulable (la voie « Paroles » de la timeline les montre aussi).
+   */
+  #lyricsPopup() {
+    this.root.querySelector(".sc-lyrpop")?.remove();
+    const it = this.items.get(this.cur);
+    if (!it?.data) return;
+    const d = it.data;
+    const list = this.state.lyrics ?? [];
+    const pop = document.createElement("div");
+    pop.className = "chord-pop sc-lyrpop";
+    const mkLabel = (t, el) => {
+      const l = document.createElement("label");
+      l.append(t, el);
+      return l;
+    };
+    const text = document.createElement("textarea");
+    text.rows = 3;
+    text.placeholder = "ma-man est la plus bel-le";
+    text.setAttribute("aria-label", "Texte des paroles");
+    const verse = document.createElement("select");
+    for (let v = 1; v <= verseCount(list); v++) verse.append(new Option(`Couplet ${v}`, String(v)));
+    verse.value = String(this.state.lyricVerse ?? 1);
+    // Le texte déjà posé sur ce clip dans ce couplet : on le modifie plutôt que de tout réécrire.
+    const from = d.start;
+    const to = fadd(d.start, d.len);
+    const inClip = (v) => list.filter((s) => (s.verse ?? 1) === v).filter((s) => fcmpAbs(s.at, from) >= 0 && fcmpAbs(s.at, to) < 0);
+    const fill = () => (text.value = lyricsToText(inClip(Number(verse.value)), Number(verse.value)));
+    verse.addEventListener("change", fill);
+    fill();
+    const hint = document.createElement("div");
+    hint.className = "cd-hint";
+    hint.textContent = it.sel.length ? "Une syllabe par note, à partir de la première note sélectionnée." : "Une syllabe par note, à partir de la première note du clip.";
+    const info = document.createElement("div");
+    info.className = "cd-hint";
+    const row = document.createElement("div");
+    row.className = "cd-foot";
+    const mk = (label, fn) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.addEventListener("click", fn);
+      return b;
+    };
+    const ok = mk("Placer sur les notes", () => {
+      const v = Number(verse.value);
+      const items = parseLyricsText(text.value);
+      const onsets = noteOnsets(d, it.sel.length ? notesFromFirstSelected(d, it.sel) : null);
+      if (!items.length) {
+        // Un texte vide efface les paroles de ce couplet sur ce clip.
+        if (!inClip(v).length) return (info.textContent = "Écris au moins une syllabe.");
+        this.client.send({ type: "set_lyrics", syllables: clearVerseRange(list, v, from, to), label: "Effacer des paroles" });
+        return pop.remove();
+      }
+      if (!onsets.length) return (info.textContent = "Ce clip n'a pas de note à laquelle accrocher les syllabes.");
+      const { placed, extra } = placeOnNotes(items, onsets, v);
+      // Remplace ce couplet sur la plage couverte (de la première note posée à la fin du clip si la sélection part du milieu).
+      const base = clearVerseRange(list, v, onsets[0], to);
+      this.state.lyricVerse = v;
+      this.client.send({ type: "set_lyrics", syllables: [...base, ...placed].sort((a, b) => fcmpAbs(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)), label: "Écrire des paroles" });
+      if (extra > 0) return (info.textContent = `${extra} syllabe${extra > 1 ? "s" : ""} en trop (plus que de notes) : ${extra > 1 ? "elles n'ont" : "elle n'a"} pas été placée${extra > 1 ? "s" : ""}.`);
+      pop.remove();
+    });
+    row.append(mk("Fermer", () => pop.remove()), ok);
+    pop.append(mkLabel("Texte", text), mkLabel("Couplet", verse), hint, info, row);
+    pop.addEventListener("keydown", (k) => {
+      k.stopPropagation();
+      if (k.key === "Escape") pop.remove();
+    });
+    this.root.append(pop);
+    text.focus();
   }
 
   /**

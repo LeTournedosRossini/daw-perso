@@ -783,3 +783,6 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .score-window .sc-other select { max-width: 9em; }
 @media (pointer: coarse) { .score-window .sc-dbtn { width: 40px; } }
 .chord-pop .cd-hint { font-size: 10px; color: var(--muted); max-width: 260px; }
+.score-window .sc-lyrpop { position: absolute; right: 10px; top: 44px; z-index: 5; width: min(300px, calc(100% - 20px)); }
+.score-window .sc-lyrpop textarea { padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text); font: inherit; resize: vertical; }
+.score-window .sc-lyrpop label { display: grid; }

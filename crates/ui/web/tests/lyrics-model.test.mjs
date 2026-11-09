@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, lyricsForClip } from "../js/lyrics-model.js";
+import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, lyricsForClip, lyricsToText, noteOnsets, placeOnNotes, clearVerseRange, notesFromFirstSelected } from "../js/lyrics-model.js";
 
 test("un texte saisi se découpe en syllabes liées ou non", () => {
   const p = parseLyricsText("ma-man est la plus bel-le");
@@ -77,4 +77,53 @@ test("paroles : validation de la commande côté page", () => {
   assert.equal(validateCommand({ type: "set_lyrics", syllables: [syl([0, 1], "ma")] }), null);
   assert.match(validateCommand({ type: "set_lyrics" }), /syllables/);
   assert.match(validateCommand({ type: "set_lyrics", syllables: [syl([0, 1], "ma", { verse: 12 })] }), /couplet/);
+});
+
+const clipD = { start: [2, 1], len: [1, 1], offset: [1, 4], notes: [
+  { start: [0, 1], len: [1, 8], key: 60 }, // avant la partie visible (rognée)
+  { start: [1, 4], len: [1, 8], key: 60 },
+  { start: [1, 4], len: [1, 8], key: 64 }, // accord : même instant
+  { start: [3, 8], len: [1, 8], key: 62 },
+  { start: [3, 4], len: [1, 8], key: 65 },
+  { start: [5, 4], len: [1, 8], key: 67 }, // à la fin de la partie visible (exclue)
+] };
+
+test("le texte d'un couplet se relit comme on l'a saisi", () => {
+  const list = placeSyllables(parseLyricsText("ma-man est la plus bel-le"), [0, 1], [1, 4], 1);
+  assert.equal(lyricsToText(list, 1), "ma-man est la plus bel-le");
+  assert.equal(lyricsToText(list, 2), "");
+  assert.deepEqual(parseLyricsText(lyricsToText(list, 1)).map(syllableLabel), list.map(syllableLabel));
+});
+
+test("les instants de notes : accords réunis, partie visible seulement, positions absolues", () => {
+  assert.deepEqual(noteOnsets(clipD), [[2, 1], [17, 8], [5, 2]]); // 1/4→2, 3/8→2+1/8, 3/4→2+1/2
+  assert.deepEqual(noteOnsets(clipD, [3, 4]), [[17, 8], [5, 2]]); // la sélection
+  assert.deepEqual(noteOnsets(clipD, []), noteOnsets(clipD)); // sélection vide = tout
+});
+
+test("une syllabe par instant de note, les surplus sont comptés", () => {
+  const onsets = noteOnsets(clipD);
+  const a = placeOnNotes(parseLyricsText("ma-man est la"), onsets, 2);
+  assert.deepEqual(a.placed.map((x) => x.at), onsets);
+  assert.equal(a.extra, 1);
+  assert.deepEqual(a.placed.map((x) => x.verse), [2, 2, 2]);
+  const b = placeOnNotes(parseLyricsText("ma"), onsets, 1);
+  assert.equal(b.placed.length, 1);
+  assert.equal(b.extra, 0);
+});
+
+test("remplacer les paroles d'un clip n'efface que le couplet et la plage voulus", () => {
+  const list = [
+    { at: [1, 1], text: "a", verse: 1 }, { at: [2, 1], text: "b", verse: 1 }, { at: [2, 1], text: "c", verse: 2 }, { at: [3, 1], text: "d", verse: 1 },
+  ];
+  const kept = clearVerseRange(list, 1, [2, 1], [3, 1]);
+  assert.deepEqual(kept.map((s) => s.text), ["a", "c", "d"]);
+});
+
+test("les syllabes démarrent à la première note sélectionnée, accord compris", () => {
+  // sélectionner la note 3 (3/8) : on garde toutes les notes à partir de cet instant (3/8, 3/4, 5/4) ; l'accord de 1/4 est avant
+  assert.deepEqual(notesFromFirstSelected(clipD, [3]), [3, 4, 5]);
+  assert.deepEqual(notesFromFirstSelected(clipD, [2, 4]), [1, 2, 3, 4, 5]); // la plus tôt des deux : 1/4 (note 2 de l'accord)
+  assert.equal(notesFromFirstSelected(clipD, [99]), null);
+  assert.deepEqual(noteOnsets(clipD, notesFromFirstSelected(clipD, [3])), [[17, 8], [5, 2]]);
 });
