@@ -32,12 +32,12 @@
   .wc { display: grid; gap: 6px; }
   .wc .wc-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); }
   .wc output { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-  .wc .wc-b { position: relative; height: 72px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+  .wc .wc-b { position: relative; height: 36px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
   .wc .wc-b.active { border-color: var(--accent); }
   .wc .wc-fill { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 35%, transparent); }
   .wc .wc-thumb { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--text); }
   .wc .wc-zero { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); opacity: .6; }
-  .wc[data-off] { opacity: .45; pointer-events: none; }
+  .wc[data-off], .ch-fader[data-off] { opacity: .45; pointer-events: none; }
   #fx-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; }
   #fx-params .fp { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; }
   #fx-params .fp .pn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -48,12 +48,13 @@
      - Mixeur : les tranches (faders verticaux) occupent tout l'écran, par bancs de 8, 12 ou 16 pistes.
      - Édition : à gauche les plugins de la piste, à droite les seize paramètres du plugin choisi.
      - Barre du bas, de la hauteur d'un bouton : lecture, pré-roll, clic, sections (volet fin au-dessus), bancs de pistes, Édition / Mixeur, Retour, plein écran. */
-  :root { --bar-h: 56px; }
+  :root { --bar-h: 56px; --sec-h: 0px; }
+  body.tablet.sec-open { --sec-h: 36px; }
   body:not(.tab-mix) #fxpanel { display: none; }
   .mx[hidden] { display: none !important; }
   #bank, #tbar, #secpanel { display: none; }
   @media (orientation: landscape) and (min-width: 820px) {
-    body.tab-mix { padding: 6px 8px calc(var(--bar-h) + 6px); }
+    body.tab-mix { padding: 6px 8px calc(var(--bar-h) + var(--sec-h) + 6px); }
     body.tab-mix h1, body.tab-mix #hint, body.tab-mix #tabs, body.tab-mix #solo-hint { display: none; }
     body.tab-mix #lost, body.tab-mix #expired { font-size: 12px; padding: 4px 10px; margin-bottom: 4px; }
     /* Barre du bas */
@@ -81,15 +82,15 @@
     body.tablet #tbar #bank > span:first-child { display: none; }
     body.tablet #tbar #bank .sp { display: none; }
     /* Volet fin des sections, au-dessus de la barre */
-    body.tablet.sec-open #secpanel { display: block; position: fixed; left: 0; right: 0; bottom: var(--bar-h); background: var(--panel); border-top: 1px solid var(--line); padding: 3px 8px; z-index: 29; overflow-x: auto; }
+    body.tablet.sec-open #secpanel { display: block; position: fixed; left: 0; right: 0; bottom: var(--bar-h); height: var(--sec-h); background: var(--panel); border-top: 1px solid var(--line); padding: 3px 8px; overflow-y: hidden; z-index: 29; overflow-x: auto; }
     body.tablet #secpanel .secs { display: flex; gap: 6px; margin: 0; }
-    body.tablet #secpanel .secs button { flex: none; min-width: 120px; height: 34px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
+    body.tablet #secpanel .secs button { flex: none; min-width: 110px; height: 30px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
     body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
     /* Mixeur : tranches à toute la hauteur */
-    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - 290px), 520px); }
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - var(--sec-h) - 234px), 620px); }
     body.tab-mix.view-edit #mixlist { display: none; }
     body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
-    body.tab-mix .mx.master { order: 99; flex: 0 0 96px; margin-left: 8px; border-top-color: var(--text); }
+    body.tab-mix .mx.master { order: 99; border-top-color: var(--text); }
     body.tab-mix .mx .row { display: contents; }
     body.tab-mix .mx .who { order: 1; max-width: 100%; justify-content: center; flex: none; }
     body.tab-mix .mx .name { font-size: 12px; max-width: 100%; }
@@ -102,7 +103,7 @@
     body.tab-mix .mx .panrow > span:first-child { display: none; }
     body.tab-mix .mx .panrow .pv { min-width: 2.2em; font-size: 11px; }
     /* Édition : tout l'écran au-dessus de la barre ; plugins à gauche, paramètres à droite */
-    body.tablet.view-edit #fxpanel { display: grid; grid-template-columns: 250px minmax(0, 1fr) 290px; grid-template-rows: auto auto 1fr; column-gap: 18px; position: fixed; top: 0; left: 0; right: 0; bottom: var(--bar-h); width: auto; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; overflow: hidden; z-index: 20; }
+    body.tablet.view-edit #fxpanel { display: grid; grid-template-columns: 250px minmax(0, 1fr) 290px; grid-template-rows: auto auto 1fr; column-gap: 18px; position: fixed; top: 0; left: 0; right: 0; bottom: calc(var(--bar-h) + var(--sec-h)); width: auto; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; overflow: hidden; z-index: 20; }
     body.tablet.view-edit #fxpanel[hidden] { display: grid; }
     body.tablet #fxpanel .fx-head { grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; align-items: stretch; gap: 8px; overflow-y: auto; border-right: 1px solid var(--line); padding-right: 14px; }
     body.tablet #fxpanel .fx-head #fx-track { font-size: 17px; }
@@ -114,7 +115,12 @@
     body.tablet #fxpanel .fx-trk[hidden] { display: none; }
     body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
     body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
-    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 22px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(64px, 1fr); gap: 6px 22px; align-content: stretch; overflow-y: auto; }
+    body.tablet #fx-params .fp { grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-rows: auto 1fr; align-items: center; gap: 2px 8px; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+    body.tablet #fx-params .fp .pn { grid-column: 1 / -1; grid-row: 1; font-size: 15px; font-weight: 600; white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.15; }
+    body.tablet #fx-params .fp .pam { grid-column: 1; grid-row: 2; min-width: 40px; min-height: 40px; padding: 0; font-size: 16px; font-weight: 700; }
+    body.tablet #fx-params .fp input[type=range] { grid-column: 2; grid-row: 2; }
+    body.tablet #fx-params .fp output { grid-column: 3; grid-row: 2; font-size: 14px; min-width: 4.5em; }
     /* Colonne « piste » : volume, panoramique (grands débattements), muet / solo, automation */
     body.tablet #fx-chan { display: flex; flex-direction: column; gap: 12px; grid-column: 3; grid-row: 1 / 4; border-left: 1px solid var(--line); padding-left: 16px; overflow-y: auto; }
     body.tablet #fx-chan .ch-btns { display: flex; gap: 8px; }
@@ -122,7 +128,17 @@
     body.tablet #fx-chan .ch-btns button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
     body.tablet #fx-chan .ch-btns button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
     body.tablet #fx-chan .ch-btns button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
-    body.tablet #fx-chan .ch-auto { display: grid; gap: 8px; }
+    body.tablet #fx-chan .ch-auto { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    body.tablet #fx-chan .ch-fader { flex: 1 1 auto; min-height: 140px; position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    body.tablet #fx-chan .ch-fader .cf-box { flex: 1; width: 100%; position: relative; min-height: 100px; }
+    body.tablet #fx-chan .ch-fader input.lvl { -webkit-appearance: none; appearance: none; position: absolute; left: calc(50% - 22px); top: var(--cfh, 140px); width: var(--cfh, 140px); height: 44px; margin: 0; background: transparent; transform-origin: 0 0; transform: rotate(-90deg); touch-action: none; }
+    body.tablet #fx-chan .ch-fader input.lvl::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--line) var(--fill, 0%)); }
+    body.tablet #fx-chan .ch-fader input.lvl::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+    body.tablet #fx-chan .ch-fader input.lvl::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+    body.tablet #fx-chan .ch-fader input.lvl::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+    body.tablet #fx-chan .ch-fader input.lvl::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+    body.tablet #fx-chan .ch-fader output { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    body.tablet #fx-chan .ch-fader .cf-l { font-size: 13px; color: var(--muted); align-self: flex-start; }
     body.tablet #fx-chan .ch-auto button { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     body.tablet #fx-chan .ch-auto button span { font-size: 12px; font-weight: 600; color: inherit; opacity: .85; }
     body.tablet #fx-chan h4 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
@@ -485,7 +501,7 @@ function showRemote(r) {
       small.textContent = "m." + s.bar;
       b.append(small);
       b.disabled = !!r.recording; // on ne déplace pas la tête pendant une prise
-      b.addEventListener("click", () => { cmd({ cmd: "section", index: i }); document.body.classList.remove("sec-open"); syncBar(); });
+      b.addEventListener("click", () => { cmd({ cmd: "section", index: i }); });
       return b;
     }));
   }
@@ -558,6 +574,7 @@ function layoutTablet() {
   if (body.classList.contains("tablet") !== on) {
     body.classList.toggle("tablet", on);
     if (on) {
+      if (store.get("secs-" + base) !== "0") body.classList.add("sec-open"); // le volet des sections est affiché par défaut ; le choix est mémorisé
       el("tb-remote").append(el("remote"));
       el("tb-bank").append(el("bank"));
       el("secpanel").append(el("r-secs"));
@@ -587,7 +604,7 @@ const toggleFullscreen = (want) => {
     else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
   } catch { /* plein écran refusé par le navigateur */ }
 };
-el("tb-secs").addEventListener("click", () => { document.body.classList.toggle("sec-open"); syncBar(); });
+el("tb-secs").addEventListener("click", () => { const on = document.body.classList.toggle("sec-open"); store.put("secs-" + base, on ? "1" : "0"); showFx(fxState); syncBar(); });
 el("tb-edit").addEventListener("click", () => {
   if (document.body.classList.contains("view-edit")) return closeFx();
   const first = fxNode ?? (fxState?.mix?.nodes ?? []).find((n) => (n.inserts ?? []).length)?.id;
@@ -679,7 +696,7 @@ function showFx(st) {
     params.replaceChildren(...(all ? page.params : page.params.slice(fxGroup * 8, fxGroup * 8 + 8)).map((p) => {
       const row = document.createElement("div");
       row.className = "fp";
-      row.innerHTML = '<span class="pn"></span><button type="button" class="pam" aria-label="Automation du paramètre"></button><output></output><input type="range">';
+      row.innerHTML = '<span class="pn"></span><button type="button" class="pam" aria-label="Automation du paramètre"></button><input type="range"><output></output>';
       row.querySelector(".pn").textContent = p.name;
       const range = row.querySelector("input");
       range.min = p.min; range.max = p.max; range.step = (p.max - p.min) / 1000 || 1;
@@ -701,7 +718,7 @@ function showFx(st) {
     const r = fxRows.get(p.id);
     if (!r) continue;
     r.out.textContent = p.text;
-    if (r.am) { r.am.textContent = AM_SHORT[p.auto ?? "none"]; r.am.className = "pam m-" + (p.auto ?? "none"); }
+    if (r.am) { r.am.textContent = "A"; r.am.title = "Automation : " + (AM_MODES.find((x) => x[0] === (p.auto ?? "none"))?.[1] ?? ""); r.am.className = "pam m-" + (p.auto ?? "none"); }
     if (!r.down && !fxPending.has(page.insert + ":" + p.id)) r.range.value = p.value;
   }
 }
@@ -798,6 +815,23 @@ function wideControl({ label, min, max, def, travel, fmt, send, zero = null, rou
   c.set(def);
   return c;
 }
+/** Fader vertical de la colonne « piste » : le même `input range` tourné que dans le mixeur, qui descend jusqu'en bas de la colonne. */
+function verticalFader(id) {
+  const root = document.createElement("div");
+  root.className = "ch-fader";
+  root.innerHTML = '<span class="cf-l">Volume</span><div class="cf-box"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div><output></output>';
+  const box = root.querySelector(".cf-box"), range = root.querySelector("input"), out = root.querySelector("output");
+  range.min = DB_MIN; range.max = DB_MAX;
+  const c = { root, range, down: false, value: 0, off: (on) => (on ? root.removeAttribute("data-off") : root.setAttribute("data-off", "")) };
+  c.set = (v) => { c.value = v; range.value = v; range.style.setProperty("--fill", ((v - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"); out.textContent = fmt(v); };
+  range.addEventListener("pointerdown", () => (c.down = true));
+  for (const ev of ["pointerup", "pointercancel", "blur"]) range.addEventListener(ev, () => (c.down = false));
+  range.addEventListener("input", () => { c.set(Number(range.value)); laterMix(id, { db: c.value }); });
+  range.addEventListener("dblclick", () => { c.set(0); laterMix(id, { db: 0 }); });
+  // La longueur du fader suit la hauteur disponible dans la colonne.
+  new ResizeObserver(() => box.style.setProperty("--cfh", Math.max(100, box.clientHeight) + "px")).observe(box);
+  return c;
+}
 const chan = { node: null, vol: null, pan: null, btns: {}, auto: {} };
 function showChan(node, st) {
   const box = el("fx-chan");
@@ -818,7 +852,7 @@ function showChan(node, st) {
     btns.append(mk("m", "M", "mute"));
     if (node.kind !== "master") btns.append(mk("s", "S", "solo"));
     if (node.kind === "track") btns.append(mk("a", "●", "arm"));
-    chan.vol = wideControl({ label: "Volume", min: DB_MIN, max: DB_MAX, def: 0, travel: 600, round: 0.1, zero: 0, fmt: (v) => fmt(v), send: (v) => laterMix(id, { db: v }) });
+    chan.vol = verticalFader(id);
     chan.pan = node.kind === "master" ? null : wideControl({ label: "Panoramique", min: -1, max: 1, def: 0, travel: 700, zero: 0, round: 0.01, fmt: fmtPan, send: (v) => laterMix(id, { pan: v }) });
     const auto = document.createElement("div");
     auto.className = "ch-auto";
@@ -833,11 +867,11 @@ function showChan(node, st) {
       chan.auto[key] = b;
       return b;
     };
-    auto.append(am("gain", "Auto volume"));
+    auto.append(am("gain", "Auto vol."));
     if (node.kind !== "master") auto.append(am("pan", "Auto pan"));
     const head = document.createElement("h4");
     head.textContent = "Piste";
-    box.replaceChildren(head, btns, chan.vol.root, ...(chan.pan ? [chan.pan.root] : []), auto);
+    box.replaceChildren(head, btns, ...(chan.pan ? [chan.pan.root] : []), auto, chan.vol.root);
   }
   for (const w of [chan.vol, chan.pan]) w?.off(mixRight);
   for (const b of Object.values(chan.btns)) b.disabled = !mixRight;
