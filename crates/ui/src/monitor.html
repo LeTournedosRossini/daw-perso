@@ -30,19 +30,43 @@
   #fx-params .fp output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
   #fx-params .fp input[type=range] { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; touch-action: pan-y; }
   .mx button.fx { min-width: 44px; }
-  /* Tablette en paysage : la régie à gauche, la page de contrôle du plugin **fixée** à droite (plus de feuille qui recouvre les pistes) ; les
-     seize paramètres d'un coup, sur deux colonnes, sans onglets. */
+  /* Tablette en paysage : la régie devient une **console** — une tranche par piste avec un fader vertical, par bancs de 8, 12 ou 16 pistes —
+     et la page de contrôle des plugins est fixée en bas, en onglets (un par plugin de la piste), les seize paramètres d'un coup. */
   body:not(.tab-mix) #fxpanel { display: none; }
+  .mx[hidden] { display: none !important; }
+  #bank { display: none; }
   @media (orientation: landscape) and (min-width: 820px) {
-    body.tab-mix { padding-right: calc(52% + 16px); }
-    body.tab-mix #fxpanel { top: 0; left: auto; right: 0; bottom: 0; width: 52%; max-height: none; border-radius: 0; border-top: 0; border-left: 2px solid var(--accent); box-shadow: none; padding: 14px 18px; display: block; }
-    body.tab-mix #fxpanel[hidden] { display: block; }
+    body.tab-mix { padding: 8px 12px calc(40vh + 10px); }
+    body.tab-mix h1 { font-size: 15px; margin: 0 0 4px; }
+    body.tab-mix #tabs { margin-bottom: 6px; }
+    body.tab-mix #tabs button { height: 36px; }
+    body.tab-mix #bank { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+    body.tab-mix #bank button { height: 32px; min-width: 42px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; touch-action: manipulation; }
+    body.tab-mix #bank button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+    body.tab-mix #bank .sp { flex: 1; }
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(60vh - 300px), 420px); }
+    body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
+    body.tab-mix .mx.master { order: 99; flex: 0 0 96px; margin-left: 8px; border-top-color: var(--text); }
+    body.tab-mix .mx .row { display: contents; }
+    body.tab-mix .mx .who { order: 1; max-width: 100%; justify-content: center; flex: none; }
+    body.tab-mix .mx .name { font-size: 12px; max-width: 100%; }
+    body.tab-mix .mx .btns { order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
+    body.tab-mix .mx .btns button { min-width: 0; height: 36px; padding: 0; white-space: nowrap; font-size: 13px; }
+    body.tab-mix .mx .fader { order: 3; position: relative; width: 100%; height: var(--fh); flex: none; }
+    body.tab-mix .mx .fader input.lvl { position: absolute; left: calc(50% - 22px); top: var(--fh); width: var(--fh); height: 44px; transform-origin: 0 0; transform: rotate(-90deg); touch-action: none; }
+    body.tab-mix .mx .db { order: 4; min-width: 0; text-align: center; font-size: 12px; }
+    body.tab-mix .mx .panrow { order: 5; width: 100%; gap: 2px; }
+    body.tab-mix .mx .panrow > span:first-child { display: none; }
+    body.tab-mix .mx .panrow .pv { min-width: 2.2em; font-size: 11px; }
+    body.tab-mix #fxpanel { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 40vh; max-height: none; border-radius: 14px 14px 0 0; border-top: 2px solid var(--accent); padding: 8px 16px 10px; display: flex; flex-direction: column; }
+    body.tab-mix #fxpanel[hidden] { display: flex; }
     body.tab-mix #fx-close { display: none; }
     body.tab-mix #fx-tabs { display: none; }
-    body.tab-mix #fx-params { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin-top: 10px; }
-    body.tab-mix #fx-params .fp .pn { font-size: 15px; }
-    body.tab-mix #fx-params .fp input[type=range] { height: 38px; }
-    body.tab-mix #fx-chain button { min-height: 42px; }
+    body.tab-mix #fxpanel .fx-head #fx-chain { gap: 8px; }
+    body.tab-mix #fx-chain button { min-height: 40px; }
+    body.tab-mix #fx-params { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 20px; margin-top: 6px; overflow-y: auto; align-content: start; }
+    body.tab-mix #fx-params .fp .pn { font-size: 14px; }
+    body.tab-mix #fx-params .fp input[type=range] { height: 34px; }
   }
   #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #expired.on { display: block; }
@@ -159,6 +183,7 @@
 </div>
 <div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
 <div id="list"></div>
+<div id="bank" aria-label="Pistes affichées"></div>
 <div id="mixlist"></div>
 <script>
 "use strict";
@@ -412,7 +437,7 @@ function selectFx(insert) {
 // Paysage : la page de contrôle est fixée à droite de la régie et montre ses seize paramètres d'un coup (plus de feuille, plus d'onglets).
 const LANDSCAPE = window.matchMedia("(orientation: landscape) and (min-width: 820px)");
 const docked = () => LANDSCAPE.matches && document.body.classList.contains("tab-mix");
-LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; showFx(fxState); });
+LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; showFx(fxState); if (fxState?.mix) { el("bank").dataset.key = ""; applyBank(fxState.mix); } });
 function showFx(st) {
   const panel = document.getElementById("fxpanel");
   if (docked()) panel.hidden = false;
@@ -520,7 +545,7 @@ function buildMix(n) {
   const fxBtn = n.inserts?.length ? '<button class="fx" aria-label="Plugins de la piste">fx ' + n.inserts.length + "</button>" : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
   const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
-  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + fxBtn + '</span><span class="db"></span></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + fxBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
   const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
   r.range.min = DB_MIN; r.range.max = DB_MAX;
@@ -555,7 +580,7 @@ function buildMixGroup(g) {
   const root = document.createElement("div");
   root.className = "mx grp";
   root.style.setProperty("--c", g.color || "var(--accent)");
-  root.innerHTML = '<div class="row"><span class="name"></span><span class="btns"><button class="m" aria-label="Couper le groupe">M</button><button class="s" aria-label="Solo du groupe">S</button></span><span class="db"></span></div><input class="lvl" type="range" min="-12" max="12" step="0.5" aria-label="Niveau du groupe">';
+  root.innerHTML = '<div class="row"><span class="name"></span><span class="btns"><button class="m" aria-label="Couper le groupe">M</button><button class="s" aria-label="Solo du groupe">S</button></span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" min="-12" max="12" step="0.5" aria-label="Niveau du groupe"></div>';
   const r = { root, range: root.querySelector(".lvl"), out: root.querySelector(".db"), m: root.querySelector(".m"), s: root.querySelector(".s"), down: false, mute: false, solo: false };
   r.range.addEventListener("pointerdown", () => (r.down = true));
   for (const ev of ["pointerup", "pointercancel", "blur"]) r.range.addEventListener(ev, () => (r.down = false));
@@ -600,6 +625,53 @@ function showMix(mix) {
     if (r.a && !holding("xarm" + n.id)) { r.arm = !!n.arm; press(r.a, r.arm); }
     r.root.style.opacity = r.mute || (anySolo && !n.solo && n.kind !== "master") ? ".55" : "1";
     showLed(r.led, n.peak);
+  }
+  applyBank(mix);
+}
+
+// ---- console en paysage : bancs de 8, 12 ou 16 pistes -----------------------------------------------------------------------------
+// Une tablette ne montre pas toutes les pistes d'un coup : le profil (8, 12 ou 16 tranches) se choisit sur la tablette et se mémorise ; au-delà,
+// on change de page. La sortie principale reste toujours visible, à droite. En portrait la liste est complète, empilée.
+let bankSize = Number(store.get("bank-" + base)) || (innerWidth >= 1200 ? 16 : innerWidth >= 1000 ? 12 : 8), bankPage = 0;
+function applyBank(mix) {
+  const bar = el("bank");
+  const land = docked();
+  const sources = mix.nodes.filter((n) => n.kind !== "master");
+  const pages = Math.max(1, Math.ceil(sources.length / bankSize));
+  if (bankPage >= pages) bankPage = pages - 1;
+  const shown = new Set(land ? sources.slice(bankPage * bankSize, (bankPage + 1) * bankSize).map((n) => n.id) : mix.nodes.map((n) => n.id));
+  for (const n of mix.nodes) {
+    const r = mixRows.get(n.id);
+    if (r) r.root.hidden = n.kind !== "master" && !shown.has(n.id);
+  }
+  const key = JSON.stringify([land, bankSize, bankPage, pages, sources.length]);
+  if (bar.dataset.key === key) return;
+  bar.dataset.key = key;
+  bar.replaceChildren();
+  if (!land) return;
+  const label = document.createElement("span");
+  label.textContent = "Pistes :";
+  bar.append(label);
+  for (const n of [8, 12, 16]) {
+    const b = document.createElement("button");
+    b.textContent = String(n);
+    b.setAttribute("aria-pressed", String(n === bankSize));
+    b.addEventListener("click", () => { bankSize = n; bankPage = 0; store.put("bank-" + base, String(n)); applyBank(fxState.mix); });
+    bar.append(b);
+  }
+  const sp = document.createElement("span");
+  sp.className = "sp";
+  bar.append(sp);
+  if (pages > 1) {
+    const prev = document.createElement("button");
+    prev.textContent = "◀"; prev.disabled = bankPage === 0; prev.setAttribute("aria-label", "Pistes précédentes");
+    prev.addEventListener("click", () => { bankPage--; applyBank(fxState.mix); });
+    const next = document.createElement("button");
+    next.textContent = "▶"; next.disabled = bankPage >= pages - 1; next.setAttribute("aria-label", "Pistes suivantes");
+    next.addEventListener("click", () => { bankPage++; applyBank(fxState.mix); });
+    const t = document.createElement("span");
+    t.textContent = "pistes " + (bankPage * bankSize + 1) + "–" + Math.min(sources.length, (bankPage + 1) * bankSize) + " sur " + sources.length;
+    bar.append(prev, t, next);
   }
 }
 function showTabs(hasMix) {
