@@ -23,4 +23,8 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
         println!("cargo:rustc-link-lib=pthread");
     }
+    // Rubber Band utilise vDSP (FFT et fonctions vectorielles) sous macOS : le cadre Accelerate est à lier.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-lib=framework=Accelerate");
+    }
 }

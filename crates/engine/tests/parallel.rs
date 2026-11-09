@@ -224,7 +224,7 @@ fn a_pool_never_allocates_in_the_audio_thread_nor_in_the_workers() {
             engine.process(&mut l, &mut r);
         }
     }
-    assert_eq!(violations(), 0, "allocation pendant le calcul parallèle");
+    assert_eq!(violations(), 0, "allocation pendant le calcul parallèle : {:?}", daw_audio_io::alloc_guard::first_violation());
 }
 
 #[test]

@@ -6,7 +6,8 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
 
 thread_local! {
     // Initialisation `const` et type sans destructeur : l'accès ne peut pas allouer.
@@ -14,13 +15,36 @@ thread_local! {
 }
 
 static VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+/// Aide au diagnostic : le fil et la pile de la **première** violation depuis la dernière remise à zéro.
+static FIRST: Mutex<Option<String>> = Mutex::new(None);
+static CAPTURED: AtomicBool = AtomicBool::new(false);
 
 #[inline]
 fn note() {
     // `try_with` : pendant la destruction du thread local, on ne compte rien plutôt que de paniquer.
     if IN_RT.try_with(Cell::get).unwrap_or(false) {
         VIOLATIONS.fetch_add(1, Ordering::Relaxed);
+        if !CAPTURED.swap(true, Ordering::Relaxed) {
+            capture_first();
+        }
     }
+}
+
+/// Enregistre le fil et la pile de la première violation. La zone est quittée le temps de la capture (qui alloue elle-même).
+#[cold]
+fn capture_first() {
+    let _ = IN_RT.try_with(|f| f.set(false));
+    let t = std::thread::current();
+    let text = format!("fil « {} » ({:?})\n{}", t.name().unwrap_or("sans nom"), t.id(), std::backtrace::Backtrace::force_capture());
+    if let Ok(mut g) = FIRST.lock() {
+        *g = Some(text);
+    }
+    let _ = IN_RT.try_with(|f| f.set(true));
+}
+
+/// Le fil et la pile de la première allocation constatée dans une zone temps réel (depuis la dernière remise à zéro).
+pub fn first_violation() -> Option<String> {
+    FIRST.lock().ok().and_then(|g| g.clone())
 }
 
 /// Allocateur global qui délègue au système et compte les appels faits dans un [`RtScope`].
@@ -70,4 +94,8 @@ pub fn violations() -> u64 {
 
 pub fn reset_violations() {
     VIOLATIONS.store(0, Ordering::Relaxed);
+    CAPTURED.store(false, Ordering::Relaxed);
+    if let Ok(mut g) = FIRST.lock() {
+        *g = None;
+    }
 }
