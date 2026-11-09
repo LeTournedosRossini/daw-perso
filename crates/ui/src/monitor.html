@@ -38,7 +38,7 @@
      - Barre du bas, de la hauteur d'un bouton : lecture, pré-roll, clic, sections (volet fin au-dessus), bancs de pistes, Édition / Mixeur, Retour, plein écran. */
   :root { --bar-h: 56px; --sec-h: 0px; }
   body.tablet.sec-open { --sec-h: 36px; }
-  body.tablet.view-edit { --ctl-h: 70px; }
+  body.tablet.view-edit { --ctl-h: 40px; }
   body:not(.tab-mix) #fxpanel { display: none; }
   .mx[hidden] { display: none !important; }
   #bank, #tbar, #secpanel { display: none; }
@@ -105,30 +105,30 @@
     body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
     body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
     /* Zones : nom, valeur, mode d'automation ; la zone touchée est celle que règle le grand curseur du bas */
-    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(78px, 1fr); gap: 8px; align-content: stretch; overflow-y: auto; }
-    body.tablet #fx-params .zone { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; gap: 2px 6px; align-items: center; padding: 6px 8px 5px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 56px; gap: 8px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params .zone { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; gap: 1px 6px; align-items: center; padding: 4px 8px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
     body.tablet #fx-params .zone.sel { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
-    body.tablet #fx-params .zone .zn { grid-column: 1 / -1; font-size: 14px; font-weight: 600; line-height: 1.15; overflow: hidden; }
-    body.tablet #fx-params .zone .zv { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    body.tablet #fx-params .zone .za { min-width: 62px; height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
-    body.tablet #fx-params .zone .zb { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+    body.tablet #fx-params .zone .zn { grid-column: 1 / -1; font-size: 13px; font-weight: 600; line-height: 1.15; overflow: hidden; }
+    body.tablet #fx-params .zone .zv { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    body.tablet #fx-params .zone .za { min-width: 56px; height: 26px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+    body.tablet #fx-params .zone .zb { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
     body.tablet #fx-params .zone .zb i { display: block; height: 100%; background: var(--accent); }
     body.tablet #fx-params .zone.tog { grid-column: span 2; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr; gap: 8px; cursor: default; }
-    body.tablet #fx-params .zone.tog button { min-height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 20px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+    body.tablet #fx-params .zone.tog button { min-height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
     /* Grand curseur linéaire, au-dessus du volet des sections, seulement dans l'écran Édition */
-    body.tablet.view-edit #ctl { display: flex; align-items: center; gap: 14px; position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h) + var(--sec-h)); height: var(--ctl-h); padding: 8px 14px; background: var(--panel); border-top: 2px solid var(--accent); z-index: 28; }
-    body.tablet #ctl .ctl-l { flex: none; width: 190px; display: grid; gap: 2px; }
+    body.tablet.view-edit #ctl { display: flex; align-items: center; gap: 0; position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h) + var(--sec-h)); height: var(--ctl-h); padding: 5px 14px; background: var(--panel); border-top: 2px solid var(--accent); z-index: 28; }
+    body.tablet #ctl .ctl-l, body.tablet #ctl .ctl-m { display: none; }
     body.tablet #ctl .ctl-l b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     body.tablet #ctl .ctl-l span { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     body.tablet #ctl .ctl-m { flex: none; width: 92px; text-align: center; font-size: 12px; color: var(--muted); }
-    body.tablet #ctl .ctl-b { position: relative; flex: 1; height: 100%; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+    body.tablet #ctl .ctl-b { position: relative; flex: 1; height: 100%; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
     body.tablet #ctl .ctl-b.active { border-color: var(--accent); }
     body.tablet #ctl .ctl-fill { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 32%, transparent); }
     body.tablet #ctl .ctl-zero { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); opacity: .55; }
-    body.tablet #ctl .ctl-thumb { position: absolute; top: 8px; bottom: 8px; width: 14px; margin-left: -7px; border-radius: 7px; background: var(--text); box-shadow: 0 0 0 2px var(--bg); }
+    body.tablet #ctl .ctl-thumb { position: absolute; top: 5px; bottom: 5px; width: 14px; margin-left: -7px; border-radius: 7px; background: var(--text); box-shadow: 0 0 0 2px var(--bg); }
   }
   /* Automation : bouton de mode par piste (volume / pan) et par paramètre de plugin, menu des modes */
   .am { font-size: 12px; }
@@ -820,16 +820,18 @@ function updateZones(page, node) {
   if (!zoneKeyOk(fxSel)) fxSel = page.params.length ? "p:" + page.params[0].id : "gain";
   const setAm = (z, mode) => { z.am.textContent = AM_EN[mode ?? "none"]; z.am.className = "za m-" + (mode ?? "none"); };
   const g = zoneRefs.get("gain");
-  if (g) { g.val.textContent = fmt(node.db); g.bar.style.width = ((node.db - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"; setAm(g, node.auto?.gain); }
+  if (g) { const v = held("gain", node.db, 0.06) ?? node.db; g.val.textContent = fmt(v); g.bar.style.width = ((v - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"; setAm(g, node.auto?.gain); }
   const pz = zoneRefs.get("pan");
-  if (pz) { pz.val.textContent = fmtPan(node.pan); pz.bar.style.width = ((node.pan + 1) / 2) * 100 + "%"; setAm(pz, node.auto?.pan); }
+  if (pz) { const v = held("pan", node.pan, 0.006) ?? node.pan; pz.val.textContent = fmtPan(v); pz.bar.style.width = ((v + 1) / 2) * 100 + "%"; setAm(pz, node.auto?.pan); }
   const tog = zoneRefs.get("tog");
   if (tog) for (const [key, b] of Object.entries(tog.refs)) if (!holding("x" + key + node.id)) b.setAttribute("aria-pressed", String(!!node[key]));
   for (const p of page.params) {
     const z = zoneRefs.get("p:" + p.id);
     if (!z) continue;
-    z.val.textContent = p.text;
-    z.bar.style.width = (p.max > p.min ? ((p.value - p.min) / (p.max - p.min)) * 100 : 0) + "%";
+    const h = held("p:" + p.id, p.value, (p.max - p.min) * 0.002);
+    if (h === null) z.val.textContent = p.text; // pendant la retenue le texte du plugin est encore l'ancien : on garde l'affichage
+    const pv = h ?? p.value;
+    z.bar.style.width = (p.max > p.min ? ((pv - p.min) / (p.max - p.min)) * 100 : 0) + "%";
     setAm(z, p.auto);
   }
   for (const [key, z] of zoneRefs) z.root.classList.toggle("sel", key === fxSel);
@@ -839,12 +841,23 @@ function updateZones(page, node) {
 function ctlTarget() {
   const node = fxNodeInfo();
   if (!node || !fxSel) return null;
-  if (fxSel === "gain") return { name: "Volume", min: DB_MIN, max: DB_MAX, def: 0, value: node.db, text: fmt(node.db), mode: node.auto?.gain ?? "none", round: 0.1, fmt, send: (v) => laterMix(node.id, { db: v }), touch: (a) => postFx({ node: node.id, target: "gain", touch: a }) };
-  if (fxSel === "pan") return { name: "Panoramique", min: -1, max: 1, def: 0, value: node.pan, text: fmtPan(node.pan), mode: node.auto?.pan ?? "none", round: 0.01, fmt: fmtPan, send: (v) => laterMix(node.id, { pan: v }), touch: (a) => postFx({ node: node.id, target: "pan", touch: a }) };
+  if (fxSel === "gain") { const h = held("gain", node.db, 0.06), v = h ?? node.db; return { name: "Volume", min: DB_MIN, max: DB_MAX, def: 0, value: v, text: fmt(v), mode: node.auto?.gain ?? "none", round: 0.1, fmt, send: (x) => { ovr.set("gain", { v: x, until: Date.now() + KEEP_MS }); laterMix(node.id, { db: x }); }, touch: (a) => postFx({ node: node.id, target: "gain", touch: a }) }; }
+  if (fxSel === "pan") { const h = held("pan", node.pan, 0.006), v = h ?? node.pan; return { name: "Panoramique", min: -1, max: 1, def: 0, value: v, text: fmtPan(v), mode: node.auto?.pan ?? "none", round: 0.01, fmt: fmtPan, send: (x) => { ovr.set("pan", { v: x, until: Date.now() + KEEP_MS }); laterMix(node.id, { pan: x }); }, touch: (a) => postFx({ node: node.id, target: "pan", touch: a }) }; }
   const page = fxState?.fine?.page;
   const p = page?.params?.find((x) => "p:" + x.id === fxSel);
   if (!p) return null;
-  return { name: p.name, min: p.min, max: p.max, def: p.default, value: p.value, text: p.text, mode: p.auto ?? "none", round: 0, fmt: null, send: (v) => laterFx(page.insert, p.id, v), touch: (a) => postFx({ insert: page.insert, param: p.id, touch: a }) };
+  const h = held(fxSel, p.value, (p.max - p.min) * 0.002);
+  return { name: p.name, min: p.min, max: p.max, def: p.default, value: h ?? p.value, text: p.text, held: h !== null, mode: p.auto ?? "none", round: 0, fmt: null, send: (v) => { ovr.set(fxSel, { v, until: Date.now() + KEEP_MS }); laterFx(page.insert, p.id, v); }, touch: (a) => postFx({ insert: page.insert, param: p.id, touch: a }) };
+}
+// Valeur locale qui prime sur l'état du serveur après un geste (le serveur met un instant à rendre la valeur envoyée : sans cela le curseur
+// revient à l'ancienne valeur puis saute à la nouvelle quand une lecture d'état arrive entre-temps).
+const ovr = new Map(); // clé de zone → { v, until }
+const KEEP_MS = 1500;
+function held(key, serverValue, tol) {
+  const o = ovr.get(key);
+  if (!o) return null;
+  if (Date.now() > o.until || Math.abs(serverValue - o.v) <= tol) { ovr.delete(key); return null; }
+  return o.v;
 }
 const ctl = { down: false, t: null, ids: new Set(), x0: 0, v0: 0, mul: 1, lastX: 0, value: 0, idDrag: null };
 const ctlRelative = (t) => t.mode === "touch" || t.mode === "latch";
@@ -867,7 +880,7 @@ function syncCtl() {
   const t = ctl.down ? ctl.t : ctlTarget();
   if (!t || !document.body.classList.contains("view-edit") || !docked()) return;
   el("ctl-name").textContent = t.name;
-  el("ctl-val").textContent = ctl.down && t.fmt ? t.fmt(ctl.value) : t.text;
+  if (!(t.held && !ctl.down)) el("ctl-val").textContent = ctl.down && t.fmt ? t.fmt(ctl.value) : t.text;
   el("ctl-mode").textContent = AM_EN[t.mode] + " · " + (ctlRelative(t) ? "relatif" : "absolu");
   if (!ctl.down) ctlPlace(t, 0);
 }
