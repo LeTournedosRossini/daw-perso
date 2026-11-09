@@ -5,7 +5,7 @@
 //! Le journal est global : les tests qui s'en servent doivent s'exécuter l'un après l'autre.
 
 use std::ffi::{c_char, c_void, CStr};
-use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use clap_sys::ext::gui::{clap_gui_resize_hints, clap_host_gui, clap_plugin_gui, clap_window, CLAP_EXT_GUI};
@@ -46,11 +46,23 @@ static USER: Mutex<std::collections::VecDeque<UserAction>> = Mutex::new(std::col
 /// Simule un geste dans l'interface (prise, valeur, relâchement du paramètre `id`).
 pub fn user_action(a: UserAction) {
     USER.lock().unwrap_or_else(|e| e.into_inner()).push_back(a);
+    USER_PENDING.fetch_add(1, Ordering::Release);
 }
+
+/// Nombre d'actions en attente. Sert à ne pas toucher au verrou quand il n'y a rien : sous macOS le premier verrouillage d'un `Mutex`
+/// alloue (verrou pthread créé à la demande), ce que `process` ne doit jamais faire.
+static USER_PENDING: AtomicUsize = AtomicUsize::new(0);
 
 /// Prochaine action en attente ; **ne bloque jamais** (appelée depuis `process`).
 pub(crate) fn next_user_action() -> Option<UserAction> {
-    USER.try_lock().ok()?.pop_front()
+    if USER_PENDING.load(Ordering::Acquire) == 0 {
+        return None;
+    }
+    let a = USER.try_lock().ok()?.pop_front();
+    if a.is_some() {
+        USER_PENDING.fetch_sub(1, Ordering::AcqRel);
+    }
+    a
 }
 
 /// Le journal des appels reçus de l'hôte depuis le dernier `clear_log`.
