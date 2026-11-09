@@ -824,7 +824,9 @@ export class ScoreWindow {
     const c = this.#clip(b.clip);
     const sel = b.indexMap ? toBlockIndices(it.sel, b.indexMap) : it.sel;
     const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(b.data.notes, [1, 1]), keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data) } });
-    return b.section ? { ...inp, section: b.section } : inp;
+    // Avec un seul clip affiché, son nom sous chaque titre de section n'apprend rien : on le cache (avec plusieurs pistes il dit laquelle c'est).
+    const named = this.ids.length > 1 || !b.section ? inp : { ...inp, hideName: true };
+    return b.section ? { ...named, section: b.section } : named;
   }
 
   /** Change un réglage de vue (affichage seulement) : portée et armure pour le clip courant, grille pour tous ; et redessine. */

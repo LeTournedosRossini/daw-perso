@@ -11,7 +11,7 @@ Module ES autonome (un seul fichier, aucune dépendance, aucun réseau, aucun so
 
 ```js
 import { createScoreView } from './scorsaire-score-view.js';
-const view = createScoreView(container, { onEdit, onPlayheadSeek, onError, locale: 'fr' | 'en' });
+const view = createScoreView(container, { onEdit, onPlayheadSeek, onError, onNotice, locale: 'fr' | 'en' });
 view.setTiming({ meters: [{ bar: 1, num: 4, den: 4 }] });   // barres de mesure (la mesure `bar` à partir de 1)
 view.setClips([clip, …]);      // une portée (ou un système) par clip, dans l'ordre d'affichage
 view.updateClip(clip);         // remplace UN clip (ajouté à la fin s'il n'est pas encore affiché)
@@ -54,7 +54,13 @@ Pendant un glisser (une note déplacée ou une note qu'on pose), la vue dessine 
 Le conteneur est observé (`ResizeObserver`, redessin 30 ms après la dernière variation) : déplacer, agrandir, plein écran ou ancrer la fenêtre redessine seul, la sélection est gardée. Un conteneur masqué (largeur 0) n'est pas redessiné avant d'être montré à nouveau. `view.resize()` force le redessin (utile après un changement que le navigateur ne signale pas, comme la propriété CSS `zoom`). Non vérifié dans un navigateur actif : dans le panneau de test que nous avons, aucun `ResizeObserver` ne se déclenche (même le nôtre) ; `resize()`, lui, a été vérifié.
 
 ### Erreurs
-`onError({ clip, message })` : un clip que le modèle ne sait pas écrire n'empêche pas les autres ; sa place montre le message (rouge) et l'hôte en est informé. Connu : une grille non binaire (1/12, triolets) n'est pas écrite (message d'erreur).
+`onError({ clip, message })` : un clip que le modèle ne sait pas écrire n'empêche pas les autres ; sa place montre le message (rouge) et l'hôte en est informé.
+
+### Triolets (grille non binaire) : écrits arrondis, avec un avertissement
+Une grille dont le dénominateur n'est pas une puissance de 2 (1/12, 1/6…) est écrite sur la plus grande grille binaire qui n'est pas plus grossière (1/12 → 1/16, 1/6 → 1/8) : les notes sont arrondies (pastille « note arrondie » comme d'habitude), un petit texte « Triolets arrondis à la grille binaire » apparaît sous le nom du clip, et `onNotice({ clip, code: 'binary-grid', message })` est appelé. Les vrais triolets (n-olets) ne sont pas écrits. L'édition (`editGrid`, positions envoyées) n'est pas touchée.
+
+### Nom du clip
+`clip.hideName: true` (ou `name: ""`) : pas de ligne de nom sous le titre de section.
 
 ### Ce que la vue montre
 Seules les notes dont le début est dans `[offset, offset + len)` de la matière, à `start − offset + note.start` dans le projet. **Voix d'affichage** : chaque note peut porter `voice` (1 à 4 ; absent ou invalide = 1). Chaque voix a ses propres durées : une note s'arrête au début de la note suivante *de sa voix* (une basse tenue en voix 2 n'est pas coupée par la mélodie). Les hampes se séparent comme dans Scorsaire. Les silences d'une voix 2 à 4 s'écrivent là où la voix n'a rien, à l'intérieur de ses mesures. Une voix sans note n'est pas dessinée. Portée `grand` : elle envoie les touches ≥ 60 sur la clé de sol et les autres sur la clé de fa. Début et fin sont arrondis aux lignes de la grille **comptées depuis le début de la mesure qui contient la note** (un clip qui commence entre deux lignes s'écrit donc en mesures entières ; pour des mesures qui commencent sur la grille du projet, c'est la grille absolue) ; une note arrondie porte un petit point d'avertissement. Un accord = les notes de même début arrondi, de durée médiane, coupée au début de l'accord suivant ; ce qui passe une barre de mesure est coupé et lié ; les silences sont complétés. Les barres de mesure viennent de `meters` (jamais d'un chiffrage unique).
