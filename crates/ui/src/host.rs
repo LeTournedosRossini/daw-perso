@@ -894,7 +894,14 @@ impl Host {
                     let Some(at) = daw_core_types::time::Frac::new(s.at[0], s.at[1]) else {
                         return error("set_lyrics : fraction à dénominateur nul".into());
                     };
-                    list.push(daw_session::lyrics::Syllable { at, text: s.text, hyphen: s.hyphen, verse: s.verse });
+                    let end = match s.end {
+                        Some(e) => match daw_core_types::time::Frac::new(e[0], e[1]) {
+                            Some(f) => Some(f),
+                            None => return error("set_lyrics : fraction de fin à dénominateur nul".into()),
+                        },
+                        None => None,
+                    };
+                    list.push(daw_session::lyrics::Syllable { at, text: s.text, hyphen: s.hyphen, verse: s.verse, end });
                 }
                 let r = self.session.set_lyrics(label.as_deref().unwrap_or("Modifier les paroles"), list);
                 self.finish_edit(name, r)
@@ -2544,7 +2551,7 @@ impl Host {
         self.chord_rev_sent = self.session.chord_revision();
         let track = serde_json::from_str(&self.session.chord_track().to_carte_json(&self.name)).unwrap_or(serde_json::Value::Null);
         let structure = self.session.structure().iter().map(|s| SectionDto { at: [s.at.num(), s.at.den()], dur: [s.dur.num(), s.dur.den()], name: s.name.clone(), color: s.color.clone(), category: s.category.clone() }).collect();
-        let lyrics = self.session.lyrics().iter().map(|l| LyricDto { at: [l.at.num(), l.at.den()], text: l.text.clone(), hyphen: l.hyphen, verse: l.verse }).collect();
+        let lyrics = self.session.lyrics().iter().map(|l| LyricDto { at: [l.at.num(), l.at.den()], text: l.text.clone(), hyphen: l.hyphen, verse: l.verse, end: l.end.map(|e| [e.num(), e.den()]) }).collect();
         Event::Chords { revision: self.session.chord_revision(), track, skipped, structure, lyrics }
     }
 

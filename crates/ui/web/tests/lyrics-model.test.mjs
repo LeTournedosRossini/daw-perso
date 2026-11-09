@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, lyricsForClip, lyricsToText, noteOnsets, placeOnNotes, clearVerseRange, notesFromFirstSelected } from "../js/lyrics-model.js";
+import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, lyricsForClip, lyricsToText, noteOnsets, placeOnNotes, clearVerseRange, notesFromFirstSelected, noteSpans, syllableCount } from "../js/lyrics-model.js";
 
 test("un texte saisi se découpe en syllabes liées ou non", () => {
   const p = parseLyricsText("ma-man est la plus bel-le");
@@ -126,4 +126,31 @@ test("les syllabes démarrent à la première note sélectionnée, accord compri
   assert.deepEqual(notesFromFirstSelected(clipD, [2, 4]), [1, 2, 3, 4, 5]); // la plus tôt des deux : 1/4 (note 2 de l'accord)
   assert.equal(notesFromFirstSelected(clipD, [99]), null);
   assert.deepEqual(noteOnsets(clipD, notesFromFirstSelected(clipD, [3])), [[17, 8], [5, 2]]);
+});
+
+test("« _ » prolonge la syllabe sur la note suivante : un trait de prolongation jusqu'à la fin de cette note", () => {
+  const items = parseLyricsText("ma _ _ man est");
+  assert.equal(syllableCount(items), 3);
+  const spans = noteSpans(clipD); // instants 2, 17/8, 5/2 (la note la plus longue de chaque instant)
+  assert.deepEqual(spans.map((s) => s.at), [[2, 1], [17, 8], [5, 2]]);
+  const { placed, extra } = placeOnNotes(items, spans, 1);
+  assert.equal(extra, 2); // 5 éléments pour 3 notes : 2 éléments en trop (man, est)
+  assert.deepEqual(placed.map((s) => s.text), ["ma"]);
+  assert.deepEqual(placed[0].end, spans[2].end); // le trait court jusqu'à la fin de la 3e note
+  // un « _ » sans syllabe devant est compté en trop, pas posé
+  const lead = placeOnNotes(parseLyricsText("_ ma"), spans, 1);
+  assert.deepEqual(lead.placed.map((s) => s.text), ["ma"]);
+  assert.equal(lead.extra, 1);
+});
+
+test("un mélisme se relit en « _ » et le trait part vers le module dans le repère des notes", () => {
+  const spans = noteSpans(clipD);
+  const { placed } = placeOnNotes(parseLyricsText("ma _ man"), spans, 1);
+  const list = [...placed];
+  assert.equal(lyricsToText(list, 1, spans.map((s) => s.at)), "ma _ man");
+  const out = lyricsForClip(list, clipD);
+  assert.equal(out.length, 2);
+  assert.ok(out[0].end, "la fin du trait est transmise");
+  assert.deepEqual(out[0].end, [1, 2]); // fin absolue 9/4 (fin de la 2e note) − début du clip 2 + décalage de matière 1/4
+  assert.equal(out[1].end, undefined);
 });

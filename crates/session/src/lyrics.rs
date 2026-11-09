@@ -19,6 +19,8 @@ pub struct Syllable {
     pub hyphen: bool,
     /// Numéro de couplet, de 1 à [`MAX_VERSE`].
     pub verse: u8,
+    /// Fin du trait de prolongation (mélisme : la syllabe se prolonge sur plusieurs notes) ; `None` : pas de trait. Strictement après `at`.
+    pub end: Option<Frac>,
 }
 
 /// Trie par instant puis par couplet (tri stable).
@@ -38,6 +40,9 @@ pub fn validate(list: &[Syllable]) -> Result<(), String> {
         }
         if s.verse < 1 || s.verse > MAX_VERSE {
             return Err(format!("couplet {} invalide (1 à {MAX_VERSE})", s.verse));
+        }
+        if s.end.is_some_and(|e| e <= s.at) {
+            return Err("la fin d'un trait de prolongation doit suivre le début de la syllabe".into());
         }
         if let Some(n) = list.get(i + 1) {
             if n.at == s.at && n.verse == s.verse {

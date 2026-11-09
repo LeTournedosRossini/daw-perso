@@ -997,11 +997,12 @@ export class MockEngine extends EngineClient {
         }) && (this.#emitChords(), true);
       case "set_lyrics":
         return this.#edit(msg.label ?? "Modifier les paroles", msg, () => {
-          const list = structuredClone(msg.syllables).map((s) => ({ at: s.at, text: s.text, hyphen: !!s.hyphen, verse: s.verse ?? 1 })).sort((a, b) => fcmp(a.at, b.at) || a.verse - b.verse);
+          const list = structuredClone(msg.syllables).map((s) => ({ at: s.at, text: s.text, hyphen: !!s.hyphen, verse: s.verse ?? 1, ...(s.end ? { end: s.end } : {}) })).sort((a, b) => fcmp(a.at, b.at) || a.verse - b.verse);
           for (const [i, s] of list.entries()) {
             if (!(s.at[1] > 0)) throw new Error("set_lyrics : fraction à dénominateur nul");
             if (!s.text || s.text.length > 40 || /\s/.test(s.text)) throw new Error(`syllabe invalide « ${s.text} » (1 à 40 caractères, sans espace)`);
             if (s.verse < 1 || s.verse > 8) throw new Error(`couplet ${s.verse} invalide (1 à 8)`);
+            if (s.end && fcmp(s.end, s.at) <= 0) throw new Error("la fin d'un trait de prolongation doit suivre le début de la syllabe");
             const n = list[i + 1];
             if (n && n.verse === s.verse && fcmp(n.at, s.at) === 0) throw new Error("deux syllabes au même instant dans le même couplet");
           }

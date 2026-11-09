@@ -72,6 +72,9 @@ pub struct LyricDto {
     pub hyphen: bool,
     #[serde(default = "first_verse")]
     pub verse: u8,
+    /// Fin du trait de prolongation (mélisme), fraction de ronde ; absent : pas de trait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<[u64; 2]>,
 }
 
 fn first_verse() -> u8 {

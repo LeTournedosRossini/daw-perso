@@ -153,6 +153,8 @@ struct LyricDto {
     hyphen: bool,
     #[serde(default = "one_verse", skip_serializing_if = "is_first_verse")]
     verse: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end: Option<FracDto>,
 }
 
 fn one_verse() -> u8 {
@@ -701,7 +703,7 @@ impl Session {
             nodes,
             chord_track: if self.chords.is_empty() { None } else { serde_json::from_str(&self.chords.to_carte_json("")).ok() },
             groups: self.groups.iter().map(|g| GroupDto { id: g.id, name: g.name.clone(), color: g.color.clone() }).collect(),
-            lyrics: self.lyrics.iter().map(|l| LyricDto { at: frac_to(l.at), text: l.text.clone(), hyphen: l.hyphen, verse: l.verse }).collect(),
+            lyrics: self.lyrics.iter().map(|l| LyricDto { at: frac_to(l.at), text: l.text.clone(), hyphen: l.hyphen, verse: l.verse, end: l.end.map(frac_to) }).collect(),
             structure: self.structure.iter().map(|s| SectionDto { at: frac_to(s.at), dur: frac_to(s.dur), name: s.name.clone(), color: s.color.clone(), category: s.category.clone() }).collect(),
         };
         let json = serde_json::to_string_pretty(&file).map_err(|e| ProjectError::Parse(e.to_string()))?;
@@ -891,7 +893,7 @@ impl Session {
         if !file.lyrics.is_empty() {
             let mut list = Vec::new();
             for d in &file.lyrics {
-                list.push(crate::lyrics::Syllable { at: frac_from(d.at)?, text: d.text.clone(), hyphen: d.hyphen, verse: d.verse });
+                list.push(crate::lyrics::Syllable { at: frac_from(d.at)?, text: d.text.clone(), hyphen: d.hyphen, verse: d.verse, end: d.end.map(frac_from).transpose()? });
             }
             crate::lyrics::normalize(&mut list);
             crate::lyrics::validate(&list).map_err(ProjectError::BadGraph)?;

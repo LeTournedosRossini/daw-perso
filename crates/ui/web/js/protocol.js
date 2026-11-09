@@ -134,7 +134,8 @@ export function validateCommand(m) {
       return m.sections.every((s) => s.category === undefined || s.category === null || CATEGORIES.includes(s.category)) ? null : "set_structure : catégorie inconnue";
     case "set_lyrics":
       if (!(Array.isArray(m.syllables) && m.syllables.every((s) => s && Array.isArray(s.at) && s.at.length === 2 && typeof s.text === "string"))) return "set_lyrics : syllables (liste de { at, text }) requises";
-      return m.syllables.every((s) => s.verse === undefined || (Number.isInteger(s.verse) && s.verse >= 1 && s.verse <= 8)) ? null : "set_lyrics : couplet de 1 à 8";
+      if (!m.syllables.every((s) => s.verse === undefined || (Number.isInteger(s.verse) && s.verse >= 1 && s.verse <= 8))) return "set_lyrics : couplet de 1 à 8";
+      return m.syllables.every((s) => s.end === undefined || (Array.isArray(s.end) && s.end.length === 2 && s.end[1] > 0 && s.end[0] * s.at[1] > s.at[0] * s.end[1])) ? null : "set_lyrics : la fin d'un trait de prolongation doit suivre le début";
     case "import_chords":
     case "export_chords":
       return typeof m.path === "string" && m.path.trim() ? null : `${m.type} : path requis`;

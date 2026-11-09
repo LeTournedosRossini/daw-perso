@@ -87,3 +87,40 @@ fn invalid_lyrics_are_refused_without_a_trace() {
     let ev = h.command_json(r#"{"type":"undo"}"#);
     assert_eq!(lyrics(&ev).unwrap().len(), 0, "une seule action dans l'historique");
 }
+
+fn ends(ev: &[Event]) -> Option<Vec<Option<[u64; 2]>>> {
+    ev.iter().rev().find_map(|e| if let Event::Chords { lyrics, .. } = e { Some(lyrics.iter().map(|l| l.end).collect()) } else { None })
+}
+
+#[test]
+fn a_melisma_keeps_its_extension_line_end_through_undo_and_the_project_file() {
+    let dir = std::env::temp_dir().join(format!("daw-melisma-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = host();
+    let ev = h.command_json(r#"{"type":"set_lyrics","syllables":[{"at":[0,1],"text":"a","end":[3,4]},{"at":[1,1],"text":"men"}]}"#);
+    assert!(errors(&ev).is_empty(), "{:?}", errors(&ev));
+    assert_eq!(ends(&ev).unwrap(), vec![Some([3, 4]), None]);
+
+    // Une fin qui ne suit pas le début, ou à dénominateur nul : refusée, rien ne change.
+    for bad in [
+        r#"{"type":"set_lyrics","syllables":[{"at":[1,2],"text":"a","end":[1,2]}]}"#,
+        r#"{"type":"set_lyrics","syllables":[{"at":[1,2],"text":"a","end":[1,4]}]}"#,
+        r#"{"type":"set_lyrics","syllables":[{"at":[1,2],"text":"a","end":[1,0]}]}"#,
+    ] {
+        let ev = h.command_json(bad);
+        assert_eq!(errors(&ev).len(), 1, "refus attendu pour {bad}");
+    }
+    assert_eq!(ends(&h.command_json(r#"{"type":"get_project"}"#)).unwrap(), vec![Some([3, 4]), None]);
+
+    let path = dir.join("m.daw");
+    let p = serde_json::to_string(&path.to_string_lossy()).unwrap();
+    assert!(errors(&h.command_json(&format!(r#"{{"type":"save_project","path":{p}}}"#))).is_empty());
+    let json = std::fs::read_to_string(path.join("projet.json")).unwrap();
+    assert!(json.contains(r#""end""#), "la fin est écrite dans le projet");
+    let mut h2 = host();
+    let ev = h2.command_json(&format!(r#"{{"type":"open_project","path":{p}}}"#));
+    assert!(errors(&ev).is_empty(), "{:?}", errors(&ev));
+    assert_eq!(ends(&h2.command_json(r#"{"type":"get_project"}"#)).unwrap(), vec![Some([3, 4]), None]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

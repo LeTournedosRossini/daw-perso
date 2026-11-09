@@ -14,6 +14,10 @@ export function parseLyricsText(text) {
   const out = [];
   for (const word of String(text ?? "").split(/\s+/)) {
     if (!word) continue;
+    if (word === "_") {
+      out.push({ extend: true }); // « _ » : la syllabe précédente se prolonge sur la note suivante (mélisme)
+      continue;
+    }
     const parts = word.split("-");
     parts.forEach((part, i) => {
       if (!part) return;
@@ -23,6 +27,9 @@ export function parseLyricsText(text) {
   }
   return out;
 }
+
+/** Les « _ » d'un texte ne sont pas des syllabes : leur nombre ne compte pas parmi les syllabes. */
+export const syllableCount = (items) => items.filter((it) => !it.extend).length;
 
 /** Une syllabe telle qu'on la saisit et l'affiche : « ma- » quand elle continue le mot. */
 export const syllableLabel = (s) => `${s.text}${s.hyphen ? "-" : ""}`;
@@ -59,19 +66,23 @@ export function lyricsForClip(list, d) {
     .filter((s) => fcmp(s.at, from) >= 0 && fcmp(s.at, to) < 0)
     .map((s) => {
       const rel = fadd(fnorm([s.at[0] * from[1] - from[0] * s.at[1], s.at[1] * from[1]]), d.offset);
-      return { start: rel, text: s.text, hyphen: !!s.hyphen, verse: s.verse ?? 1 };
+      const out = { start: rel, text: s.text, hyphen: !!s.hyphen, verse: s.verse ?? 1 };
+      if (s.end && fcmp(s.end, s.at) > 0) out.end = fadd(fsub(s.end, from), d.offset); // trait de prolongation (même repère que `start`)
+      return out;
     });
 }
 
 /** Le texte d'un couplet tel qu'on le saisit : « ma-man est la plus bel-le » (une syllabe liée s'écrit collée à la suivante). */
-export function lyricsToText(list, verse) {
+export function lyricsToText(list, verse, onsets = null) {
   const sorted = list.filter((s) => (s.verse ?? 1) === verse).sort((a, b) => fcmp(a.at, b.at));
-  let out = "";
-  sorted.forEach((s, i) => {
-    out += syllableLabel(s);
-    if (!s.hyphen && i < sorted.length - 1) out += " ";
+  const tokens = [];
+  sorted.forEach((s) => {
+    // Un mélisme se relit en « _ » : un par note dont le début tombe sous le trait de prolongation.
+    const under = s.end && onsets ? onsets.filter((o) => fcmp(o, s.at) > 0 && fcmp(o, s.end) < 0).length : 0;
+    tokens.push({ label: syllableLabel(s), glued: s.hyphen && !under });
+    for (let k = 0; k < under; k++) tokens.push({ label: "_", glued: false });
   });
-  return out;
+  return tokens.map((t, i) => (i < tokens.length - 1 && !t.glued ? `${t.label} ` : t.label)).join("");
 }
 
 /**
@@ -91,16 +102,52 @@ export function noteOnsets(d, only = null) {
   return onsets.sort(fcmp);
 }
 
+/** Comme `noteOnsets`, avec la fin de chaque instant (la fin de la note la plus longue qui y commence) : [{ at, end }]. */
+export function noteSpans(d, only = null) {
+  const lo = d.offset;
+  const hi = fadd(d.offset, d.len);
+  const spans = [];
+  d.notes.forEach((n, i) => {
+    if (only?.length && !only.includes(i)) return;
+    if (fcmp(n.start, lo) < 0 || fcmp(n.start, hi) >= 0) return;
+    const at = fadd(d.start, fsub(n.start, d.offset));
+    const end = fadd(at, n.len);
+    const same = spans.find((s) => fcmp(s.at, at) === 0);
+    if (same) same.end = fcmp(end, same.end) > 0 ? end : same.end;
+    else spans.push({ at, end });
+  });
+  return spans.sort((a, b) => fcmp(a.at, b.at));
+}
+
 /**
- * Pose une syllabe par instant de note (`onsets`, triés) dans le couplet `verse` ; les syllabes en trop (plus que de notes) sont comptées
- * dans `extra`, les notes sans syllabe restent muettes. Aucune syllabe ne dépasse le dernier instant fourni.
+ * Pose une syllabe par instant de note (`spans` : [{ at, end }] triés, ou simples instants `[n, d]`) dans le couplet `verse`. Un « _ » (mélisme) consomme
+ * la note suivante sans syllabe : la syllabe précédente reçoit un trait de prolongation (`end`) jusqu'à la fin de cette note. Les éléments en trop (plus que
+ * de notes, ou un « _ » sans syllabe devant) sont comptés dans `extra` ; les notes sans élément restent muettes.
  */
-export function placeOnNotes(items, onsets, verse) {
-  const n = Math.min(items.length, onsets.length);
-  return {
-    placed: items.slice(0, n).map((it, k) => ({ at: onsets[k], text: it.text, hyphen: !!it.hyphen, verse })),
-    extra: items.length - n,
-  };
+export function placeOnNotes(items, spans, verse) {
+  const slots = spans.map((s) => (Array.isArray(s) ? { at: s, end: null } : s));
+  const placed = [];
+  let k = 0;
+  let extra = 0;
+  for (const it of items) {
+    if (k >= slots.length) {
+      extra++;
+      continue;
+    }
+    if (it.extend) {
+      const prev = placed[placed.length - 1];
+      if (!prev) {
+        extra++;
+        continue;
+      }
+      if (slots[k].end) prev.end = slots[k].end;
+      k++;
+    } else {
+      placed.push({ at: slots[k].at, text: it.text, hyphen: !!it.hyphen, verse });
+      k++;
+    }
+  }
+  return { placed, extra };
 }
 
 /** Retire les syllabes du couplet `verse` dont l'instant est dans [from, to[ (ce qu'un nouveau texte posé sur ce clip remplace). */

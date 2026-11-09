@@ -9,7 +9,7 @@ import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction } from "../score-adapter.js";
 import { GRIDS, gridById, noteId, displayGrid } from "../notes-model.js";
 import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockIndices } from "../section-blocks.js";
-import { lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
+import { lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
 import { clampDockRows, clampWindowPos, dragPos, DOCK_ROWS_DEFAULT } from "../window-pos.js";
@@ -327,12 +327,12 @@ export class ScoreWindow {
     const from = d.start;
     const to = fadd(d.start, d.len);
     const inClip = (v) => list.filter((s) => (s.verse ?? 1) === v).filter((s) => fcmpAbs(s.at, from) >= 0 && fcmpAbs(s.at, to) < 0);
-    const fill = () => (text.value = lyricsToText(inClip(Number(verse.value)), Number(verse.value)));
+    const fill = () => (text.value = lyricsToText(inClip(Number(verse.value)), Number(verse.value), noteOnsets(d)));
     verse.addEventListener("change", fill);
     fill();
     const hint = document.createElement("div");
     hint.className = "cd-hint";
-    hint.textContent = it.sel.length ? "Une syllabe par note, à partir de la première note sélectionnée." : "Une syllabe par note, à partir de la première note du clip.";
+    hint.textContent = `${it.sel.length ? "Une syllabe par note, à partir de la première note sélectionnée." : "Une syllabe par note, à partir de la première note du clip."} « _ » prolonge la syllabe sur la note suivante.`;
     const info = document.createElement("div");
     info.className = "cd-hint";
     const row = document.createElement("div");
@@ -346,20 +346,20 @@ export class ScoreWindow {
     const ok = mk("Placer sur les notes", () => {
       const v = Number(verse.value);
       const items = parseLyricsText(text.value);
-      const onsets = noteOnsets(d, it.sel.length ? notesFromFirstSelected(d, it.sel) : null);
+      const spans = noteSpans(d, it.sel.length ? notesFromFirstSelected(d, it.sel) : null);
       if (!items.length) {
         // Un texte vide efface les paroles de ce couplet sur ce clip.
         if (!inClip(v).length) return (info.textContent = "Écris au moins une syllabe.");
         this.client.send({ type: "set_lyrics", syllables: clearVerseRange(list, v, from, to), label: "Effacer des paroles" });
         return pop.remove();
       }
-      if (!onsets.length) return (info.textContent = "Ce clip n'a pas de note à laquelle accrocher les syllabes.");
-      const { placed, extra } = placeOnNotes(items, onsets, v);
+      if (!spans.length) return (info.textContent = "Ce clip n'a pas de note à laquelle accrocher les syllabes.");
+      const { placed, extra } = placeOnNotes(items, spans, v);
       // Remplace ce couplet sur la plage couverte (de la première note posée à la fin du clip si la sélection part du milieu).
-      const base = clearVerseRange(list, v, onsets[0], to);
+      const base = clearVerseRange(list, v, spans[0].at, to);
       this.state.lyricVerse = v;
       this.client.send({ type: "set_lyrics", syllables: [...base, ...placed].sort((a, b) => fcmpAbs(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)), label: "Écrire des paroles" });
-      if (extra > 0) return (info.textContent = `${extra} syllabe${extra > 1 ? "s" : ""} en trop (plus que de notes) : ${extra > 1 ? "elles n'ont" : "elle n'a"} pas été placée${extra > 1 ? "s" : ""}.`);
+      if (extra > 0) return (info.textContent = `${extra} syllabe${extra > 1 ? "s" : ""} en trop (plus que de notes, ou « _ » sans syllabe devant) : ${extra > 1 ? "elles n'ont" : "elle n'a"} pas été placée${extra > 1 ? "s" : ""}.`);
       pop.remove();
     });
     row.append(mk("Fermer", () => pop.remove()), ok);

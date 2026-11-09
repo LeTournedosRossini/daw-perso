@@ -253,7 +253,8 @@ export class ChordLane {
       const list = verseSyllables(this.state.lyrics ?? [], this.state.lyricVerse ?? 1);
       return list.map((s, i) => {
         const x0 = this.#xf(s.at);
-        const next = list[i + 1] ? this.#xf(list[i + 1].at) : x0 + 60;
+        // Un mélisme (`end`) occupe tout son trait de prolongation ; sinon la syllabe va jusqu'à la suivante.
+        const next = s.end ? this.#xf(s.end) : list[i + 1] ? this.#xf(list[i + 1].at) : x0 + 60;
         return { index: s.index, item: s, x0, x1: Math.max(x0 + 8, next - 1), y0: top + 1, y1: top + h - 1 };
       });
     }
@@ -273,7 +274,7 @@ export class ChordLane {
       const b = list[i];
       if (y < b.y0 || y > b.y1 || x < b.x0 - 2 || x > b.x1 + 2) continue;
       const w = b.x1 - b.x0;
-      const zone = kind === "keys" || kind === "lyrics" ? "body" : x <= b.x0 + EDGE && w > 3 * EDGE ? "start" : x >= b.x1 - EDGE && w > 3 * EDGE ? "end" : "body";
+      const zone = kind === "keys" ? "body" : kind === "lyrics" ? (x >= b.x1 - EDGE && w > 3 * EDGE ? "end" : "body") : x <= b.x0 + EDGE && w > 3 * EDGE ? "start" : x >= b.x1 - EDGE && w > 3 * EDGE ? "end" : "body";
       return { ...b, zone };
     }
     return null;
@@ -393,16 +394,20 @@ export class ChordLane {
     const { whole } = this.#wholeAt(e);
     const snapped = d.kind === "section" || d.kind === "key" ? this.#barSnap(whole, e.altKey) : this.#wholeAt(e).snapped;
     const o = d.orig;
-    if (d.zone === "body") {
+    if (d.kind === "lyric" && d.zone === "end") {
+      // Tirer la fin d'une syllabe crée ou règle son trait de prolongation ; la ramener au début le supprime.
+      const { end: _gone, ...rest } = o;
+      d.preview = fcmp(snapped, o.at) > 0 ? { ...rest, end: snapped } : rest;
+    } else if (d.zone === "body") {
       const dx = whole - d.grab;
       const start = d.kind === "section" || d.kind === "key" ? this.#barSnap(Math.max(0, fnum(o.at) + dx), e.altKey) : snapWhole(Math.max(0, fnum(o.at) + dx), e.altKey ? null : this.grid);
-      d.preview = { ...o, at: start };
+      d.preview = { ...o, at: start, ...(d.kind === "lyric" && o.end ? { end: fadd(start, fsub(o.end, o.at)) } : {}) };
     } else {
       const end = d.zone === "end" ? snapped : fadd(o.at, o.dur);
       const start = d.zone === "start" ? snapped : o.at;
       d.preview = fcmp(end, start) > 0 ? { ...o, at: start, dur: fsub(end, start) } : null;
     }
-    d.moved = d.moved || Math.abs(fnum(d.preview?.at ?? o.at) - fnum(o.at)) > 1e-9 || (o.dur && Math.abs(fnum(d.preview?.dur ?? o.dur) - fnum(o.dur)) > 1e-9);
+    d.moved = d.moved || (d.kind === "lyric" && fnum(d.preview?.end ?? [0, 1]) !== fnum(o.end ?? [0, 1])) || Math.abs(fnum(d.preview?.at ?? o.at) - fnum(o.at)) > 1e-9 || (o.dur && Math.abs(fnum(d.preview?.dur ?? o.dur) - fnum(o.dur)) > 1e-9);
     this.timeline.dirty = true;
   }
 
@@ -422,8 +427,9 @@ export class ChordLane {
     }
     if (d.kind === "lyric") {
       const list = structuredClone(this.state.lyrics);
-      list[d.index] = { ...list[d.index], at: normFrac(p.at) };
-      this.#sendLyrics(list, "Déplacer une syllabe");
+      const { end: _old, ...base } = list[d.index];
+      list[d.index] = { ...base, at: normFrac(p.at), ...(p.end ? { end: normFrac(p.end) } : {}) };
+      this.#sendLyrics(list, d.zone === "end" ? (p.end ? "Prolonger une syllabe" : "Retirer un trait de prolongation") : "Déplacer une syllabe");
       return;
     }
     const t = structuredClone(this.track);
