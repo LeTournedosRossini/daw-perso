@@ -31,7 +31,9 @@
   #fx-params .fp .pn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #fx-params .fp output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
   #fx-params .fp input[type=range] { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; touch-action: pan-y; }
-  .mx button.fx { min-width: 44px; }
+  .mx .who { cursor: default; }
+  .mx.has-fx .who { cursor: pointer; }
+  .mx.has-fx .name::after { content: ' ▸'; color: var(--accent); }
   /* Tablette en paysage (régie) : deux écrans et une barre fine toujours là.
      - Mixeur : les tranches (faders verticaux) occupent tout l'écran, par bancs de 8, 12 ou 16 pistes.
      - Édition : à gauche les plugins de la piste, à droite les seize paramètres du plugin choisi.
@@ -76,14 +78,14 @@
     body.tablet #secpanel .secs button { flex: none; min-width: 110px; height: 30px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
     body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
     /* Mixeur : tranches à toute la hauteur */
-    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - var(--sec-h) - 266px), 620px); }
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - var(--sec-h) - 222px), 620px); }
     body.tab-mix.view-edit #mixlist { display: none; }
     body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
     body.tab-mix .mx.master { order: 99; border-top-color: var(--text); }
     body.tab-mix .mx .row { display: contents; }
     body.tab-mix .mx .who { order: 1; max-width: 100%; justify-content: center; flex: none; }
     body.tab-mix .mx .name { font-size: 12px; max-width: 100%; }
-    body.tab-mix .mx .btns { order: 2; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 36px; gap: 4px; width: 100%; min-height: 116px; align-content: start; }
+    body.tab-mix .mx .btns { order: 2; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 36px; gap: 4px; width: 100%; min-height: 76px; align-content: start; }
     body.tab-mix .mx .btns button { min-width: 0; height: 36px; padding: 0; white-space: nowrap; font-size: 13px; }
     body.tab-mix .mx .fader { order: 3; position: relative; width: 100%; height: var(--fh); flex: none; }
     body.tab-mix .mx .fader input.lvl { position: absolute; left: calc(50% - 22px); top: var(--fh); width: var(--fh); height: 44px; transform-origin: 0 0; transform: rotate(-90deg); touch-action: none; }
@@ -981,10 +983,9 @@ function buildMix(n) {
   root.style.setProperty("--c", n.color || "var(--accent)");
   const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
   const autoBtn = n.auto ? '<button class="am" aria-label="Automation">A</button>' : "";
-  const fxBtn = n.inserts?.length ? '<button class="fx" aria-label="Plugins de la piste">fx ' + n.inserts.length + "</button>" : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
   const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><div class="knob pan" role="slider" tabindex="0" aria-label="Panoramique" aria-valuemin="-1" aria-valuemax="1"><i></i></div><span class="pv"></span></div>';
-  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + autoBtn + fxBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + autoBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
   const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
   r.range.min = DB_MIN; r.range.max = DB_MAX;
@@ -998,7 +999,11 @@ function buildMix(n) {
   if (r.pan) bindPanKnob(r, n, postFx);
   const flag = (btn, key) => btn?.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("x" + key + n.id, Date.now() + 700); postMix({ node: n.id, [key]: r[key] }); });
   flag(r.m, "mute"); flag(r.s, "solo"); flag(r.a, "arm");
-  root.querySelector(".fx")?.addEventListener("click", () => openFx(n.id));
+  // Toucher le nom de la piste ouvre son édition (plugins et réglages) quand elle a des plugins.
+  root.querySelector(".who").addEventListener("click", () => {
+    const cur = (fxState?.mix?.nodes ?? []).find((x) => x.id === n.id);
+    if (cur?.inserts?.length) openFx(n.id);
+  });
   r.am = root.querySelector(".am");
   r.am?.addEventListener("click", () => {
     const cur = (fxState?.mix?.nodes ?? []).find((x) => x.id === n.id) ?? n;
@@ -1067,6 +1072,7 @@ function showMix(mix) {
     if (r.a && !holding("xarm" + n.id)) { r.arm = !!n.arm; press(r.a, r.arm); }
     r.root.style.opacity = r.mute || (anySolo && !n.solo && n.kind !== "master") ? ".55" : "1";
     showLed(r.led, n.peak);
+    r.root.classList.toggle("has-fx", !!n.inserts?.length);
     if (r.am) setAutoButton(r.am, n.auto?.gain ?? "none", n.auto?.pan ?? "none");
   }
   applyBank(mix);
