@@ -360,6 +360,10 @@ pub struct Host {
     recovery_offer: Option<Event>,
     /// Dernier refus d'une commande de télécommande (montré sur la tablette quelques secondes).
     remote_msg: Option<(Instant, String)>,
+    /// Le transport vient d'être mis en pause (arrêt pendant la lecture) : reprendre la lecture reprend là, sans pré-roll. Un déplacement de la tête l'annule.
+    paused: bool,
+    /// Où la tête a été placée par le dernier déplacement (le moteur ne la rend qu'au prochain bloc : la lecture qui suit part de là).
+    head_hint: Option<u64>,
     /// Empreinte des cartes de tempo et de chiffrage dont le clic a été fabriqué.
     click_key: String,
     /// Post-roll en cours : position à laquelle l'enregistrement s'arrêtera.
@@ -386,7 +390,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -487,12 +491,26 @@ impl Host {
                 if matches!(action, TransportAction::Stop) || (matches!(action, TransportAction::Toggle) && self.playing) {
                     events.extend(self.begin_stop_recording());
                 }
+                let was_playing = self.playing;
                 self.playing = match action {
                     TransportAction::Play => true,
                     TransportAction::Stop => false,
                     TransportAction::Toggle => !self.playing,
                 };
                 let before = self.handle.position();
+                if self.playing && !was_playing {
+                    // Pré-roll à la lecture : une lecture qui démarre d'une tête placée par un déplacement (règle, section, retour au début) part
+                    // du pré-roll avant elle ; reprendre après une pause ne bouge pas. Sans pré-roll réglé, rien ne change.
+                    let head = self.head_hint.take().unwrap_or(before);
+                    let pre = if self.paused { 0 } else { self.pre_roll_samples(head) };
+                    if pre > 0 && head > 0 {
+                        self.handle.send(EngineCommand::Seek(head.saturating_sub(pre)));
+                    }
+                    self.paused = false;
+                } else if was_playing && !self.playing {
+                    self.paused = true;
+                    self.head_hint = None;
+                }
                 self.handle.send(if self.playing { EngineCommand::Play } else { EngineCommand::Stop });
                 events.extend(if self.playing { self.write_begin() } else { self.write_end(before) });
                 events.push(self.position_event());
@@ -505,6 +523,8 @@ impl Host {
                 let mut events = self.end_preview(true, false);
                 events.extend(self.write_end(self.handle.position()));
                 self.handle.send(EngineCommand::Seek(pos));
+                self.paused = false;
+                self.head_hint = Some(pos);
                 events.push(Event::Position { pos, playing: self.playing, loop_range: self.loop_range });
                 events
             }
