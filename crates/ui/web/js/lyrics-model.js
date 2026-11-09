@@ -155,6 +155,72 @@ export function clearVerseRange(list, verse, from, to) {
   return list.filter((s) => (s.verse ?? 1) !== verse || fcmp(s.at, from) < 0 || fcmp(s.at, to) >= 0);
 }
 
+// ---- réserve de syllabes (pastilles posées sur les notes) -----------------------------------------------------------------------
+// Une pastille : { text, hyphen, at (fraction absolue de ronde, ou null : elle attend), end? }. L'ordre des mots ne change jamais.
+
+/** Les pastilles d'un texte (« ma-man est la plus bel-le ») : toutes en attente. Les « _ » ne sont pas des pastilles (le trait se règle par la fenêtre « Paroles… »). */
+export function chipsFromText(text) {
+  return parseLyricsText(text).filter((i) => !i.extend).map((i) => ({ text: i.text, hyphen: !!i.hyphen, at: null }));
+}
+
+/** Les pastilles d'un couplet déjà posé sur une plage du projet : toutes placées, dans l'ordre. */
+export function chipsFromLyrics(list, verse, from, to) {
+  return list
+    .filter((s) => (s.verse ?? 1) === verse && fcmp(s.at, from) >= 0 && fcmp(s.at, to) < 0)
+    .sort((a, b) => fcmp(a.at, b.at))
+    .map((s) => ({ text: s.text, hyphen: !!s.hyphen, at: s.at, ...(s.end ? { end: s.end } : {}) }));
+}
+
+/** L'instant de `onsets` le plus proche de `at` (`null` s'il n'y en a pas). */
+export function nearestOnset(onsets, at) {
+  let best = null;
+  let bestD = Infinity;
+  for (const o of onsets) {
+    const dist = Math.abs(o[0] / o[1] - at[0] / at[1]);
+    if (dist < bestD) [best, bestD] = [o, dist];
+  }
+  return best;
+}
+
+/**
+ * Pose la pastille `k` à l'instant `at` (un des `onsets` des notes). Règle de l'ordre : une pastille ne passe jamais devant une pastille placée
+ * avant elle (refus : `null`) ; celles qui la suivent et qui se trouveraient au même instant ou avant sont poussées sur les notes suivantes
+ * (refus s'il n'y en a plus). Une pastille qui change de place perd son trait de prolongation.
+ */
+export function placeChip(chips, k, at, onsets) {
+  if (!chips[k]) return null;
+  for (let i = 0; i < k; i++) if (chips[i].at && fcmp(chips[i].at, at) >= 0) return null;
+  const out = chips.map((c) => ({ ...c }));
+  const move = (c, to) => {
+    if (!c.at || fcmp(c.at, to) !== 0) delete c.end;
+    c.at = to;
+  };
+  move(out[k], at);
+  let cur = at;
+  for (let j = k + 1; j < out.length; j++) {
+    if (!out[j].at) continue;
+    if (fcmp(out[j].at, cur) > 0) {
+      cur = out[j].at;
+      continue;
+    }
+    const next = onsets.find((o) => fcmp(o, cur) > 0);
+    if (!next) return null;
+    move(out[j], next);
+    cur = next;
+  }
+  return out;
+}
+
+/** Retire la pastille `k` de la portée : elle attend de nouveau. */
+export function unplaceChip(chips, k) {
+  return chips.map((c, i) => (i === k ? { text: c.text, hyphen: c.hyphen, at: null } : { ...c }));
+}
+
+/** Les syllabes du projet que donnent les pastilles placées, dans le couplet `verse`. */
+export function chipsToSyllables(chips, verse) {
+  return chips.filter((c) => c.at).map((c) => ({ at: c.at, text: c.text, hyphen: !!c.hyphen, verse, ...(c.end ? { end: c.end } : {}) }));
+}
+
 /**
  * Saisie d'une syllabe au clic dans la partition (`lyricTap` du module : `start` depuis le début de la matière du clip, `verse`, `end` éventuel).
  * Rend la nouvelle liste de syllabes du projet et son libellé d'historique, ou `null` s'il n'y a rien à changer. Un texte vide supprime la syllabe

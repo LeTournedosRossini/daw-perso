@@ -188,3 +188,35 @@ test("lyricTap : saisie d'une syllabe au clic dans la partition", async () => {
   r = applyLyricTap([], trimmed, { start: [1, 2], verse: 1 }, "x");
   assert.deepEqual(r.syllables[0].at, at(1, 1));
 });
+
+test("réserve de syllabes : pastilles, pose, ordre des mots, poussée", async () => {
+  const m = await import("../js/lyrics-model.js");
+  const onsets = [[1, 1], [5, 4], [3, 2], [7, 4], [2, 1]]; // cinq notes
+  let chips = m.chipsFromText("ma-man est la _ plus");
+  assert.deepEqual(chips.map((c) => [c.text, c.hyphen, c.at]), [["ma", true, null], ["man", false, null], ["est", false, null], ["la", false, null], ["plus", false, null]]);
+  // Pose de la 1re sur la note 1 puis de la 3e sur la note 4 : ordre respecté.
+  chips = m.placeChip(chips, 0, onsets[0], onsets);
+  chips = m.placeChip(chips, 2, onsets[3], onsets);
+  assert.deepEqual(chips.map((c) => c.at), [[1, 1], null, [7, 4], null, null]);
+  // Une pastille ne passe pas devant la précédente placée.
+  assert.equal(m.placeChip(chips, 1, [1, 1], onsets), null, "même instant que la 1re");
+  assert.equal(m.placeChip(chips, 3, [5, 4], onsets), null, "avant la 3e, qui est placée avant elle");
+  // Poser la 1re sur la note de la 3e pousse celle-ci d'une note.
+  let pushed = m.placeChip(chips, 0, onsets[3], onsets);
+  assert.deepEqual(pushed.map((c) => c.at), [[7, 4], null, [2, 1], null, null]);
+  // Plus de note derrière : refus.
+  assert.equal(m.placeChip(pushed, 0, onsets[4], onsets), null);
+  // Le trait de prolongation se perd quand la pastille bouge.
+  const mel = [{ text: "a", hyphen: false, at: [1, 1], end: [3, 2] }, { text: "b", hyphen: false, at: [3, 2] }];
+  assert.deepEqual(m.placeChip(mel, 0, [1, 1], onsets)[0].end, [3, 2], "même place : le trait reste");
+  assert.equal(m.placeChip(mel, 0, [5, 4], onsets)[0].end, undefined);
+  // Retirer, convertir, relire.
+  const back = m.unplaceChip(chips, 2);
+  assert.equal(back[2].at, null);
+  const syl = m.chipsToSyllables(chips, 2);
+  assert.deepEqual(syl.map((s) => [s.text, s.hyphen, s.verse]), [["ma", true, 2], ["est", false, 2]]);
+  const list = [{ at: [1, 1], text: "x", hyphen: false, verse: 1 }, { at: [5, 4], text: "y", hyphen: true, verse: 2 }, { at: [3, 1], text: "z", hyphen: false, verse: 2 }];
+  assert.deepEqual(m.chipsFromLyrics(list, 2, [1, 1], [3, 1]).map((c) => c.text), ["y"]);
+  assert.deepEqual(m.nearestOnset(onsets, [4, 3]), [5, 4]);
+  assert.equal(m.nearestOnset([], [1, 1]), null);
+});

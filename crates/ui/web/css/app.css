@@ -787,6 +787,18 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .score-window .sc-other select { max-width: 9em; }
 @media (pointer: coarse) { .score-window .sc-dbtn { width: 40px; } }
 .chord-pop .cd-hint { font-size: 10px; color: var(--muted); max-width: 260px; }
+.score-window .sc-reserve { padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel-2); display: grid; gap: 6px; max-height: 40%; overflow: auto; }
+.score-window .sc-reserve[hidden] { display: none; }
+.score-window .sc-reserve .lr-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.score-window .sc-reserve .lr-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.score-window .sc-reserve .lr-text { padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; resize: vertical; }
+.score-window .sc-reserve .lr-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; }
+.score-window .sc-reserve .lr-hint { font-size: 11px; color: var(--muted); }
+.lr-chip { padding: 5px 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); font: inherit; cursor: grab; touch-action: none; user-select: none; }
+.lr-chip.placed { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); border-color: var(--accent); }
+.lr-chip.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lr-ghost { position: fixed; z-index: 10001; pointer-events: none; background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
+.score-window .sc-resbtn[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 .sc-lyrinput { padding: 2px 6px; border: 2px solid var(--accent); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
 .score-window .sc-lyrline[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 .score-window .sc-lyrpop { position: absolute; right: 10px; top: 44px; z-index: 5; width: min(300px, calc(100% - 20px)); }

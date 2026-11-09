@@ -12,6 +12,7 @@ import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockI
 import { applyLyricTap, lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
+import { LyricReserve } from "./lyric-reserve.js";
 import { clampDockRows, clampWindowPos, dragPos, DOCK_ROWS_DEFAULT } from "../window-pos.js";
 
 const SCALES = [0.5, 0.65, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
@@ -61,6 +62,7 @@ export class ScoreWindow {
         <span class="sc-group" role="group" aria-label="Taille de la portée"><button class="sc-smaller" title="Portée plus petite" aria-label="Portée plus petite">A−</button><span class="sc-size"></span><button class="sc-bigger" title="Portée plus grande" aria-label="Portée plus grande">A＋</button></span>
         <button class="sc-blocks" aria-pressed="true" title="Un titre par section de la forme : les pistes d'une même section se suivent" hidden>Par sections</button>
         <button class="sc-lyr" title="Écrire les paroles du clip : une syllabe par note">Paroles…</button>
+        <button class="sc-resbtn" aria-pressed="false" title="Réserve de paroles : les syllabes en pastilles, à glisser sur les notes">Réserve ♪</button>
         <button class="sc-lyrline" aria-pressed="false" title="Montre la ligne de paroles sous la portée : toucher une place (ou une syllabe) pour la saisir au clavier">Saisie ♪</button>
         <label class="sc-seek"><input type="checkbox" class="sc-seekbox"> Placer la tête de lecture</label>
         <button class="sc-roll" title="Ouvrir le clip courant dans le piano roll">Piano roll</button>
@@ -68,6 +70,7 @@ export class ScoreWindow {
         <button class="sc-fullbtn" title="Plein écran" aria-label="Plein écran"></button>
         <button class="close" aria-label="Fermer la partition">✕</button>
       </header>
+      <div class="sc-reserve" hidden></div>
       <div class="sc-body"><div class="sc-host"></div></div>
       <div class="sc-msg" hidden></div>
       <footer>Toucher : ajouter une note · glisser : déplacer · ↑ ↓ : hauteur (Maj : octave) · ← → : temps · Alt + ← → : durée · Suppr · deux doigts : défiler et zoomer</footer>`;
@@ -144,6 +147,35 @@ export class ScoreWindow {
       if (this.isOpen() && this.shown) this.#refreshAll();
     });
     this.root.querySelector(".sc-lyr").addEventListener("click", () => this.#lyricsPopup());
+    // Réserve de syllabes : brouillon des paroles montré par le module pendant qu'on pose les pastilles, écrit seulement à « Appliquer ».
+    this.draft = null;
+    this.reserve = new LyricReserve(this.root.querySelector(".sc-reserve"), {
+      clip: () => {
+        const it = this.items.get(this.cur);
+        return it?.data ? { id: this.cur, d: it.data } : null;
+      },
+      lyrics: () => this.state.lyrics ?? [],
+      view: () => this.view,
+      verse: () => this.state.lyricVerse ?? 1,
+      zoom: uiZoom,
+      resolve: (res) => {
+        const clip = this.blockMap.get(res.clip)?.clip ?? res.clip;
+        const d = this.items.get(clip)?.data;
+        if (clip !== this.cur || !d) return null;
+        return { clip, at: fadd(d.start, fsub(res.start, d.offset)) };
+      },
+      setDraft: (list) => {
+        this.draft = list;
+        this.#syncReserveBtn();
+        if (this.isOpen() && this.shown) for (const id of this.ids) this.#safeUpdate(id);
+      },
+      commit: (syllables, verse) => {
+        this.state.lyricVerse = verse;
+        this.client.send({ type: "set_lyrics", syllables, label: "Écrire des paroles" });
+      },
+    });
+    this.resBtn = this.root.querySelector(".sc-resbtn");
+    this.resBtn.addEventListener("click", () => (this.reserve.active ? this.reserve.close() : (this.reserve.open(), this.#syncReserveBtn())));
     // Ligne de paroles toujours réservée (pour pouvoir taper la première syllabe au clic) ; sinon elle n'apparaît que sous un clip qui a des paroles.
     this.lyrLine = store.get("daw-score-lyrline") === "1";
     this.lyrLineBtn = this.root.querySelector(".sc-lyrline");
@@ -229,6 +261,7 @@ export class ScoreWindow {
   }
 
   close() {
+    this.reserve?.close();
     this.#release();
     this.root.hidden = true;
     this.#undockState();
@@ -595,6 +628,7 @@ export class ScoreWindow {
     if (id === this.cur || !this.items.has(id)) return;
     this.cur = id;
     this.#syncControls();
+    this.reserve?.refresh();
   }
 
   #syncControls() {
@@ -834,7 +868,7 @@ export class ScoreWindow {
     const it = this.items.get(b.clip);
     const c = this.#clip(b.clip);
     const sel = b.indexMap ? toBlockIndices(it.sel, b.indexMap) : it.sel;
-    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), startInBar: startInBarOf(b.data.start, this.state.project?.meters), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data), ...(this.lyrLine ? { lyricsLine: true } : {}) } });
+    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.draft ?? this.state.lyrics ?? [], b.data), startInBar: startInBarOf(b.data.start, this.state.project?.meters), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data), ...(this.lyrLine ? { lyricsLine: true } : {}) } });
     // Avec un seul clip affiché, son nom sous chaque titre de section n'apprend rien : on le cache (avec plusieurs pistes il dit laquelle c'est).
     const named = this.ids.length > 1 || !b.section ? inp : { ...inp, hideName: true };
     return b.section ? { ...named, section: b.section } : named;
@@ -889,7 +923,7 @@ export class ScoreWindow {
       return;
     }
     if (cmd.type === "preview") return this.#preview(cmd, it);
-    if (cmd.type === "lyricTap") return this.#lyricTap(cmd, it);
+    if (cmd.type === "lyricTap") return this.reserve.active ? this.reserve.onTap(cmd, it.data) : this.#lyricTap(cmd, it);
     if (cmd.type === "delete") it.sel = [];
     const node = this.#clip(cmd.clip)?.node.id;
     for (const c of editToCommands(cmd, it.data, { node })) {
@@ -939,6 +973,10 @@ export class ScoreWindow {
     document.body.append(input);
     input.focus();
     input.select();
+  }
+
+  #syncReserveBtn() {
+    this.resBtn?.setAttribute("aria-pressed", String(!!this.reserve?.active));
   }
 
   #preview(cmd, it) {
