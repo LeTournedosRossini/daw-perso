@@ -26,6 +26,22 @@ test("validation : commandes valides et refusées", () => {
   assert.equal(gainToDb(0), -Infinity);
 });
 
+test("transport : par défaut la tête revient à son point de départ à l'arrêt", () => {
+  const e = new MockEngine();
+  const pos = collect(e, "position");
+  e.send({ type: "seek", pos: 12_000 });
+  e.send({ type: "transport", action: "play" });
+  e.advance(500);
+  assert.equal(pos.at(-1).pos, 36_000);
+  e.send({ type: "transport", action: "stop" });
+  assert.equal(pos.at(-1).pos, 12_000);
+  e.send({ type: "transport", action: "play" });
+  e.advance(250);
+  e.send({ type: "seek", pos: 60_000 }); // un déplacement pendant la lecture devient le nouveau point de départ
+  e.send({ type: "transport", action: "toggle" });
+  assert.equal(pos.at(-1).pos, 60_000);
+});
+
 test("get_project : projet complet et sans données de simulation", () => {
   const e = new MockEngine();
   const log = collect(e, "project");
@@ -41,6 +57,7 @@ test("get_project : projet complet et sans données de simulation", () => {
 
 test("transport : lecture, position, boucle, arrêt qui conserve la position", () => {
   const e = new MockEngine();
+  e.send({ type: "set_prefs", prefs: { ...e.prefs, transport: { play_pre_roll: false, return_on_stop: false } } });
   const pos = collect(e, "position");
   e.send({ type: "transport", action: "play" });
   e.advance(500);

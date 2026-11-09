@@ -35,6 +35,7 @@ impl Host {
             "sections": sections,
             "pre_roll_bars": if self.metro.pre_roll_unit == PreRollUnit::Bars { self.metro.pre_roll_bars } else { 0 },
             "click": self.metro.enabled,
+            "play_pre_roll": self.prefs.transport.play_pre_roll,
             "msg": msg,
         })
     }
@@ -64,6 +65,11 @@ impl Host {
             RemoteCmd::PreRoll(bars) => {
                 let m = &self.metro;
                 self.command(Command::SetMetronome { enabled: m.enabled, only_recording: m.only_recording, volume: m.volume, count_in_bars: m.count_in_bars, pre_roll: m.pre_roll, post_roll: m.post_roll, pre_roll_bars: bars, pre_roll_unit: PreRollUnit::Bars })
+            }
+            RemoteCmd::PlayPreRoll(on) => {
+                let mut prefs = self.prefs.clone();
+                prefs.transport.play_pre_roll = on;
+                self.command(Command::SetPrefs { prefs })
             }
             RemoteCmd::Click(on) => {
                 let m = &self.metro;

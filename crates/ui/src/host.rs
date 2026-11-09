@@ -364,6 +364,8 @@ pub struct Host {
     paused: bool,
     /// Où la tête a été placée par le dernier déplacement (le moteur ne la rend qu'au prochain bloc : la lecture qui suit part de là).
     head_hint: Option<u64>,
+    /// Point de départ de la lecture en cours (la tête y revient à l'arrêt si `transport.return_on_stop`).
+    play_origin: Option<u64>,
     /// Empreinte des cartes de tempo et de chiffrage dont le clic a été fabriqué.
     click_key: String,
     /// Post-roll en cours : position à laquelle l'enregistrement s'arrêtera.
@@ -390,7 +392,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -502,16 +504,18 @@ impl Host {
                     // Pré-roll à la lecture : une lecture qui démarre d'une tête placée par un déplacement (règle, section, retour au début) part
                     // du pré-roll avant elle ; reprendre après une pause ne bouge pas. Sans pré-roll réglé, rien ne change.
                     let head = self.head_hint.take().unwrap_or(before);
-                    let pre = if self.paused { 0 } else { self.pre_roll_samples(head) };
+                    let pre = if self.paused || !self.prefs.transport.play_pre_roll { 0 } else { self.pre_roll_samples(head) };
                     if pre > 0 && head > 0 {
                         self.handle.send(EngineCommand::Seek(head.saturating_sub(pre)));
                     }
                     self.paused = false;
+                    self.play_origin = Some(head);
                 } else if was_playing && !self.playing {
-                    self.paused = true;
                     self.head_hint = None;
+                    self.settle_after_stop();
                 }
                 self.handle.send(if self.playing { EngineCommand::Play } else { EngineCommand::Stop });
+                self.send_return_seek();
                 events.extend(if self.playing { self.write_begin() } else { self.write_end(before) });
                 events.push(self.position_event());
                 events
@@ -525,6 +529,9 @@ impl Host {
                 self.handle.send(EngineCommand::Seek(pos));
                 self.paused = false;
                 self.head_hint = Some(pos);
+                if self.playing {
+                    self.play_origin = Some(pos);
+                }
                 events.push(Event::Position { pos, playing: self.playing, loop_range: self.loop_range });
                 events
             }
@@ -1126,6 +1133,8 @@ impl Host {
                 let mut events = self.begin_stop_recording();
                 self.playing = false;
                 self.handle.send(EngineCommand::Stop);
+                self.settle_after_stop();
+                self.send_return_seek();
                 events.push(self.position_event());
                 events
             }
@@ -1455,6 +1464,8 @@ impl Host {
             events.extend(self.begin_stop_recording());
             self.playing = false;
             self.handle.send(EngineCommand::Stop);
+            self.settle_after_stop();
+            self.send_return_seek();
             events.push(self.position_event());
         }
         events.extend(self.auto_stop_tick());
@@ -1812,6 +1823,7 @@ impl Host {
         }
         self.apply_metronome();
         self.playing = true;
+        self.play_origin = Some(at);
         events.push(self.recording_event(true, false, 0, Vec::new()));
         events.push(self.position_event());
         events
@@ -2170,6 +2182,8 @@ impl Host {
         self.handle.send(EngineCommand::Stop);
         self.handle.send(EngineCommand::Seek(0));
         self.handle.send(EngineCommand::SetLoop(None));
+        self.play_origin = None;
+        self.head_hint = None;
         self.nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         self.name = dir.as_deref().map_or_else(|| "Sans titre".to_owned(), project_io::project_name);
         self.last_structure = session.structure_version();
@@ -2586,6 +2600,27 @@ impl Host {
 
     fn punch_event(&self) -> Event {
         Event::Punch { enabled: self.punch_on }
+    }
+
+    /// Après un arrêt : avec « retour à l'arrêt », la prochaine lecture repart du point de départ (pré-roll compris s'il est activé) ;
+    /// sinon c'est une pause, la lecture reprendra où elle s'est arrêtée.
+    fn settle_after_stop(&mut self) {
+        if self.prefs.transport.return_on_stop && self.play_origin.is_some() {
+            self.paused = false;
+            self.head_hint = self.play_origin;
+        } else {
+            self.paused = true;
+            self.head_hint = None;
+        }
+    }
+
+    /// Envoie le retour de la tête au moteur après un arrêt, si `settle_after_stop` l'a décidé (à appeler après l'ordre `Stop`).
+    fn send_return_seek(&mut self) {
+        if self.prefs.transport.return_on_stop && !self.playing {
+            if let Some(origin) = self.play_origin.take() {
+                self.handle.send(EngineCommand::Seek(origin));
+            }
+        }
     }
 
     fn position_event(&self) -> Event {

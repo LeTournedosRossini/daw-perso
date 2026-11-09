@@ -139,10 +139,12 @@ fn a_transport_address_drives_playback_sections_preroll_and_click() {
     // Pré-roll en mesures et métronome.
     assert_eq!(rig.cmd(r#"{"cmd":"preroll","bars":2}"#), 200);
     assert_eq!(rig.cmd(r#"{"cmd":"click","on":true}"#), 200);
+    assert_eq!(rig.cmd(r#"{"cmd":"playpreroll","on":true}"#), 200);
     rig.settle();
     let st = rig.state();
     assert_eq!(st["remote"]["pre_roll_bars"], 2);
     assert_eq!(st["remote"]["click"], true);
+    assert_eq!(st["remote"]["play_pre_roll"], true);
 }
 
 #[test]

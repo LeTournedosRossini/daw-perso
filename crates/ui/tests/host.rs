@@ -56,6 +56,8 @@ fn project_describes_nodes_clips_and_timing() {
 #[test]
 fn transport_position_and_loop_follow_the_engine() {
     let (mut engine, mut host) = setup();
+    // Ce test exerce la pause : sans retour de la tête à l'arrêt (le comportement par défaut est de revenir, voir `play_preroll.rs`).
+    json(&mut host, r#"{"type":"set_prefs","prefs":{"transport":{"play_pre_roll":false,"return_on_stop":false}}}"#);
     let pos = |ev: &[Event]| ev.iter().find_map(|e| if let Event::Position { pos, playing, loop_range } = e { Some((*pos, *playing, *loop_range)) } else { None }).unwrap();
     json(&mut host, r#"{"type":"transport","action":"play"}"#);
     run(&mut engine, 10); // 2 560 échantillons

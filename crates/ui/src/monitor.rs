@@ -97,6 +97,8 @@ pub enum RemoteCmd {
     PreRoll(u32),
     /// Métronome allumé ou éteint.
     Click(bool),
+    /// Le pré-roll s'applique-t-il aussi à la lecture normale.
+    PlayPreRoll(bool),
 }
 
 /// Lit le corps d'une commande de télécommande. `None` si ce n'est pas une commande connue et valide.
@@ -110,6 +112,7 @@ fn parse_remote(v: &serde_json::Value) -> Option<RemoteCmd> {
         "section" => RemoteCmd::Section(n("index")?),
         "preroll" => RemoteCmd::PreRoll(n("bars").filter(|b| *b <= 8)?),
         "click" => RemoteCmd::Click(v["on"].as_bool()?),
+        "playpreroll" => RemoteCmd::PlayPreRoll(v["on"].as_bool()?),
         _ => return None,
     })
 }

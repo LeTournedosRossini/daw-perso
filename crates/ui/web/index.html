@@ -171,6 +171,12 @@
         <label class="st-field"><span>Post-roll (s)</span><input type="number" id="st-m-post" min="0" max="10" step="0.5"></label>
       </fieldset>
       <fieldset class="st-group">
+        <legend>Transport</legend>
+        <label class="st-field"><span>À l'arrêt, la tête revient à son point de départ</span><input type="checkbox" id="st-t-return"></label>
+        <label class="st-field"><span>Le pré-roll s'applique aussi à la lecture</span><input type="checkbox" id="st-t-preplay"></label>
+        <p class="st-note">Sans retour, l'arrêt est une pause : la lecture reprend où elle s'est arrêtée. Le pré-roll de l'enregistrement, lui, reste toujours actif.</p>
+      </fieldset>
+      <fieldset class="st-group">
         <legend>Arrêt automatique (utile avec une télécommande)</legend>
         <label class="st-field"><span>Arrêter le transport tout seul</span><input type="checkbox" id="st-as-on"></label>
         <label class="st-field"><span>En lecture : secondes après la fin du dernier élément</span><input type="number" id="st-as-end" min="10" max="3600" step="10"></label>

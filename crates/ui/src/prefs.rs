@@ -80,6 +80,21 @@ impl AutoStopPrefs {
     }
 }
 
+/// Comportement du transport : le pré-roll s'applique-t-il à la lecture normale (en plus de l'enregistrement, où il sert toujours), et la
+/// tête revient-elle à son point de départ quand on arrête la lecture (sinon elle reste où elle est : pause).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransportPrefs {
+    pub play_pre_roll: bool,
+    pub return_on_stop: bool,
+}
+
+impl Default for TransportPrefs {
+    fn default() -> Self {
+        TransportPrefs { play_pre_roll: false, return_on_stop: true }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -96,11 +111,12 @@ pub struct Prefs {
     pub ahead_threads: u32,
     pub metronome: MetroPrefs,
     pub auto_stop: AutoStopPrefs,
+    pub transport: TransportPrefs,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default() }
     }
 }
 

@@ -19,6 +19,8 @@ const basePrefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms
 
 test("l'arrêt automatique se règle de 10 à 3 600 secondes, et reste facultatif", () => {
   assert.equal(validatePrefs(basePrefs), null);
+  assert.equal(validatePrefs({ ...basePrefs, transport: { play_pre_roll: true, return_on_stop: false } }), null);
+  assert.match(validatePrefs({ ...basePrefs, transport: { play_pre_roll: 1, return_on_stop: true } }) ?? "", /transport/);
   assert.equal(validatePrefs({ ...basePrefs, auto_stop: { enabled: true, after_end_secs: 120, recording_secs: 300 } }), null);
   for (const bad of [{ enabled: true, after_end_secs: 5, recording_secs: 300 }, { enabled: true, after_end_secs: 120, recording_secs: 4000 }, { enabled: "oui", after_end_secs: 120, recording_secs: 300 }, { enabled: true, after_end_secs: 12.5, recording_secs: 300 }, null]) {
     assert.match(validatePrefs({ ...basePrefs, auto_stop: bad }) ?? "", /arrêt automatique/, JSON.stringify(bad));

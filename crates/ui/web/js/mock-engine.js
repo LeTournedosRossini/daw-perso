@@ -75,7 +75,7 @@ export class MockEngine extends EngineClient {
     this.nextInsert = 1;
     this.metronome = { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0, post_roll: 0, pre_roll_bars: 0, pre_roll_unit: "seconds" };
     // Préférences : le faux moteur « tourne » avec les valeurs par défaut ; un redémarrage n'a pas de sens ici (voir `#prefsEvent`).
-    this.prefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: { ...this.metronome } };
+    this.prefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms: 0, ahead_threads: 2, transport: { play_pre_roll: false, return_on_stop: true }, metronome: { ...this.metronome } };
     this.running = { effective: { driver: "UMC", buffer: 64, threads: 1, ahead_ms: 0, ahead_threads: 2, forced: [] }, sample_rate: 44100, inputs: 10, drivers: ["UMC ASIO Driver", "ASIO4ALL v2"], cores: 4, audio: true };
     this.recording = null; // enregistrement en cours : { start, nodes }
     this.openUis = new Set(); // identifiants des plugins dont l'interface native est « ouverte »
@@ -1631,12 +1631,18 @@ export class MockEngine extends EngineClient {
           this.#emitPosition();
           break;
         }
-        this.playing = msg.action === "toggle" ? !this.playing : msg.action === "play";
+        {
+          const was = this.playing;
+          this.playing = msg.action === "toggle" ? !this.playing : msg.action === "play";
+          if (this.playing && !was) this.playOrigin = this.pos;
+          else if (was && !this.playing && this.prefs.transport?.return_on_stop && this.playOrigin != null) this.pos = this.playOrigin;
+        }
         this.#emitPosition();
         break;
       case "seek":
         this.#endPreview(true, false);
         this.pos = msg.pos;
+        if (this.playing) this.playOrigin = msg.pos;
         this.#emitPosition();
         break;
       case "set_loop_record":

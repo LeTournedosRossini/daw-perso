@@ -20,12 +20,25 @@ fn rig() -> Rig {
     Rig { engine, host: Host::new(handle, session, meta).unwrap() }
 }
 
+/// Un hôte où le pré-roll s'applique à la lecture et où l'arrêt est une pause (les réglages que ces tests-là exercent).
+fn rig_with_pre_roll() -> Rig {
+    let mut r = rig();
+    r.transport(true, false);
+    r
+}
+
 impl Rig {
     fn run(&mut self, blocks: usize) {
         let (mut l, mut r) = ([0f32; 64], [0f32; 64]);
         for _ in 0..blocks {
             self.engine.process(&mut l, &mut r);
         }
+    }
+
+    /// Réglages du transport. À appeler avant `pre_roll` : l'enregistrement des préférences remet aussi le métronome à ce qu'elles contiennent.
+    fn transport(&mut self, play_pre_roll: bool, return_on_stop: bool) {
+        let ev = self.host.command_json(&format!(r#"{{"type":"set_prefs","prefs":{{"transport":{{"play_pre_roll":{play_pre_roll},"return_on_stop":{return_on_stop}}}}}}}"#));
+        assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
     }
 
     fn pre_roll(&mut self, unit: &str, bars: u32, secs: f64) {
@@ -49,7 +62,7 @@ impl Rig {
 
 #[test]
 fn playing_from_a_placed_head_starts_the_pre_roll_earlier_and_resuming_after_a_pause_does_not() {
-    let mut r = rig();
+    let mut r = rig_with_pre_roll();
     r.pre_roll("bars", 2, 0.0);
     r.seek(4 * BAR); // mesure 5
     let pos = r.go("play", 8);
@@ -69,7 +82,7 @@ fn playing_from_a_placed_head_starts_the_pre_roll_earlier_and_resuming_after_a_p
 
 #[test]
 fn the_pre_roll_in_seconds_counts_too_and_nothing_changes_without_a_pre_roll_or_at_the_start() {
-    let mut r = rig();
+    let mut r = rig_with_pre_roll();
     // Sans pré-roll (réglage par défaut) : la lecture part de la tête.
     r.seek(4 * BAR);
     let pos = r.go("play", 8);
@@ -91,7 +104,7 @@ fn the_pre_roll_in_seconds_counts_too_and_nothing_changes_without_a_pre_roll_or_
 
 #[test]
 fn a_section_jump_followed_by_play_includes_the_pre_roll_like_a_tablet_does() {
-    let mut r = rig();
+    let mut r = rig_with_pre_roll();
     r.pre_roll("bars", 1, 0.0);
     r.host.command_json(r#"{"type":"set_structure","sections":[{"at":[0,1],"dur":[4,1],"name":"Intro"},{"at":[4,1],"dur":[4,1],"name":"Refrain"}]}"#);
     // Deux commandes dans le même tick, sans que le moteur ait rendu la nouvelle position (cas d'une tablette) : la lecture part quand même
@@ -102,4 +115,50 @@ fn a_section_jump_followed_by_play_includes_the_pre_roll_like_a_tablet_does() {
     let ev = r.host.tick();
     let pos = ev.iter().rev().find_map(|e| if let Event::Position { pos, .. } = e { Some(*pos) } else { None }).unwrap();
     assert!((3 * BAR..3 * BAR + 2_000).contains(&pos), "mesure 4 (une mesure avant le Refrain en mesure 5), pos = {pos}");
+}
+
+#[test]
+fn by_default_playback_has_no_pre_roll_and_stopping_returns_the_head_to_where_it_started() {
+    // Réglages par défaut : pas de pré-roll à la lecture, retour de la tête à l'arrêt.
+    let mut r = rig();
+    r.pre_roll("bars", 2, 0.0);
+    r.seek(4 * BAR);
+    let pos = r.go("play", 8);
+    assert!((4 * BAR..4 * BAR + 2_000).contains(&pos), "le pré-roll réglé ne joue pas à la lecture normale : pos = {pos}");
+    let pos = r.go("stop", 4);
+    assert!((4 * BAR..4 * BAR + 100).contains(&pos), "la tête est revenue au départ : pos = {pos}");
+    // Relancer repart du même point.
+    let pos = r.go("play", 8);
+    assert!((4 * BAR..4 * BAR + 2_000).contains(&pos), "pos = {pos}");
+
+    // Un déplacement pendant la lecture devient le nouveau point de départ.
+    r.seek(6 * BAR);
+    let pos = r.go("stop", 4);
+    assert!((6 * BAR..6 * BAR + 100).contains(&pos), "pos = {pos}");
+}
+
+#[test]
+fn with_both_settings_the_return_then_play_applies_the_pre_roll_again() {
+    let mut r = rig();
+    r.transport(true, true);
+    r.pre_roll("bars", 1, 0.0);
+    r.seek(4 * BAR);
+    r.go("play", 8);
+    let pos = r.go("stop", 4);
+    assert!((4 * BAR..4 * BAR + 100).contains(&pos), "retour au point de départ (pas au pré-roll) : pos = {pos}");
+    let pos = r.go("play", 8);
+    assert!((3 * BAR..3 * BAR + 2_000).contains(&pos), "la relecture repart une mesure avant : pos = {pos}");
+}
+
+#[test]
+fn without_the_return_stopping_is_a_pause_and_the_setting_is_saved_in_the_preferences() {
+    let mut r = rig();
+    r.transport(false, false);
+    r.seek(4 * BAR);
+    r.go("play", 8);
+    let paused = r.go("stop", 4);
+    assert!(paused > 4 * BAR + 100, "pause : la tête ne revient pas ({paused})");
+    let ev = r.host.command_json(r#"{"type":"get_prefs"}"#);
+    let saved = ev.iter().find_map(|e| if let Event::Prefs { prefs, .. } = e { Some(prefs.transport) } else { None }).expect("prefs");
+    assert!(!saved.return_on_stop && !saved.play_pre_roll);
 }

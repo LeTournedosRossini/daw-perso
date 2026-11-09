@@ -82,7 +82,7 @@
   .mx.master { border-left-color: var(--text); }
   .mx.ret .name::after { content: " (retour)"; color: var(--muted); font-weight: 400; font-size: 13px; }
   .mx .row { display: flex; align-items: center; gap: 8px; }
-  .mx .name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mx .name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mx .db { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 4.5em; text-align: right; }
   .mx .btns { display: flex; gap: 6px; flex: none; }
   .mx button { min-width: 40px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
@@ -113,7 +113,7 @@
   <div class="bar"><button id="r-start" aria-label="Retour au début">⏮</button><button id="r-play" aria-label="Lecture / pause" aria-pressed="false">▶</button><button id="r-stop" aria-label="Arrêt">■</button><button id="r-rec" aria-label="Enregistrer : maintenir appuyé">●<i></i></button></div>
   <div class="stat"><span id="r-state">Arrêt</span><b id="r-bar">Mesure 1</b></div>
   <div class="msg" id="r-msg"></div>
-  <div class="line"><span title="Quand la tête vient d'être placée (section, début) la lecture et l'enregistrement démarrent ce nombre de mesures avant">Pré-roll (mesures)</span><span id="r-pre"></span><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
+  <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
 </div>
 <div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
@@ -151,6 +151,7 @@ const holding = (key) => (lock.get(key) ?? 0) > Date.now();
 // Témoin de signal : crête récente de ce qui arrive dans ce retour (dBFS). Éteint sous −60, vert, jaune à partir de −12, rouge à partir de −3.
 const ledOf = (sig) => (sig === undefined || sig < -60 ? "" : sig < -12 ? "g" : sig < -3 ? "y" : "r");
 const showLed = (el, sig) => { el.className = "led " + ledOf(sig); el.title = ledOf(sig) ? "Signal : " + Math.round(sig) + " dB" : "Pas de signal"; };
+const PRE_STEPS = [0, 1, 2, 4];
 const press = (btn, on) => btn.setAttribute("aria-pressed", String(on));
 
 function flagButtons(root, onMute, onSolo) {
@@ -327,16 +328,15 @@ function showRemote(r) {
     }));
   }
   const pre = el("r-pre");
-  if (!pre.children.length) {
-    for (const n of [0, 1, 2, 4]) {
-      const b = document.createElement("button");
-      b.textContent = n === 0 ? "Aucun" : String(n);
-      b.dataset.n = n;
-      b.addEventListener("click", () => cmd({ cmd: "preroll", bars: n }));
-      pre.append(b);
-    }
+  if (!pre.dataset.wired) {
+    pre.dataset.wired = "1";
+    pre.addEventListener("click", () => { const i = PRE_STEPS.indexOf(Number(pre.dataset.n)); cmd({ cmd: "preroll", bars: PRE_STEPS[(i + 1) % PRE_STEPS.length] }); });
+    el("r-preplay").addEventListener("click", () => cmd({ cmd: "playpreroll", on: el("r-preplay").getAttribute("aria-pressed") !== "true" }));
   }
-  for (const b of pre.children) b.setAttribute("aria-pressed", String(Number(b.dataset.n) === r.pre_roll_bars));
+  pre.dataset.n = r.pre_roll_bars;
+  pre.textContent = r.pre_roll_bars ? r.pre_roll_bars + (r.pre_roll_bars > 1 ? " mesures" : " mesure") : "Aucun";
+  pre.setAttribute("aria-pressed", String(r.pre_roll_bars > 0));
+  el("r-preplay").setAttribute("aria-pressed", String(!!r.play_pre_roll));
 }
 // ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
 const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
@@ -356,8 +356,8 @@ function buildMix(n) {
   const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
   const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
-  root.innerHTML = '<div class="row"><span class="name"></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + '</span><span class="db"></span></div><div class="meter"><i></i></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
-  const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), meter: root.querySelector(".meter i"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + '</span><span class="db"></span></div><input class="lvl" type="range" step="0.5" aria-label="Niveau">' + pan;
+  const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
   r.range.min = DB_MIN; r.range.max = DB_MAX;
   r.range.addEventListener("pointerdown", () => (r.down = true));
@@ -395,9 +395,7 @@ function showMix(mix) {
     if (r.s && !holding("xsolo" + n.id)) { r.solo = !!n.solo; press(r.s, r.solo); }
     if (r.a && !holding("xarm" + n.id)) { r.arm = !!n.arm; press(r.a, r.arm); }
     r.root.style.opacity = r.mute || (anySolo && !n.solo && n.kind !== "master") ? ".55" : "1";
-    const w = Math.max(0, Math.min(100, ((n.peak + 60) / 60) * 100));
-    r.meter.style.width = w + "%";
-    r.meter.className = n.peak >= -3 ? "r" : n.peak >= -12 ? "y" : "";
+    showLed(r.led, n.peak);
   }
 }
 function showTabs(hasMix) {
