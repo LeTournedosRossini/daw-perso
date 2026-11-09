@@ -6,7 +6,7 @@
 // bande du bas = vélocité. Alt pendant un geste : sans magnétisme. Clavier : Suppr, Ctrl+A, flèches (Maj = octave), Échap.
 
 import { NoteProps } from "./note-props.js";
-import { LANE_DEFS, laneById, isVelocity, eventsOf, valueOfY, yOfValue, withPoint, withoutPoints, nearestPoint, laneCommand, pointId, valueText } from "../control-model.js";
+import { LANE_DEFS, laneById, isVelocity, eventsOf, valueOfY, yOfValue, withPoint, withoutPoints, nearestPoint, laneCommand, pointId, valueText, copyPoints, pastePoints, thinPoints } from "../control-model.js";
 import { canvasPoint, pixelRatio } from "../ui-scale.js";
 import { sampleToX, xToSample } from "../time.js";
 import { getScale } from "../ui-scale.js";
@@ -21,6 +21,8 @@ export const ROLL_ROWS_DEFAULT = 4; // nombre de lignes de la timeline que prend
 export const clampRows = (n) => (Number.isFinite(n) ? Math.max(ROLL_ROWS_MIN, Math.min(ROLL_ROWS_MAX, Math.round(n))) : ROLL_ROWS_DEFAULT);
 const EDGE = 6; // largeur (px) de la zone de redimensionnement au bord droit d'une note
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let laneClipboard = null; // points copiés d'une voie de contrôle (partagé entre les fenêtres de piano roll)
 
 export class PianoRoll {
   constructor(state, client) {
@@ -678,7 +680,17 @@ export class PianoRoll {
     });
     num.addEventListener("change", () => this.#setLane(`cc${Math.min(127, Math.max(0, Math.round(Number(num.value) || 0)))}`));
     num.addEventListener("keydown", (e) => e.stopPropagation());
-    wrap.append(sel, num);
+    const thin = document.createElement("button");
+    thin.className = "pr-lane-thin";
+    thin.textContent = "Amincir";
+    thin.title = "Retire les points inutiles de la courbe (la sélection, ou toute la voie) sans changer son allure ; Ctrl+C / X / V copient, coupent et collent des points";
+    thin.addEventListener("click", () => this.#laneThin());
+    const oldSync = ctl.sync;
+    ctl.sync = (id) => {
+      oldSync(id);
+      thin.hidden = id === "vel";
+    };
+    wrap.append(sel, num, thin);
     this.laneCtls.push(ctl);
     ctl.sync(this.laneId);
     return wrap;
@@ -819,12 +831,56 @@ export class PianoRoll {
       e.stopPropagation();
       this.laneSel = new Set(this.#laneList(lane).map(pointId));
       this.dirty = true;
+    } else if (mod && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "x")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const list = this.#laneList(lane);
+      const copied = copyPoints(list, lane, this.laneSel);
+      if (!copied) return;
+      laneClipboard = copied;
+      if (e.key.toLowerCase() === "x") {
+        const ids = this.laneSel.size ? this.laneSel : new Set(list.map(pointId));
+        this.laneSel = new Set();
+        this.client.send(laneCommand(this.clipId, lane, withoutPoints(list, ids), "Couper des points"));
+      }
+    } else if (mod && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.#lanePaste(lane);
     } else if (e.key === "Escape" && this.laneWork) {
       e.preventDefault();
       e.stopPropagation();
       this.laneWork = null;
       this.dirty = true;
     }
+  }
+
+  /** Colle les points copiés à la tête de lecture (calée sur la grille) si elle est dans le clip, sinon au début de sa partie visible. */
+  #lanePaste(lane) {
+    if (!laneClipboard || !this.data) return;
+    const c = this.#cm();
+    const hi = fadd(c.offset, c.len);
+    let at = c.offset;
+    const { tempo, pos } = this.state;
+    if (tempo) {
+      const snapped = absToMat({ start: c.start, offset: c.offset }, snapAbs(tempo.wholeAt(Math.max(0, pos)), this.grid.f, "round"));
+      if (fcmp(snapped, c.offset) >= 0 && fcmp(snapped, hi) < 0) at = snapped;
+    }
+    const { list, added } = pastePoints(this.#laneList(lane), lane, laneClipboard, at, c.offset, hi);
+    if (!added.length) return;
+    this.laneSel = new Set(added.map(pointId));
+    this.client.send(laneCommand(this.clipId, lane, list, "Coller des points"));
+  }
+
+  /** Amincit la voie (les points sélectionnés, ou toute la voie) : retire répétitions et points qui suivent une droite, en une action annulable. */
+  #laneThin() {
+    const lane = laneById(this.laneId);
+    if (isVelocity(lane) || !this.data) return;
+    const list = this.#laneList(lane);
+    const out = thinPoints(list, lane, this.laneSel);
+    if (out.length === list.length) return;
+    this.laneSel = new Set();
+    this.client.send(laneCommand(this.clipId, lane, out, "Amincir une courbe"));
   }
 
   #drawLane(lane) {

@@ -8,6 +8,7 @@ import { fifthsAt, keyChangesWithin, keyAt, markerAt, KEY_CHOICES, choiceOf, sna
 import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction } from "../score-adapter.js";
 import { GRIDS, gridById, noteId, displayGrid } from "../notes-model.js";
+import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockIndices } from "../section-blocks.js";
 import { lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
@@ -31,6 +32,9 @@ export class ScoreWindow {
     this.ids = []; // clips affichés (ordre d'affichage)
     this.cur = null; // clip courant : celui dont la barre montre portée et armure
     this.items = new Map(); // clip → { data (dernier événement `notes`), sel, staff }
+    this.blocksOn = store.get("daw-score-blocks") !== "0"; // un morceau par section de la forme (affichage seulement)
+    this.blockMap = new Map(); // identifiant donné au module → { clip, indexMap } (pour ramener ses gestes au vrai clip)
+    this.blockKeys = new Map(); // clip → identifiants des morceaux envoyés (pour savoir quand tout redessiner)
     this.shown = false;
     this.view = null;
     this.lastHead = null;
@@ -55,6 +59,7 @@ export class ScoreWindow {
         <span class="sc-group sc-voices" role="group" aria-label="Voix d'entrée" hidden>Voix <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span>
         <span class="sc-group sc-tovoice" role="group" aria-label="Mettre la sélection dans une voix" hidden>Sélection → <button data-t="1">1</button><button data-t="2">2</button><button data-t="3">3</button><button data-t="4">4</button></span>
         <span class="sc-group" role="group" aria-label="Taille de la portée"><button class="sc-smaller" title="Portée plus petite" aria-label="Portée plus petite">A−</button><span class="sc-size"></span><button class="sc-bigger" title="Portée plus grande" aria-label="Portée plus grande">A＋</button></span>
+        <button class="sc-blocks" aria-pressed="true" title="Un titre par section de la forme : les pistes d'une même section se suivent" hidden>Par sections</button>
         <button class="sc-lyr" title="Écrire les paroles du clip : une syllabe par note">Paroles…</button>
         <label class="sc-seek"><input type="checkbox" class="sc-seekbox"> Placer la tête de lecture</label>
         <button class="sc-roll" title="Ouvrir le clip courant dans le piano roll">Piano roll</button>
@@ -129,6 +134,14 @@ export class ScoreWindow {
     this.root.querySelector(".sc-smaller").addEventListener("click", () => this.setScale(this.#step(-1)));
     this.root.querySelector(".sc-bigger").addEventListener("click", () => this.setScale(this.#step(1)));
     this.root.querySelector(".sc-seekbox").addEventListener("change", (e) => this.view?.setTool(e.target.checked ? "seek" : "edit"));
+    this.blocksBtn = this.root.querySelector(".sc-blocks");
+    this.blocksBtn.addEventListener("click", () => {
+      this.blocksOn = !this.blocksOn;
+      store.set("daw-score-blocks", this.blocksOn ? "1" : "0");
+      this.#syncBlocksBtn();
+      this.#sections();
+      if (this.isOpen() && this.shown) this.#refreshAll();
+    });
     this.root.querySelector(".sc-lyr").addEventListener("click", () => this.#lyricsPopup());
     this.root.querySelector(".sc-roll").addEventListener("click", () => this.cur != null && this.onOpenRoll?.(this.cur));
     this.root.querySelector(".close").addEventListener("click", () => this.close());
@@ -630,14 +643,7 @@ export class ScoreWindow {
     if (!this.shown) {
       if (!this.ids.every((id) => this.items.get(id)?.data)) return;
       this.shown = true;
-      try {
-        this.view.setClips(this.ids.map((id) => this.#input(id)));
-      } catch {
-        // Un clip que le module ne sait pas écrire ne doit pas cacher les autres : on les pose un par un.
-        this.view.setClips([]);
-        for (const id of this.ids) this.#safeUpdate(id);
-      }
-      for (const id of this.ids) this.#safeSelect(id);
+      this.#refreshAll();
     } else {
       this.#safeUpdate(e.clip);
       this.#safeSelect(e.clip);
@@ -648,8 +654,7 @@ export class ScoreWindow {
   }
 
   /** Armure du début de la partie visible d'un clip : celle de la piste des tonalités. */
-  #fifthsOf(id, it = this.items.get(id)) {
-    const d = it?.data;
+  #fifthsOf(id, it = this.items.get(id), d = it?.data) {
     return fifthsAt(this.state.chordTrack?.track, d ? d.start[0] / d.start[1] : 0);
   }
 
@@ -690,8 +695,7 @@ export class ScoreWindow {
   }
 
   /** Les changements de tonalité de la piste à l'intérieur du clip, en positions « depuis le début de la matière » (comme les notes). */
-  #keyChangesOf(it) {
-    const d = it.data;
+  #keyChangesOf(it, d = it.data) {
     const track = this.state.chordTrack?.track;
     if (!d || !track?.keys?.length) return [];
     const from = d.start[0] / d.start[1];
@@ -709,25 +713,6 @@ export class ScoreWindow {
     this.#syncKey();
   }
 
-  #msgs = new Map(); // clip → pourquoi le module n'a pas pu l'écrire
-
-  #safeUpdate(id) {
-    const inp = this.#input(id);
-    if (!inp) return;
-    try {
-      this.view.updateClip(inp);
-      this.#msgs.delete(id);
-    } catch (e) {
-      this.#msgs.set(id, String(e?.message ?? e));
-    }
-  }
-
-  /** Le module refuse un clip (il écrit lui-même la raison à sa place) : on la garde aussi sous la partition. */
-  #onModuleError({ clip, message }) {
-    this.#msgs.set(clip, String(message ?? ""));
-    this.#showMsgs();
-  }
-
   /** Les boutons de voix n'apparaissent que si le module sait écrire plusieurs voix (`setEntryVoice`). */
   #voiceButtons() {
     const ok = typeof this.view?.setEntryVoice === "function";
@@ -739,25 +724,107 @@ export class ScoreWindow {
     for (const b of this.toVoiceEl.querySelectorAll("button")) b.disabled = none;
   }
 
-  #safeSelect(id) {
+  #msgs = new Map(); // morceau (identifiant du module) → pourquoi le module n'a pas pu l'écrire
+
+  /**
+   * Les morceaux d'un clip tels que le module les reçoit : un seul (le clip entier, même identifiant) sans sections ; sinon un par section de la forme
+   * que la partie visible traverse, chacun avec son titre (`clip.section`). Chaque entrée garde `indexMap` pour ramener ses gestes au vrai clip.
+   */
+  #blocksOf(id) {
+    const it = this.items.get(id);
+    const d = it?.data;
+    if (!d) return [];
+    const nodeIndex = (this.state.project?.nodes ?? []).indexOf(this.#clip(id)?.node);
+    const structure = this.state.structure ?? [];
+    const parts = this.blocksOn && structure.length ? splitBlocks(d, structure) : [];
+    if (parts.length < 2 && !(parts.length === 1 && parts[0].sec >= 0)) return [{ mid: id, data: d, indexMap: null, section: null, secAt: null, nodeIndex, from: d.start }];
+    return parts.map((b, k) => {
+      const { data, indexMap } = blockData(d, b);
+      const sec = b.sec >= 0 ? structure[b.sec] : null;
+      return { mid: `${id}:${k}`, data, indexMap, section: sec ? sectionOf(sec) : null, secAt: sec ? sec.at : null, nodeIndex, from: b.from };
+    });
+  }
+
+  /** Tous les morceaux de tous les clips, dans l'ordre d'affichage (section après section, pistes dans l'ordre du projet). */
+  #allBlocks() {
+    return orderBlocks(this.ids.flatMap((id) => this.#blocksOf(id).map((b) => ({ ...b, clip: id }))));
+  }
+
+  /** Remet tout au module d'un coup (premier affichage, changement de forme ou de mode) ; un clip qu'il refuse ne cache pas les autres. */
+  #refreshAll() {
+    const blocks = this.#allBlocks();
+    this.blockMap = new Map(blocks.map((b) => [b.mid, { clip: b.clip, indexMap: b.indexMap }]));
+    const keys = new Map();
+    for (const b of blocks) keys.set(b.clip, `${keys.get(b.clip) ?? ""}|${b.mid}`);
+    this.blockKeys = keys;
+    this.#msgs.clear();
     try {
-      this.view.setSelection(id, this.items.get(id)?.sel ?? []);
+      this.view.setClips(blocks.map((b) => this.#inputOf(b)));
     } catch {
-      /* clip non dessiné : rien à sélectionner */
+      this.view.setClips([]);
+      for (const b of blocks) this.#updateBlock(b);
+    }
+    for (const id of this.ids) this.#safeSelect(id);
+    this.#showMsgs();
+  }
+
+  #updateBlock(b) {
+    try {
+      this.view.updateClip(this.#inputOf(b));
+      this.#msgs.delete(b.mid);
+    } catch (e) {
+      this.#msgs.set(b.mid, String(e?.message ?? e));
+    }
+  }
+
+  #safeUpdate(id) {
+    if (!this.items.get(id)?.data) return;
+    const blocks = this.#blocksOf(id).map((b) => ({ ...b, clip: id }));
+    const key = blocks.map((b) => `|${b.mid}`).join("");
+    if (key !== (this.blockKeys.get(id) ?? "")) return this.#refreshAll(); // le découpage a changé : l'ordre et les titres aussi
+    for (const b of blocks) this.#updateBlock(b);
+  }
+
+  /** Le module refuse un clip (il écrit lui-même la raison à sa place) : on la garde aussi sous la partition. */
+  #onModuleError({ clip, message }) {
+    this.#msgs.set(clip, String(message ?? ""));
+    this.#showMsgs();
+  }
+
+  /** Les morceaux du module → indices de leur clip. */
+  #realOf(mid) {
+    return this.blockMap.get(mid)?.clip ?? mid;
+  }
+
+  #safeSelect(id) {
+    const sel = this.items.get(id)?.sel ?? [];
+    for (const b of this.#blocksOf(id)) {
+      try {
+        this.view.setSelection(b.mid, b.indexMap ? toBlockIndices(sel, b.indexMap) : sel);
+      } catch {
+        /* morceau non dessiné : rien à sélectionner */
+      }
     }
   }
 
   #showMsgs() {
-    const lines = [...this.#msgs].map(([id, m]) => `${this.#clip(id)?.clip.name ?? id} : ${m.split("\n").slice(-1)[0].trim()}`);
+    const lines = [...this.#msgs].map(([mid, m]) => `${this.#clip(this.#realOf(mid))?.clip.name ?? mid} : ${m.split("\n").slice(-1)[0].trim()}`);
     this.msgEl.textContent = lines.length ? `La partition ne sait pas encore écrire : ${lines.join(" · ")}` : "";
     this.msgEl.hidden = !lines.length;
   }
 
   #input(id) {
-    const it = this.items.get(id);
-    const c = this.#clip(id);
-    if (!it?.data) return null;
-    return scoreClipInput({ ...it.data, selection: it.sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], it.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(it.data.notes, [1, 1]), keyFifths: this.#fifthsOf(id, it), keyChanges: this.#keyChangesOf(it) } });
+    const [b] = this.#blocksOf(id);
+    return b ? this.#inputOf({ ...b, clip: id }) : null;
+  }
+
+  /** L'entrée de `setClips` / `updateClip` pour un morceau (ou pour un clip entier). */
+  #inputOf(b) {
+    const it = this.items.get(b.clip);
+    const c = this.#clip(b.clip);
+    const sel = b.indexMap ? toBlockIndices(it.sel, b.indexMap) : it.sel;
+    const inp = scoreClipInput({ ...b.data, clip: b.mid, selection: sel }, { name: c?.clip.name ?? "", node: c?.node.id ?? null, lyrics: lyricsForClip(this.state.lyrics ?? [], b.data), presentation: { ...defaultPresentation(), staff: it.staff ?? "treble", grid: displayGrid(b.data.notes, [1, 1]), keyFifths: this.#fifthsOf(b.clip, it, b.data), keyChanges: this.#keyChangesOf(it, b.data) } });
+    return b.section ? { ...inp, section: b.section } : inp;
   }
 
   /** Change un réglage de vue (affichage seulement) : portée et armure pour le clip courant, grille pour tous ; et redessine. */
@@ -783,16 +850,27 @@ export class ScoreWindow {
   /** Les sections de la forme, nom au-dessus de la mesure de début (positions du projet). */
   #sections() {
     if (!this.view) return;
+    this.#syncBlocksBtn();
+    if (this.blocksOn && (this.state.structure ?? []).length) return this.view.setSections([]); // les titres viennent des morceaux (`clip.section`)
     this.view.setSections((this.state.structure ?? []).map((s) => ({ start: s.at, len: s.dur, name: s.name, ...(s.category ? { category: s.category } : {}), ...(s.color ? { color: s.color } : {}) })));
   }
 
-  #onEdit(cmd) {
+  #syncBlocksBtn() {
+    const any = (this.state.structure ?? []).length > 0;
+    this.blocksBtn.hidden = !any;
+    this.blocksBtn.setAttribute("aria-pressed", String(this.blocksOn));
+  }
+
+  #onEdit(raw) {
+    // Un geste sur un morceau : on le ramène au vrai clip (même identifiant, indices de notes du clip entier).
+    const map = this.blockMap.get(raw?.clip);
+    const cmd = map ? { ...raw, clip: map.clip, ...(raw.indices ? { indices: toClipIndices(raw.indices, map.indexMap ?? raw.indices.map((i) => i)) } : {}), ...(Number.isInteger(raw.index) ? { index: map.indexMap ? map.indexMap[raw.index] : raw.index } : {}) } : raw;
     const it = this.items?.get(cmd?.clip);
     if (!this.isOpen() || !it?.data) return;
     this.#setCurrent(cmd.clip);
     if (cmd.type === "select") {
       it.sel = [...(cmd.indices ?? [])];
-      this.view.setSelection(cmd.clip, it.sel);
+      this.#safeSelect(cmd.clip);
       this.#voiceButtons();
       this.#followSelection();
       return;
