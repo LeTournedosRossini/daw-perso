@@ -86,6 +86,14 @@ export function validateCommand(m) {
       return m.track && typeof m.track === "object" && !Array.isArray(m.track) ? null : "set_chords : track (objet flibuste-carte) requis";
     case "start_monitor":
       return m.port === undefined || (Number.isInteger(m.port) && m.port >= 0 && m.port <= 65535) ? null : "start_monitor : port entre 0 et 65535";
+    case "get_control_pages":
+      return null;
+    case "set_control_page":
+      if (typeof m.plugin_id !== "string" || !m.plugin_id.trim() || m.plugin_id.length > 200 || typeof m.name !== "string" || m.name.length > 120) return "set_control_page : plugin_id et name";
+      if (!Array.isArray(m.params) || m.params.length > 16 || m.params.some((p) => !p || !Number.isInteger(p.id) || p.id < 0 || typeof p.name !== "string" || p.name.length > 120)) return "set_control_page : params (16 au plus, chacun { id, name })";
+      return new Set(m.params.map((p) => p.id)).size === m.params.length ? null : "set_control_page : paramètre en double";
+    case "get_insert_page":
+      return isInt(m.insert) ? null : "get_insert_page : insert invalide";
     case "stop_monitor":
     case "get_monitor_log":
       return null;

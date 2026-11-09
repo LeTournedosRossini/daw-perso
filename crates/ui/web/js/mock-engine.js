@@ -154,6 +154,10 @@ export class MockEngine extends EngineClient {
   }
 
   /** Aperçu du serveur des retours : une fausse adresse et un faux code QR (le vrai serveur est dans l'hôte). */
+  #emitControlPages() {
+    this.emit("control_pages", { entries: [...(this.bank?.values() ?? [])], error: null });
+  }
+
   #emitMonitor() {
     const returns = this.monitorOn ? this.project.nodes.filter((n) => n.kind === "bus" && n.phys).map((n) => ({ node: n.id, name: n.name, role: n.monitor_role ?? 0, url: `http://192.168.0.10:8780/r/${this.#token(n)}`, qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="160" height="160"><rect width="4" height="4" fill="#fff"/><path d="M0 0h2v2H0zM2 2h2v2H2z"/></svg>' })) : [];
     this.emit("monitor", { active: !!this.monitorOn, port: this.monitorOn ? 8780 : 0, returns, error: null });
@@ -1027,6 +1031,7 @@ export class MockEngine extends EngineClient {
         this.emit("error", { command: msg.type, message: "l'aperçu sans l'application ne lit ni n'écrit de fichier de carte" });
         return false;
       case "get_project":
+        this.#emitControlPages();
         this.emit("metronome", { ...this.metronome });
         this.#emitChords();
         this.emit("chord_catalog", MOCK_CHORD_CATALOG);
@@ -1107,6 +1112,35 @@ export class MockEngine extends EngineClient {
         ins.sidechain = msg.source;
         this.#markDirty();
         this.#emitProject();
+        break;
+      }
+      case "get_control_pages":
+        this.#emitControlPages();
+        break;
+      case "set_control_page": {
+        this.bank ??= new Map();
+        if (msg.params.length) this.bank.set(msg.plugin_id, { plugin_id: msg.plugin_id, name: msg.name, params: msg.params.map((p) => ({ id: p.id, name: p.name })) });
+        else this.bank.delete(msg.plugin_id);
+        this.#emitControlPages();
+        break;
+      }
+      case "get_insert_page": {
+        const p = this.plugins.get(msg.insert);
+        if (!p) {
+          this.emit("error", { command: "get_insert_page", message: `plugin inconnu : ${msg.insert}` });
+          return false;
+        }
+        const plugin_id = p.def.clap_id;
+        const entry = this.bank?.get(plugin_id);
+        const exposed = p.def.params.map(([name, module, min, max, def], id) => ({ id, name, module, min, max, default: def, value: p.values[id], text: p.values[id].toFixed(2) }));
+        const params = [];
+        const missing = [];
+        for (const w of entry?.params ?? []) {
+          const f = exposed.find((x) => x.id === w.id && x.name.toLowerCase() === w.name.toLowerCase()) ?? exposed.find((x) => x.name.toLowerCase() === w.name.toLowerCase()) ?? exposed.find((x) => x.id === w.id);
+          if (f && !params.includes(f)) params.push(f);
+          else missing.push(w.name);
+        }
+        this.emit("insert_page", { insert: msg.insert, plugin_id, configured: !!entry, params, missing });
         break;
       }
       case "get_plugin_params": {

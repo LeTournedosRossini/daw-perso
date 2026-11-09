@@ -366,6 +366,10 @@ pub struct Host {
     head_hint: Option<u64>,
     /// Point de départ de la lecture en cours (la tête y revient à l'arrêt si `transport.return_on_stop`).
     play_origin: Option<u64>,
+    /// Banque personnelle de pages de contrôle des plugins (fichier de l'utilisateur, voir `control_pages`).
+    bank: crate::control_pages::Bank,
+    bank_path: Option<std::path::PathBuf>,
+    bank_error: Option<String>,
     /// Retour → (droits, instant où ils ont été donnés ou vus pour la première fois) : sert à l'expiration des droits de la télécommande.
     monitor_grants: HashMap<u32, (u8, Instant)>,
     /// Empreinte des cartes de tempo et de chiffrage dont le clic a été fabriqué.
@@ -394,7 +398,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -443,7 +447,7 @@ impl Host {
         let error = |message: String| vec![Event::Error { command: name.into(), message }];
         match cmd {
             Command::GetProject => {
-                let mut events = vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.prefs_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event()];
+                let mut events = vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.prefs_event(), self.control_pages_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event()];
                 events.extend(self.recovery_offer.take());
                 events
             }
@@ -1173,6 +1177,20 @@ impl Host {
                     .collect();
                 vec![Event::PluginParams { insert, params }]
             }
+            Command::GetControlPages => vec![self.control_pages_event()],
+            Command::SetControlPage { plugin_id, name, params } => {
+                if let Err(message) = self.bank.set(crate::control_pages::PageEntry { plugin_id, name, params }) {
+                    return error(message);
+                }
+                self.bank_error = None;
+                if let Some(path) = &self.bank_path {
+                    if let Err(e) = crate::control_pages::save(path, &self.bank) {
+                        self.bank_error = Some(e);
+                    }
+                }
+                vec![self.control_pages_event()]
+            }
+            Command::GetInsertPage { insert } => self.insert_page_event(insert),
             Command::GetPluginParamText { insert, param, value } => {
                 let Some(ph) = self.plugin_handle(insert) else { return error(format!("plugin inconnu : {insert}")) };
                 vec![Event::PluginParamText { insert, param, value, text: ph.param_text(param, value).unwrap_or_default() }]
@@ -1542,6 +1560,43 @@ impl Host {
     }
 
     /// Poignée de contrôle d'un plugin CLAP vivant (paramètres, état, latence), si `insert` en est un.
+    /// Charge la banque de pages de contrôle (fichier de l'utilisateur) : à appeler au démarrage. Un fichier abîmé laisse la banque vide et l'erreur
+    /// est montrée à la page ; il n'est réécrit que quand l'utilisateur change une page.
+    pub fn set_control_pages_path(&mut self, path: Option<std::path::PathBuf>) {
+        self.bank = crate::control_pages::Bank::new();
+        self.bank_error = None;
+        if let Some(p) = &path {
+            match crate::control_pages::load(p) {
+                Ok(b) => self.bank = b,
+                Err(e) => self.bank_error = Some(e),
+            }
+        }
+        self.bank_path = path;
+    }
+
+    fn control_pages_event(&self) -> Event {
+        Event::ControlPages { entries: self.bank.entries(), error: self.bank_error.clone() }
+    }
+
+    /// La page de contrôle d'un plugin du projet, résolue d'après les paramètres qu'il expose (par identifiant, sinon par nom).
+    pub(super) fn insert_page_event(&self, insert: u32) -> Vec<Event> {
+        let Some(ph) = self.plugin_handle(insert) else { return vec![Event::Error { command: "get_insert_page".into(), message: format!("plugin inconnu : {insert}") }] };
+        let Some(plugin_id) = self.meta.plugins.get(&insert).map(|p| p.clap_id.clone()) else { return vec![Event::Error { command: "get_insert_page".into(), message: "identité du plugin inconnue".into() }] };
+        let Some(entry) = self.bank.get(&plugin_id) else { return vec![Event::InsertPage { insert, plugin_id, configured: false, params: Vec::new(), missing: Vec::new() }] };
+        let exposed = ph.params();
+        let list: Vec<(u32, String)> = exposed.iter().map(|p| (p.id, p.name.clone())).collect();
+        let (found, missing) = crate::control_pages::resolve(&entry.params, &list);
+        let params = found
+            .into_iter()
+            .map(|i| {
+                let p = &exposed[i];
+                let value = self.plugin_values.get(&(insert, p.id)).copied().or_else(|| ph.param_value(p.id)).unwrap_or(p.default);
+                ParamEntry { id: p.id, name: p.name.clone(), module: p.module.clone(), min: p.min, max: p.max, default: p.default, value, text: ph.param_text(p.id, value).unwrap_or_default() }
+            })
+            .collect();
+        vec![Event::InsertPage { insert, plugin_id, configured: true, params, missing }]
+    }
+
     fn plugin_handle(&self, insert: u32) -> Option<daw_clap_host::PluginHandle> {
         self.handle.insert_control(insert)?.as_any().downcast_ref::<daw_clap_host::PluginHandle>().cloned()
     }

@@ -4,7 +4,7 @@
 // (brouillon donné au module) ; rien n'est écrit dans le projet avant « Appliquer » (une seule action annulable), « Annuler » laisse tout intact.
 
 import { fadd, fsub } from "../notes-model.js";
-import { chipsFromLyrics, chipsFromText, chipsToSyllables, clearVerseRange, lyricsToText, nearestOnset, noteOnsets, placeChip, unplaceChip, verseCount } from "../lyrics-model.js";
+import { chipsFromLyrics, chipsFromText, chipsToSyllables, clearVerseRange, lyricsToText, nearestOnset, noteOnsets, noteSpans, placeChip, unplaceChip, verseCount } from "../lyrics-model.js";
 import { fcmp } from "../notes-model.js";
 
 const DRAG_PX = 6;
@@ -28,7 +28,7 @@ export class LyricReserve {
       <div class="lr-row">
         <strong>Réserve de paroles</strong>
         <label>Couplet <select class="lr-verse" aria-label="Couplet"></select></label>
-        <span class="lr-btns"><button class="lr-split" title="Découpe le texte en pastilles (celles déjà posées sont reprises à zéro)">Découper</button><button class="lr-clear" title="Remet toutes les pastilles dans la réserve">Tout retirer</button><button class="lr-remove" title="Remet la pastille choisie dans la réserve">Retirer</button><button class="lr-apply">Appliquer</button><button class="lr-cancel">Annuler</button></span>
+        <span class="lr-btns"><button class="lr-split" title="Découpe le texte en pastilles (celles déjà posées sont reprises à zéro). Un « _ » est une pastille mélisme.">Découper</button><button class="lr-melisma" title="Ajoute une pastille mélisme « _ » (après la pastille choisie, sinon à la fin) : posée sur une note, elle prolonge la syllabe qui la précède jusqu'à la fin de cette note">＋ Mélisme</button><button class="lr-clear" title="Remet toutes les pastilles dans la réserve">Tout retirer</button><button class="lr-remove" title="Remet la pastille choisie dans la réserve">Retirer</button><button class="lr-apply">Appliquer</button><button class="lr-cancel">Annuler</button></span>
       </div>
       <textarea class="lr-text" rows="2" placeholder="ma-man est la plus bel-le" aria-label="Texte du couplet"></textarea>
       <div class="lr-chips" role="listbox" aria-label="Syllabes"></div>
@@ -38,6 +38,7 @@ export class LyricReserve {
     this.chipsEl = panel.querySelector(".lr-chips");
     this.hint = panel.querySelector(".lr-hint");
     panel.querySelector(".lr-split").addEventListener("click", () => this.#split());
+    panel.querySelector(".lr-melisma").addEventListener("click", () => this.#addMelisma());
     panel.querySelector(".lr-clear").addEventListener("click", () => this.#setChips(this.chips.map((_, i) => i).reduce((acc, i) => unplaceChip(acc, i), this.chips), null));
     panel.querySelector(".lr-remove").addEventListener("click", () => this.sel != null && this.#setChips(unplaceChip(this.chips, this.sel), this.sel));
     panel.querySelector(".lr-apply").addEventListener("click", () => this.apply());
@@ -89,7 +90,7 @@ export class LyricReserve {
     this.verseSel.value = String(v);
     const from = c.d.start;
     const to = fadd(c.d.start, c.d.len);
-    const chips = chipsFromLyrics(this.host.lyrics(), v, from, to);
+    const chips = chipsFromLyrics(this.host.lyrics(), v, from, to, noteOnsets(c.d));
     this.text.value = lyricsToText(this.host.lyrics().filter((s) => fcmp(s.at, from) >= 0 && fcmp(s.at, to) < 0), v, noteOnsets(c.d));
     this.#setChips(chips, null, false);
   }
@@ -98,6 +99,13 @@ export class LyricReserve {
     const chips = chipsFromText(this.text.value);
     if (!chips.length) return this.#say("Écris au moins une syllabe.");
     this.#setChips(chips, 0);
+  }
+
+  /** Une pastille mélisme de plus, juste après la pastille choisie (sinon à la fin) ; elle est choisie pour être posée tout de suite. */
+  #addMelisma() {
+    const at = this.sel != null ? this.sel + 1 : this.chips.length;
+    const chips = [...this.chips.slice(0, at), { text: "_", extend: true, hyphen: false, at: null }, ...this.chips.slice(at)];
+    this.#setChips(chips, at);
   }
 
   #setChips(chips, sel, draft = true) {
@@ -112,14 +120,14 @@ export class LyricReserve {
     const c = this.host.clip();
     if (!c) return;
     const base = clearVerseRange(this.host.lyrics(), this.verse, c.d.start, fadd(c.d.start, c.d.len));
-    this.host.setDraft([...base, ...chipsToSyllables(this.chips, this.verse)].sort((a, b) => fcmp(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)));
+    this.host.setDraft([...base, ...chipsToSyllables(this.chips, this.verse, noteSpans(c.d))].sort((a, b) => fcmp(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)));
   }
 
   apply() {
     const c = this.host.clip();
     if (!c) return;
     const base = clearVerseRange(this.host.lyrics(), this.verse, c.d.start, fadd(c.d.start, c.d.len));
-    const placed = chipsToSyllables(this.chips, this.verse);
+    const placed = chipsToSyllables(this.chips, this.verse, noteSpans(c.d));
     if (!placed.length && base.length === this.host.lyrics().length) return this.close();
     this.host.commit([...base, ...placed].sort((a, b) => fcmp(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)), this.verse);
     this.close();
@@ -130,11 +138,12 @@ export class LyricReserve {
       ...this.chips.map((c, i) => {
         const b = document.createElement("button");
         b.type = "button";
-        b.className = `lr-chip${c.at ? " placed" : ""}${i === this.sel ? " sel" : ""}`;
+        b.className = `lr-chip${c.at ? " placed" : ""}${i === this.sel ? " sel" : ""}${c.extend ? " ext" : ""}`;
+        if (c.extend) b.title = "Mélisme : prolonge la syllabe précédente jusqu'à la fin de la note où on la pose";
         b.dataset.k = String(i);
         b.setAttribute("role", "option");
         b.setAttribute("aria-selected", String(i === this.sel));
-        b.textContent = `${c.text}${c.hyphen ? "-" : ""}`;
+        b.textContent = c.extend ? "_ mélisme" : `${c.text}${c.hyphen ? "-" : ""}`;
         return b;
       }),
     );
@@ -198,7 +207,7 @@ export class LyricReserve {
       g.moved = true;
       g.ghost = document.createElement("div");
       g.ghost.className = "lr-chip lr-ghost";
-      g.ghost.textContent = `${this.chips[g.k].text}${this.chips[g.k].hyphen ? "-" : ""}`;
+      g.ghost.textContent = this.chips[g.k].extend ? "_ mélisme" : `${this.chips[g.k].text}${this.chips[g.k].hyphen ? "-" : ""}`;
       document.body.append(g.ghost);
     }
     const z = this.host.zoom();

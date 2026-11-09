@@ -244,7 +244,16 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .plugins-panel h3 { margin: 0; font-size: 12px; }
 .plugins-panel input[type="search"] { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 12px; }
 .plugins-panel .list { overflow: auto; display: grid; align-content: start; gap: 2px; min-height: 0; max-height: calc((100vh - 220px) / var(--ui-zoom, 1)); }
-.plugins-panel .param { display: grid; grid-template-columns: minmax(0, 1fr) 7em 5.5em; gap: 8px; align-items: center; font-size: 11px; padding: 2px 0; }
+.plugins-panel .param { display: grid; grid-template-columns: 1.7em minmax(0, 1fr) 7em 5.5em; gap: 8px; align-items: center; font-size: 11px; padding: 2px 0; }
+.plugins-panel .pstar { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+.plugins-panel .pstar[aria-pressed="true"] { color: #ffcc00; }
+.plugins-panel .pstar:disabled { opacity: 0.3; cursor: default; }
+.plugins-panel .ppage { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin: 4px 0 8px; }
+.plugins-panel .ppage summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.plugins-panel .ppage-row { display: grid; grid-template-columns: 1.6em minmax(0, 1fr) auto auto auto; gap: 4px; align-items: center; font-size: 11px; padding: 1px 0; }
+.plugins-panel .ppage-n { color: var(--muted); text-align: right; }
+.plugins-panel .ppage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugins-panel .ppage-row button { padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: inherit; cursor: pointer; }
 .plugins-panel .param .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plugins-panel .param output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plugins-panel .plug { display: grid; text-align: left; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; background: var(--panel-2); color: inherit; cursor: pointer; }
@@ -796,6 +805,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .score-window .sc-reserve .lr-hint { font-size: 11px; color: var(--muted); }
 .lr-chip { padding: 5px 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); font: inherit; cursor: grab; touch-action: none; user-select: none; }
 .lr-chip.placed { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); border-color: var(--accent); }
+.lr-chip.ext { border-style: dashed; font-style: italic; }
 .lr-chip.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lr-ghost { position: fixed; z-index: 10001; pointer-events: none; background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
 .score-window .sc-resbtn[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }

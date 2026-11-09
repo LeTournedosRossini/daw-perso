@@ -4,6 +4,7 @@
 //! Ce crate ne dépend ni de Tauri ni d'un pilote audio : il se teste entièrement sans fenêtre ni carte son. L'application
 //! (`crates/app`) n'a plus qu'à relier ses commandes et ses événements à [`Host`].
 
+pub mod control_pages;
 pub mod demo;
 pub mod host;
 pub mod monitor;

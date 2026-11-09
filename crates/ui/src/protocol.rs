@@ -212,6 +212,13 @@ pub enum Command {
     SetPluginBypass { insert: u32, bypass: bool },
     /// Demande la liste des paramètres d'un plugin : réponse `plugin_params`.
     GetPluginParams { insert: u32 },
+    /// La banque personnelle de pages de contrôle (réponse : événement `control_pages`).
+    GetControlPages,
+    /// Définit la page de contrôle d'un plugin dans la banque (16 paramètres au plus, sans paramètre : supprime la page). La banque est un fichier de
+    /// l'utilisateur, valable pour tous les projets.
+    SetControlPage { plugin_id: String, name: String, params: Vec<crate::control_pages::PageParam> },
+    /// Les paramètres de la page de contrôle d'un plugin du projet, avec leurs valeurs et leurs textes (réponse : événement `insert_page`).
+    GetInsertPage { insert: u32 },
     /// Règle un paramètre d'un plugin (valeur dans l'unité du plugin). Hors historique ; réponse `plugin_param`.
     SetPluginParam { insert: u32, param: u32, value: f64 },
     /// Texte que le plugin affiche pour `value` (sans rien changer) : pour montrer une valeur automatisée.
@@ -459,6 +466,9 @@ impl Command {
             Command::SetPluginBypass { .. } => "set_plugin_bypass",
             Command::SetInsertSidechain { .. } => "set_insert_sidechain",
             Command::GetPluginParams { .. } => "get_plugin_params",
+            Command::GetControlPages => "get_control_pages",
+            Command::SetControlPage { .. } => "set_control_page",
+            Command::GetInsertPage { .. } => "get_insert_page",
             Command::SetPluginParam { .. } => "set_plugin_param",
             Command::GetPluginParamText { .. } => "get_plugin_param_text",
             Command::AddTrack { .. } => "add_track",
@@ -782,6 +792,7 @@ impl Command {
             }
             Command::AddPlugin { clap_id, .. } if clap_id.trim().is_empty() => Err("add_plugin : clap_id vide".into()),
             Command::GetPluginParamText { value, .. } if !value.is_finite() => Err("get_plugin_param_text : value doit être un nombre fini".into()),
+            Command::SetControlPage { plugin_id, name, params } => crate::control_pages::validate(&crate::control_pages::PageEntry { plugin_id: plugin_id.clone(), name: name.clone(), params: params.clone() }).map_err(|e| format!("set_control_page : {e}")),
             Command::SetPluginParam { value, .. } if !value.is_finite() => Err("set_plugin_param : value doit être un nombre fini".into()),
             Command::AddTrack { kind, name } => {
                 if !matches!(kind.as_str(), "mono" | "stereo" | "bus") {
@@ -1403,6 +1414,11 @@ pub enum Event {
     /// Inventaire des plugins installés ; `scanning` : le balayage est en cours (la liste suivra).
     Plugins { plugins: Vec<PluginListing>, scanning: bool },
     PluginParams { insert: u32, params: Vec<ParamEntry> },
+    /// La banque de pages de contrôle (toutes les pages définies sur cet ordinateur) ; `error` : le fichier n'a pas pu être lu ou écrit.
+    ControlPages { entries: Vec<crate::control_pages::PageEntry>, error: Option<String> },
+    /// La page de contrôle d'un plugin du projet : `configured` faux s'il n'en a pas dans la banque ; `missing` : les noms de la page que le plugin
+    /// n'expose pas (ou plus).
+    InsertPage { insert: u32, plugin_id: String, configured: bool, params: Vec<ParamEntry>, missing: Vec<String> },
     /// Valeur et texte d'un paramètre après `set_plugin_param`.
     PluginParam { insert: u32, param: u32, value: f64, text: String },
     /// Réponse à `get_plugin_param_text`.

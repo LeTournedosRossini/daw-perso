@@ -6,6 +6,7 @@ import { valueAtWhole } from "../automation-model.js";
 import { trackGesture } from "./gesture.js";
 
 const ONLY_MINE = "Le Tournedos Rossini";
+const MAX_PAGE = 16; // paramètres d'une page de contrôle (deux groupes de huit encodeurs)
 const MAX_ROWS = 80; // paramètres affichés à la fois (un plugin peut en avoir des milliers : on affine par la recherche)
 
 const norm = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -25,6 +26,18 @@ export class PluginsPanel {
     this.paramSearch = "";
     this.catalogSearch = "";
     this.pending = new Map(); // insert|param → { timer, value } pour limiter le débit des curseurs
+    this.bank = new Map(); // identifiant CLAP → { plugin_id, name, params [{ id, name }] } : la banque personnelle de pages de contrôle
+    this.bankError = null;
+    this.pluginIds = new Map(); // insert → identifiant CLAP du plugin (donné par `insert_page`)
+    client.on("control_pages", (e) => {
+      this.bank = new Map((e.entries ?? []).map((x) => [x.plugin_id, x]));
+      this.bankError = e.error ?? null;
+      if (this.isOpen()) this.renderParams();
+    });
+    client.on("insert_page", (e) => {
+      this.pluginIds.set(e.insert, e.plugin_id);
+      if (this.isOpen() && this.selected === e.insert) this.renderParams();
+    });
     client.on("plugins", (e) => {
       this.scanning = e.scanning;
       if (!e.scanning || e.plugins.length) this.catalog = e.plugins;
@@ -74,7 +87,13 @@ export class PluginsPanel {
     this.selected = chain.some((i) => i.id === this.selected) ? this.selected : (chain[0]?.id ?? null);
     this.root.hidden = false;
     this.render();
-    if (this.selected !== null) this.client.send({ type: "get_plugin_params", insert: this.selected });
+    if (this.selected !== null) this.#fetch(this.selected);
+  }
+
+  /** Les paramètres d'un plugin et son identifiant CLAP (pour retrouver sa page de contrôle dans la banque). */
+  #fetch(insert) {
+    this.client.send({ type: "get_plugin_params", insert });
+    this.client.send({ type: "get_insert_page", insert });
   }
 
   close() {
@@ -97,7 +116,7 @@ export class PluginsPanel {
     const chain = this.chain();
     if (!chain.some((i) => i.id === this.selected)) {
       this.selected = chain[0]?.id ?? null;
-      if (this.selected !== null) this.client.send({ type: "get_plugin_params", insert: this.selected });
+      if (this.selected !== null) this.#fetch(this.selected);
     }
     this.render();
   }
@@ -106,7 +125,7 @@ export class PluginsPanel {
     this.selected = id;
     this.paramSearch = "";
     this.render();
-    this.client.send({ type: "get_plugin_params", insert: id });
+    this.#fetch(id);
   }
 
   render() {
@@ -229,6 +248,66 @@ export class PluginsPanel {
     return row;
   }
 
+  /** Définit la page de contrôle du plugin dans la banque personnelle (valable pour tous les projets). */
+  #savePage(ins, pid, params) {
+    this.client.send({ type: "set_control_page", plugin_id: pid, name: ins.name, params });
+  }
+
+  /** La page de contrôle du plugin : ses paramètres dans l'ordre, qu'on peut monter, descendre ou retirer. */
+  pageBlock(ins, pid) {
+    const page = this.bank.get(pid)?.params ?? [];
+    const exposed = this.params.get(ins.id) ?? [];
+    const det = document.createElement("details");
+    det.className = "ppage";
+    det.open = this.pageOpen ?? page.length > 0;
+    det.addEventListener("toggle", () => (this.pageOpen = det.open));
+    const sum = document.createElement("summary");
+    sum.textContent = `Page de contrôle (${page.length}/${MAX_PAGE})`;
+    sum.title = "Les paramètres que la tablette ou la surface de contrôle montre pour ce plugin, huit par huit. Enregistrée sur cet ordinateur : elle sert à tous les projets.";
+    det.append(sum);
+    if (this.bankError) {
+      const e = document.createElement("p");
+      e.className = "empty";
+      e.textContent = this.bankError;
+      det.append(e);
+    }
+    if (!page.length) {
+      const e = document.createElement("p");
+      e.className = "empty";
+      e.textContent = "Aucun paramètre choisi : touche ☆ devant un paramètre ci-dessous pour l'ajouter.";
+      det.append(e);
+    }
+    page.forEach((p, i) => {
+      const row = document.createElement("div");
+      row.className = "ppage-row";
+      const known = exposed.some((x) => x.id === p.id);
+      const num = document.createElement("span");
+      num.className = "ppage-n";
+      num.textContent = String(i + 1);
+      const name = document.createElement("span");
+      name.className = "ppage-name";
+      name.textContent = p.name || `#${p.id}`;
+      if (exposed.length && !known) name.title = "Ce plugin n'expose plus ce paramètre (il sera retrouvé par son nom s'il a changé d'identifiant)";
+      const mk = (label, title, fn, disabled) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.title = title;
+        b.disabled = !!disabled;
+        b.addEventListener("click", fn);
+        return b;
+      };
+      const swap = (j) => {
+        const next = [...page];
+        [next[i], next[j]] = [next[j], next[i]];
+        this.#savePage(ins, pid, next);
+      };
+      row.append(num, name, mk("↑", "Monter", () => swap(i - 1), i === 0), mk("↓", "Descendre", () => swap(i + 1), i === page.length - 1), mk("✕", "Retirer de la page", () => this.#savePage(ins, pid, page.filter((_, k) => k !== i))));
+      det.append(row);
+    });
+    return det;
+  }
+
   renderParams() {
     const box = this.root.querySelector(".params .list");
     const title = this.root.querySelector(".params h3");
@@ -246,6 +325,8 @@ export class PluginsPanel {
     }
     title.textContent = `Réglages : ${ins.name}`;
     if (ins.has_sidechain) box.append(this.sidechainRow(ins));
+    const pid = this.pluginIds.get(ins.id);
+    if (pid) box.append(this.pageBlock(ins, pid));
     search.value = this.paramSearch;
     search.oninput = () => {
       this.paramSearch = search.value;
@@ -267,8 +348,19 @@ export class PluginsPanel {
       row.className = "param";
       row.dataset.param = String(p.id);
       const span = p.max - p.min;
-      row.innerHTML = `<span class="pn"></span><input type="range" min="${p.min}" max="${p.max}" step="${span > 0 ? span / 1000 : 1}" value="${p.value}"><output></output>`;
+      row.innerHTML = `<button type="button" class="pstar" aria-label="Page de contrôle"></button><span class="pn"></span><input type="range" min="${p.min}" max="${p.max}" step="${span > 0 ? span / 1000 : 1}" value="${p.value}"><output></output>`;
       row.querySelector(".pn").textContent = p.module ? `${p.name} · ${p.module}` : p.name;
+      const star = row.querySelector(".pstar");
+      const page = pid ? (this.bank.get(pid)?.params ?? []) : [];
+      const inPage = page.some((x) => x.id === p.id);
+      star.textContent = inPage ? "★" : "☆";
+      star.setAttribute("aria-pressed", String(inPage));
+      star.title = inPage ? "Retirer de la page de contrôle" : page.length >= MAX_PAGE ? `La page de contrôle est pleine (${MAX_PAGE})` : "Ajouter à la page de contrôle (tablette, surface)";
+      star.disabled = !pid || (!inPage && page.length >= MAX_PAGE);
+      star.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.#savePage(ins, pid, inPage ? page.filter((x) => x.id !== p.id) : [...page, { id: p.id, name: p.name }]);
+      });
       row.querySelector("output").textContent = p.text;
       const range = row.querySelector("input");
       trackGesture(range, this.client, () => ({ node: this.node, target: { kind: "insert", insert: ins.id, param: p.id } }));

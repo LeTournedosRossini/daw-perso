@@ -158,17 +158,27 @@ export function clearVerseRange(list, verse, from, to) {
 // ---- réserve de syllabes (pastilles posées sur les notes) -----------------------------------------------------------------------
 // Une pastille : { text, hyphen, at (fraction absolue de ronde, ou null : elle attend), end? }. L'ordre des mots ne change jamais.
 
-/** Les pastilles d'un texte (« ma-man est la plus bel-le ») : toutes en attente. Les « _ » ne sont pas des pastilles (le trait se règle par la fenêtre « Paroles… »). */
+/**
+ * Les pastilles d'un texte (« ma-man est la _ plus bel-le ») : toutes en attente. Un « _ » est une pastille **mélisme** (`extend`) : posée sur une
+ * note après une syllabe, elle prolonge cette syllabe jusqu'à la fin de cette note (trait de prolongation).
+ */
 export function chipsFromText(text) {
-  return parseLyricsText(text).filter((i) => !i.extend).map((i) => ({ text: i.text, hyphen: !!i.hyphen, at: null }));
+  return parseLyricsText(text).map((i) => (i.extend ? { text: "_", extend: true, hyphen: false, at: null } : { text: i.text, hyphen: !!i.hyphen, at: null }));
 }
 
-/** Les pastilles d'un couplet déjà posé sur une plage du projet : toutes placées, dans l'ordre. */
-export function chipsFromLyrics(list, verse, from, to) {
-  return list
-    .filter((s) => (s.verse ?? 1) === verse && fcmp(s.at, from) >= 0 && fcmp(s.at, to) < 0)
-    .sort((a, b) => fcmp(a.at, b.at))
-    .map((s) => ({ text: s.text, hyphen: !!s.hyphen, at: s.at, ...(s.end ? { end: s.end } : {}) }));
+/**
+ * Les pastilles d'un couplet déjà posé sur une plage du projet : toutes placées, dans l'ordre. Une syllabe qui a un trait de prolongation
+ * est suivie d'une pastille mélisme posée sur la dernière note sous le trait (`onsets` : les instants des notes du clip) ; sans note sous le
+ * trait, la syllabe garde sa fin.
+ */
+export function chipsFromLyrics(list, verse, from, to, onsets = []) {
+  const out = [];
+  for (const s of list.filter((x) => (x.verse ?? 1) === verse && fcmp(x.at, from) >= 0 && fcmp(x.at, to) < 0).sort((a, b) => fcmp(a.at, b.at))) {
+    const last = s.end ? [...onsets].filter((o) => fcmp(o, s.at) > 0 && fcmp(o, s.end) < 0).sort(fcmp).pop() : null;
+    out.push({ text: s.text, hyphen: !!s.hyphen, at: s.at, ...(s.end && !last ? { end: s.end } : {}) });
+    if (last) out.push({ text: "_", extend: true, hyphen: false, at: last });
+  }
+  return out;
 }
 
 /** L'instant de `onsets` le plus proche de `at` (`null` s'il n'y en a pas). */
@@ -216,9 +226,24 @@ export function unplaceChip(chips, k) {
   return chips.map((c, i) => (i === k ? { text: c.text, hyphen: c.hyphen, at: null } : { ...c }));
 }
 
-/** Les syllabes du projet que donnent les pastilles placées, dans le couplet `verse`. */
-export function chipsToSyllables(chips, verse) {
-  return chips.filter((c) => c.at).map((c) => ({ at: c.at, text: c.text, hyphen: !!c.hyphen, verse, ...(c.end ? { end: c.end } : {}) }));
+/**
+ * Les syllabes du projet que donnent les pastilles placées, dans le couplet `verse`. Une pastille mélisme posée sur une note donne à la syllabe
+ * qui la précède (la dernière syllabe placée avant elle) un trait de prolongation jusqu'à la fin de cette note (`spans` : [{ at, end }] des notes
+ * du clip) ; une pastille mélisme sans syllabe devant, ou sur un instant sans note, est ignorée.
+ */
+export function chipsToSyllables(chips, verse, spans = []) {
+  const out = [];
+  for (const c of chips) {
+    if (!c.at) continue;
+    if (c.extend) {
+      const prev = out[out.length - 1];
+      const span = spans.find((s) => fcmp(s.at, c.at) === 0);
+      if (prev && span && fcmp(span.end, prev.at) > 0) prev.end = span.end;
+      continue;
+    }
+    out.push({ at: c.at, text: c.text, hyphen: !!c.hyphen, verse, ...(c.end ? { end: c.end } : {}) });
+  }
+  return out;
 }
 
 /**

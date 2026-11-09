@@ -192,7 +192,7 @@ test("lyricTap : saisie d'une syllabe au clic dans la partition", async () => {
 test("réserve de syllabes : pastilles, pose, ordre des mots, poussée", async () => {
   const m = await import("../js/lyrics-model.js");
   const onsets = [[1, 1], [5, 4], [3, 2], [7, 4], [2, 1]]; // cinq notes
-  let chips = m.chipsFromText("ma-man est la _ plus");
+  let chips = m.chipsFromText("ma-man est la plus");
   assert.deepEqual(chips.map((c) => [c.text, c.hyphen, c.at]), [["ma", true, null], ["man", false, null], ["est", false, null], ["la", false, null], ["plus", false, null]]);
   // Pose de la 1re sur la note 1 puis de la 3e sur la note 4 : ordre respecté.
   chips = m.placeChip(chips, 0, onsets[0], onsets);
@@ -219,4 +219,31 @@ test("réserve de syllabes : pastilles, pose, ordre des mots, poussée", async (
   assert.deepEqual(m.chipsFromLyrics(list, 2, [1, 1], [3, 1]).map((c) => c.text), ["y"]);
   assert.deepEqual(m.nearestOnset(onsets, [4, 3]), [5, 4]);
   assert.equal(m.nearestOnset([], [1, 1]), null);
+});
+
+test("réserve : pastilles mélisme (le trait de prolongation se pose comme une syllabe)", async () => {
+  const m = await import("../js/lyrics-model.js");
+  const onsets = [[1, 1], [5, 4], [3, 2], [7, 4]];
+  const { fadd } = await import("../js/notes-model.js");
+  const spans = onsets.map((o) => ({ at: o, end: fadd(o, [1, 4]) })); // chaque note dure 1/4 de ronde
+  // « ma _ _ man » : deux pastilles mélisme.
+  let chips = m.chipsFromText("ma _ _ man");
+  assert.deepEqual(chips.map((c) => !!c.extend), [false, true, true, false]);
+  chips = m.placeChip(chips, 0, onsets[0], onsets);
+  chips = m.placeChip(chips, 1, onsets[1], onsets);
+  chips = m.placeChip(chips, 2, onsets[2], onsets);
+  chips = m.placeChip(chips, 3, onsets[3], onsets);
+  const syl = m.chipsToSyllables(chips, 1, spans);
+  assert.deepEqual(syl.map((s) => [s.text, s.at, s.end]), [["ma", [1, 1], [7, 4]], ["man", [7, 4], undefined]], "le trait va jusqu'à la fin de la dernière note sous le mélisme");
+  // Un mélisme sans syllabe devant, ou sur un instant sans note, ne fait rien.
+  assert.deepEqual(m.chipsToSyllables([{ text: "_", extend: true, at: [1, 1] }], 1, spans), []);
+  assert.equal(m.chipsToSyllables([{ text: "a", at: [1, 1] }, { text: "_", extend: true, at: [9, 8] }], 1, spans)[0].end, undefined);
+  // Un couplet déjà posé avec un trait redonne une pastille mélisme sur la dernière note sous le trait, et se réécrit à l'identique.
+  const list = [{ at: [1, 1], text: "ma", hyphen: false, verse: 1, end: [7, 4] }, { at: [7, 4], text: "man", hyphen: false, verse: 1 }];
+  const back = m.chipsFromLyrics(list, 1, [0, 1], [3, 1], onsets);
+  assert.deepEqual(back.map((c) => [c.text, !!c.extend, c.at]), [["ma", false, [1, 1]], ["_", true, [3, 2]], ["man", false, [7, 4]]]);
+  assert.deepEqual(m.chipsToSyllables(back, 1, spans).map((s) => [s.text, s.end]), [["ma", [7, 4]], ["man", undefined]]);
+  // Un syllabe qui a un trait mais aucune note dessous le garde (pas de pastille mélisme).
+  const lone = m.chipsFromLyrics([{ at: [1, 1], text: "a", hyphen: false, verse: 1, end: [9, 8] }], 1, [0, 1], [3, 1], onsets);
+  assert.deepEqual(lone.map((c) => [c.text, !!c.extend, c.end]), [["a", false, [9, 8]]]);
 });
