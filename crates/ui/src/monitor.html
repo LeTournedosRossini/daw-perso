@@ -2,6 +2,8 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Mon retour</title>
@@ -30,21 +32,50 @@
   #fx-params .fp output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
   #fx-params .fp input[type=range] { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; touch-action: pan-y; }
   .mx button.fx { min-width: 44px; }
-  /* Tablette en paysage : la régie devient une **console** — une tranche par piste avec un fader vertical, par bancs de 8, 12 ou 16 pistes —
-     et la page de contrôle des plugins est fixée en bas, en onglets (un par plugin de la piste), les seize paramètres d'un coup. */
+  /* Tablette en paysage (régie) : deux écrans et une barre fine toujours là.
+     - Mixeur : les tranches (faders verticaux) occupent tout l'écran, par bancs de 8, 12 ou 16 pistes.
+     - Édition : à gauche les plugins de la piste, à droite les seize paramètres du plugin choisi.
+     - Barre du bas, de la hauteur d'un bouton : lecture, pré-roll, clic, sections (volet fin au-dessus), bancs de pistes, Édition / Mixeur, Retour, plein écran. */
+  :root { --bar-h: 56px; }
   body:not(.tab-mix) #fxpanel { display: none; }
   .mx[hidden] { display: none !important; }
-  #bank { display: none; }
+  #bank, #tbar, #secpanel { display: none; }
   @media (orientation: landscape) and (min-width: 820px) {
-    body.tab-mix { padding: 8px 12px calc(40vh + 10px); }
-    body.tab-mix h1 { font-size: 15px; margin: 0 0 4px; }
-    body.tab-mix #tabs { margin-bottom: 6px; }
-    body.tab-mix #tabs button { height: 36px; }
-    body.tab-mix #bank { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 13px; color: var(--muted); }
-    body.tab-mix #bank button { height: 32px; min-width: 42px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; touch-action: manipulation; }
-    body.tab-mix #bank button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
-    body.tab-mix #bank .sp { flex: 1; }
-    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(60vh - 300px), 420px); }
+    body.tab-mix { padding: 6px 8px calc(var(--bar-h) + 6px); }
+    body.tab-mix h1, body.tab-mix #hint, body.tab-mix #tabs, body.tab-mix #solo-hint { display: none; }
+    body.tab-mix #lost, body.tab-mix #expired { font-size: 12px; padding: 4px 10px; margin-bottom: 4px; }
+    /* Barre du bas */
+    body.tablet #tbar { display: flex; align-items: center; gap: 6px; position: fixed; left: 0; right: 0; bottom: 0; height: var(--bar-h); padding: 6px 8px max(6px, env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); z-index: 30; overflow-x: auto; }
+    body.tablet #tbar button { height: 44px; min-width: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; touch-action: manipulation; padding: 0 12px; white-space: nowrap; flex: none; }
+    body.tablet #tbar button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+    body.tablet #tbar .sp { flex: 1; min-width: 4px; }
+    body.tablet #tbar #remote { margin: 0; padding: 0; border: 0; background: transparent; flex: none; align-items: center; gap: 6px; }
+    body.tablet #tbar #remote.on { display: flex; }
+    body.tablet #tbar #remote .bar { gap: 4px; }
+    body.tablet #tbar #remote button { height: 44px; min-width: 46px; font-size: 18px; padding: 0 8px; }
+    body.tablet #tbar #remote .bar button { flex: none; }
+    body.tablet #tbar #remote .stat { margin: 0 4px; gap: 8px; font-size: 13px; white-space: nowrap; }
+    body.tablet #tbar #remote .stat b { font-size: 14px; }
+    body.tablet #tbar #remote .line { margin: 0; gap: 4px; flex-wrap: nowrap; }
+    body.tablet #tbar #remote .line > span { display: none; }
+    body.tablet #tbar #r-state { display: none; }
+    body.tablet #tbar #bank, body.tablet #tbar #bank span { white-space: nowrap; }
+    body.tablet #tbar #r-pre::before { content: "Pré-roll "; font-weight: 400; color: var(--muted); }
+    body.tablet #tbar #r-pre[aria-pressed="true"]::before { color: #fff; }
+    body.tablet #tbar #remote .line button { height: 44px; font-size: 14px; padding: 0 10px; }
+    body.tablet #tbar #remote .msg.on { position: fixed; left: 8px; bottom: calc(var(--bar-h) + 6px); margin: 0; z-index: 31; }
+    body.tablet #tbar #bank { display: flex; align-items: center; gap: 4px; margin: 0; font-size: 12px; color: var(--muted); flex: none; }
+    body.tablet #tbar #bank button { height: 44px; min-width: 40px; padding: 0 8px; }
+    body.tablet #tbar #bank > span:first-child { display: none; }
+    body.tablet #tbar #bank .sp { display: none; }
+    /* Volet fin des sections, au-dessus de la barre */
+    body.tablet.sec-open #secpanel { display: block; position: fixed; left: 0; right: 0; bottom: var(--bar-h); background: var(--panel); border-top: 1px solid var(--line); padding: 6px 8px; z-index: 29; overflow-x: auto; }
+    body.tablet #secpanel .secs { display: flex; gap: 6px; margin: 0; }
+    body.tablet #secpanel .secs button { flex: none; min-width: 130px; height: 44px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
+    body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+    /* Mixeur : tranches à toute la hauteur */
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - 250px), 520px); }
+    body.tab-mix.view-edit #mixlist { display: none; }
     body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
     body.tab-mix .mx.master { order: 99; flex: 0 0 96px; margin-left: 8px; border-top-color: var(--text); }
     body.tab-mix .mx .row { display: contents; }
@@ -58,15 +89,22 @@
     body.tab-mix .mx .panrow { order: 5; width: 100%; gap: 2px; }
     body.tab-mix .mx .panrow > span:first-child { display: none; }
     body.tab-mix .mx .panrow .pv { min-width: 2.2em; font-size: 11px; }
-    body.tab-mix #fxpanel { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 40vh; max-height: none; border-radius: 14px 14px 0 0; border-top: 2px solid var(--accent); padding: 8px 16px 10px; display: flex; flex-direction: column; }
-    body.tab-mix #fxpanel[hidden] { display: flex; }
-    body.tab-mix #fx-close { display: none; }
-    body.tab-mix #fx-tabs { display: none; }
-    body.tab-mix #fxpanel .fx-head #fx-chain { gap: 8px; }
-    body.tab-mix #fx-chain button { min-height: 40px; }
-    body.tab-mix #fx-params { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 20px; margin-top: 6px; overflow-y: auto; align-content: start; }
-    body.tab-mix #fx-params .fp .pn { font-size: 14px; }
-    body.tab-mix #fx-params .fp input[type=range] { height: 34px; }
+    /* Édition : tout l'écran au-dessus de la barre ; plugins à gauche, paramètres à droite */
+    body.tablet.view-edit #fxpanel { display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 18px; position: fixed; top: 0; left: 0; right: 0; bottom: var(--bar-h); width: auto; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; overflow: hidden; z-index: 20; }
+    body.tablet.view-edit #fxpanel[hidden] { display: grid; }
+    body.tablet #fxpanel .fx-head { grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; align-items: stretch; gap: 8px; overflow-y: auto; border-right: 1px solid var(--line); padding-right: 14px; }
+    body.tablet #fxpanel .fx-head #fx-track { font-size: 17px; }
+    body.tablet #fxpanel .fx-head #fx-chain { flex-direction: column; flex: none; gap: 8px; }
+    body.tablet #fxpanel #fx-chain > span { display: flex; gap: 6px; }
+    body.tablet #fxpanel #fx-chain > span > button:first-child { flex: 1; min-height: 52px; text-align: left; font-size: 16px; }
+    body.tablet #fxpanel .fx-trk { display: flex; gap: 6px; }
+    body.tablet #fxpanel .fx-trk button { flex: 1; min-height: 44px; }
+    body.tablet #fxpanel .fx-trk[hidden] { display: none; }
+    body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
+    body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 22px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params .fp .pn { font-size: 15px; }
+    body.tablet #fx-params .fp input[type=range] { height: 40px; }
   }
   #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #expired.on { display: block; }
@@ -167,7 +205,7 @@
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
 <div id="fxpanel" role="dialog" aria-label="Plugins de la piste" hidden>
-  <div class="fx-head"><strong id="fx-track"></strong><span id="fx-chain"></span><button id="fx-close" aria-label="Fermer">✕</button></div>
+  <div class="fx-head"><strong id="fx-track"></strong><span class="fx-trk" id="fx-trk" hidden><button id="fx-prev" aria-label="Piste précédente avec des plugins">◀ Piste</button><button id="fx-next" aria-label="Piste suivante avec des plugins">Piste ▶</button></span><span id="fx-chain"></span><button id="fx-close" aria-label="Fermer">✕</button></div>
   <div id="fx-tabs"></div>
   <div id="fx-msg"></div>
   <div id="fx-params"></div>
@@ -181,6 +219,8 @@
   <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
 </div>
+<div id="secpanel"></div>
+<div id="tbar"><span id="tb-remote"></span><button id="tb-secs" aria-pressed="false">Sections</button><span class="sp"></span><span id="tb-bank"></span><button id="tb-edit">Édition</button><button id="tb-me" title="Revenir à l'écran « Mon retour »">Retour</button><button id="tb-full" title="Plein écran" hidden>⛶</button></div>
 <div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
 <div id="list"></div>
 <div id="bank" aria-label="Pistes affichées"></div>
@@ -299,6 +339,7 @@ async function poll() {
     const st = await res.json();
     document.getElementById("expired").classList.toggle("on", !!st.expired);
     fxState = st;
+    layoutTablet();
     showRemote(st.remote);
     showTabs(!!st.mix);
     showMix(st.mix);
@@ -392,7 +433,7 @@ function showRemote(r) {
       small.textContent = "m." + s.bar;
       b.append(small);
       b.disabled = !!r.recording; // on ne déplace pas la tête pendant une prise
-      b.addEventListener("click", () => cmd({ cmd: "section", index: i }));
+      b.addEventListener("click", () => { cmd({ cmd: "section", index: i }); document.body.classList.remove("sec-open"); syncBar(); });
       return b;
     }));
   }
@@ -421,14 +462,27 @@ function laterFx(insert, param, value) {
 }
 function openFx(node) {
   fxNode = node; fxInsert = null; fxGroup = 0; fxShape = "";
-  document.getElementById("fxpanel").hidden = false;
+  if (docked()) document.body.classList.add("view-edit"); // en paysage : l'écran d'édition prend toute la place
+  else document.getElementById("fxpanel").hidden = false;
   showFx(fxState);
+  syncBar();
 }
 function closeFx() {
   fxNode = null; fxInsert = null; fxShape = "";
+  document.body.classList.remove("view-edit");
   document.getElementById("fxpanel").hidden = true;
   postFx({ open: null });
-  showFx(fxState); // en paysage le panneau reste fixé, avec son message
+  showFx(fxState);
+  syncBar();
+}
+/** Écran d'édition : passe à la piste suivante ou précédente qui a des plugins. */
+function stepFx(dir) {
+  const withFx = (fxState?.mix?.nodes ?? []).filter((n) => (n.inserts ?? []).length);
+  if (!withFx.length) return;
+  const i = withFx.findIndex((n) => n.id === fxNode);
+  const next = withFx[(i < 0 ? 0 : i + dir + withFx.length) % withFx.length];
+  fxNode = next.id; fxInsert = null; fxShape = "";
+  showFx(fxState);
 }
 function selectFx(insert) {
   fxInsert = insert; fxGroup = 0; fxShape = "";
@@ -437,19 +491,86 @@ function selectFx(insert) {
 // Paysage : la page de contrôle est fixée à droite de la régie et montre ses seize paramètres d'un coup (plus de feuille, plus d'onglets).
 const LANDSCAPE = window.matchMedia("(orientation: landscape) and (min-width: 820px)");
 const docked = () => LANDSCAPE.matches && document.body.classList.contains("tab-mix");
-LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; showFx(fxState); if (fxState?.mix) { el("bank").dataset.key = ""; applyBank(fxState.mix); } });
+LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; layoutTablet(); showFx(fxState); if (fxState?.mix) { el("bank").dataset.key = ""; applyBank(fxState.mix); } });
+// ---- tablette en paysage : barre du bas, écrans Mixeur et Édition, plein écran ---------------------------------------------------------
+// La barre réunit des éléments qui, en portrait, vivent ailleurs dans la page (transport, bancs de pistes, cartes de sections) : on les y déplace
+// quand la disposition « tablette » s'applique et on les remet à leur place sinon (mêmes éléments, mêmes écouteurs).
+const homes = {};
+function park(key, node) {
+  if (!homes[key]) { homes[key] = document.createComment(key); node.before(homes[key]); }
+}
+function layoutTablet() {
+  const on = docked();
+  const body = document.body;
+  park("remote", el("remote")); park("bank", el("bank")); park("secs", el("r-secs"));
+  if (body.classList.contains("tablet") !== on) {
+    body.classList.toggle("tablet", on);
+    if (on) {
+      el("tb-remote").append(el("remote"));
+      el("tb-bank").append(el("bank"));
+      el("secpanel").append(el("r-secs"));
+    } else {
+      homes.remote.after(el("remote"));
+      homes.bank.after(el("bank"));
+      homes.secs.after(el("r-secs"));
+      body.classList.remove("view-edit", "sec-open");
+      fxShape = "";
+    }
+  }
+  syncBar();
+}
+function syncBar() {
+  const body = document.body;
+  const edit = body.classList.contains("view-edit");
+  el("tb-edit").textContent = edit ? "Mixeur" : "Édition";
+  el("tb-secs").hidden = !fxState?.remote;
+  el("tb-secs").setAttribute("aria-pressed", String(body.classList.contains("sec-open")));
+}
+const fsRoot = document.documentElement;
+const canFullscreen = !!(fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen);
+const inFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const toggleFullscreen = (want) => {
+  try {
+    if (want ?? !inFullscreen()) (fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen).call(fsRoot);
+    else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } catch { /* plein écran refusé par le navigateur */ }
+};
+el("tb-secs").addEventListener("click", () => { document.body.classList.toggle("sec-open"); syncBar(); });
+el("tb-edit").addEventListener("click", () => {
+  if (document.body.classList.contains("view-edit")) return closeFx();
+  const first = fxNode ?? (fxState?.mix?.nodes ?? []).find((n) => (n.inserts ?? []).length)?.id;
+  if (first == null) { el("fx-msg").textContent = "Aucune piste n'a de plugin."; }
+  openFx(first ?? null);
+});
+el("tb-me").addEventListener("click", () => el("tab-me").click());
+el("fx-prev").addEventListener("click", () => stepFx(-1));
+el("fx-next").addEventListener("click", () => stepFx(1));
+if (canFullscreen) {
+  el("tb-full").hidden = false;
+  el("tb-full").addEventListener("click", () => { toggleFullscreen(); store.put("fs-" + base, inFullscreen() ? "0" : "1"); });
+  // Le plein écran exige un geste de l'utilisateur : si on l'avait demandé, le premier appui sur la page le rétablit (après un rechargement).
+  if (store.get("fs-" + base) === "1") addEventListener("pointerdown", () => { if (!inFullscreen()) toggleFullscreen(true); }, { once: true });
+}
+
 function showFx(st) {
   const panel = document.getElementById("fxpanel");
-  if (docked()) panel.hidden = false;
+  const edit = docked() && document.body.classList.contains("view-edit");
+  if (docked()) panel.hidden = !edit;
+  document.getElementById("fx-trk").hidden = !docked();
+  if (docked() && !edit) return; // écran Mixeur : la page de réglages n'est pas affichée
+  if (edit && fxNode == null && st?.mix) {
+    const first = st.mix.nodes.find((n) => (n.inserts ?? []).length);
+    if (first) fxNode = first.id;
+  }
   if (fxNode == null && docked()) {
-    // Rien d'ouvert : le panneau fixé dit quoi faire.
+    // Rien d'ouvert : l'écran d'édition dit quoi faire.
     document.getElementById("fx-track").textContent = "Plugins";
     document.getElementById("fx-chain").replaceChildren();
     delete document.getElementById("fx-chain").dataset.shape;
     document.getElementById("fx-tabs").replaceChildren();
     document.getElementById("fx-params").replaceChildren();
     fxRows.clear(); fxShape = "";
-    document.getElementById("fx-msg").textContent = "Touche « fx » sur une piste pour régler ses plugins.";
+    document.getElementById("fx-msg").textContent = "Aucune piste n'a de plugin : ajoutes-en sur l'ordinateur.";
     return;
   }
   if (fxNode == null || !st?.mix) return;
@@ -670,7 +791,7 @@ function applyBank(mix) {
     next.textContent = "▶"; next.disabled = bankPage >= pages - 1; next.setAttribute("aria-label", "Pistes suivantes");
     next.addEventListener("click", () => { bankPage++; applyBank(fxState.mix); });
     const t = document.createElement("span");
-    t.textContent = "pistes " + (bankPage * bankSize + 1) + "–" + Math.min(sources.length, (bankPage + 1) * bankSize) + " sur " + sources.length;
+    t.textContent = (bankPage * bankSize + 1) + "–" + Math.min(sources.length, (bankPage + 1) * bankSize) + " / " + sources.length;
     bar.append(prev, t, next);
   }
 }
@@ -686,6 +807,7 @@ function showTabs(hasMix) {
       el("tab-me").setAttribute("aria-selected", String(!mix));
       store.put("tab-" + base, mix ? "mix" : "me");
       fxShape = "";
+      layoutTablet();
       showFx(fxState);
     };
     el("tab-me").addEventListener("click", () => pick(false));
