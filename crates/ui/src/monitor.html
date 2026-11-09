@@ -74,14 +74,14 @@
     body.tablet #secpanel .secs button { flex: none; min-width: 130px; height: 44px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
     body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
     /* Mixeur : tranches à toute la hauteur */
-    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - 250px), 520px); }
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - 290px), 520px); }
     body.tab-mix.view-edit #mixlist { display: none; }
     body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
     body.tab-mix .mx.master { order: 99; flex: 0 0 96px; margin-left: 8px; border-top-color: var(--text); }
     body.tab-mix .mx .row { display: contents; }
     body.tab-mix .mx .who { order: 1; max-width: 100%; justify-content: center; flex: none; }
     body.tab-mix .mx .name { font-size: 12px; max-width: 100%; }
-    body.tab-mix .mx .btns { order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
+    body.tab-mix .mx .btns { order: 2; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 36px; gap: 4px; width: 100%; min-height: 116px; align-content: start; }
     body.tab-mix .mx .btns button { min-width: 0; height: 36px; padding: 0; white-space: nowrap; font-size: 13px; }
     body.tab-mix .mx .fader { order: 3; position: relative; width: 100%; height: var(--fh); flex: none; }
     body.tab-mix .mx .fader input.lvl { position: absolute; left: calc(50% - 22px); top: var(--fh); width: var(--fh); height: 44px; transform-origin: 0 0; transform: rotate(-90deg); touch-action: none; }
@@ -106,6 +106,28 @@
     body.tablet #fx-params .fp .pn { font-size: 15px; }
     body.tablet #fx-params .fp input[type=range] { height: 40px; }
   }
+  /* Automation : bouton de mode par piste (volume / pan) et par paramètre de plugin, menu des modes */
+  .am { font-size: 12px; }
+  .am.m-read, .pam.m-read { color: #3ecf5a; border-color: #3ecf5a; }
+  .am.m-trim, .pam.m-trim { color: var(--accent); border-color: var(--accent); }
+  .am.m-off, .pam.m-off { color: var(--muted); text-decoration: line-through; }
+  .am.m-touch, .am.m-latch, .pam.m-touch, .pam.m-latch { background: #f5a524 !important; color: #000 !important; border-color: #f5a524 !important; }
+  .am.m-write, .pam.m-write { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+  #automenu { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 8px); transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: var(--panel); border: 2px solid var(--accent); border-radius: 14px; padding: 10px 12px 12px; z-index: 40; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55); }
+  #automenu[hidden] { display: none; }
+  #automenu .am-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #automenu .am-head strong { flex: 1; }
+  #automenu button { min-height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; padding: 0 12px; }
+  #automenu .am-seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  #automenu .am-seg button { flex: 1; }
+  #automenu .am-seg button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #automenu .am-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  #automenu .am-modes button[aria-pressed="true"] { outline: 3px solid var(--accent); }
+  #automenu .am-modes button.w { color: var(--bad); }
+  #automenu .am-hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  #fx-params .fp { grid-template-columns: 1fr auto auto; }
+  #fx-params .fp input[type=range] { grid-column: 1 / -1; }
+  #fx-params .fp .pam { min-height: 30px; min-width: 52px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; touch-action: manipulation; padding: 0 8px; }
   #expired { display: none; background: #8a5a00; color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   #expired.on { display: block; }
   .src { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 0; margin-bottom: 6px; }
@@ -218,6 +240,12 @@
   <div class="msg" id="r-msg"></div>
   <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
+</div>
+<div id="automenu" role="dialog" aria-label="Automation" hidden>
+  <div class="am-head"><strong id="am-title"></strong><button id="am-close" aria-label="Fermer">✕</button></div>
+  <div class="am-seg" id="am-seg"></div>
+  <div class="am-modes" id="am-modes"></div>
+  <div class="am-hint" id="am-hint"></div>
 </div>
 <div id="secpanel"></div>
 <div id="tbar"><span id="tb-remote"></span><button id="tb-secs" aria-pressed="false">Sections</button><span class="sp"></span><span id="tb-bank"></span><button id="tb-edit">Édition</button><button id="tb-me" title="Revenir à l'écran « Mon retour »">Retour</button><button id="tb-full" title="Plein écran" hidden>⛶</button></div>
@@ -625,11 +653,15 @@ function showFx(st) {
     params.replaceChildren(...(all ? page.params : page.params.slice(fxGroup * 8, fxGroup * 8 + 8)).map((p) => {
       const row = document.createElement("div");
       row.className = "fp";
-      row.innerHTML = '<span class="pn"></span><output></output><input type="range">';
+      row.innerHTML = '<span class="pn"></span><button type="button" class="pam" aria-label="Automation du paramètre"></button><output></output><input type="range">';
       row.querySelector(".pn").textContent = p.name;
       const range = row.querySelector("input");
       range.min = p.min; range.max = p.max; range.step = (p.max - p.min) / 1000 || 1;
-      const r = { range, out: row.querySelector("output"), down: false };
+      const r = { range, out: row.querySelector("output"), down: false, am: row.querySelector(".pam") };
+      r.am.addEventListener("click", () => {
+        const now = fxState?.fine?.page?.params?.find((x) => x.id === p.id);
+        openAutoMenu(`Automation · ${p.name}`, [{ label: p.name, body: { target: "insert", insert: page.insert, param: p.id }, mode: now?.auto ?? "none" }], page.node);
+      });
       range.addEventListener("pointerdown", () => { r.down = true; postFx({ insert: page.insert, param: p.id, touch: true }); });
       for (const ev of ["pointerup", "pointercancel"]) range.addEventListener(ev, () => { if (r.down) { r.down = false; postFx({ insert: page.insert, param: p.id, touch: false }); } });
       range.addEventListener("input", () => laterFx(page.insert, p.id, Number(range.value)));
@@ -643,10 +675,45 @@ function showFx(st) {
     const r = fxRows.get(p.id);
     if (!r) continue;
     r.out.textContent = p.text;
+    if (r.am) { r.am.textContent = AM_SHORT[p.auto ?? "none"]; r.am.className = "pam m-" + (p.auto ?? "none"); }
     if (!r.down && !fxPending.has(page.insert + ":" + p.id)) r.range.value = p.value;
   }
 }
 document.getElementById("fx-close").addEventListener("click", closeFx);
+// ---- automation (droit « réglages fins ») : mode d'automation du volume et du pan d'une piste, et de chaque paramètre de la page d'un plugin ----------
+const AM_MODES = [["none", "Aucune"], ["read", "Lecture"], ["trim", "Trim"], ["off", "Désactivée"], ["touch", "Toucher"], ["latch", "Latch"], ["write", "Écriture"]];
+const AM_SHORT = { none: "Auto", read: "Lect.", trim: "Trim", off: "Off", touch: "Toucher", latch: "Latch", write: "Écrit." };
+function setAutoButton(btn, gain, pan) {
+  btn.textContent = AM_SHORT[gain] + (pan !== "none" ? " +P" : "");
+  btn.className = (btn.className.replace(/\bm-\w+\b/g, "") + " m-" + gain).replace(/\s+/g, " ").trim();
+}
+let amState = null;
+function openAutoMenu(title, targets, node) {
+  amState = { node, targets, cur: 0 };
+  el("am-title").textContent = title;
+  el("automenu").hidden = false;
+  renderAutoMenu();
+}
+function renderAutoMenu() {
+  const { node, targets, cur } = amState;
+  const seg = el("am-seg");
+  seg.replaceChildren(...(targets.length > 1 ? targets.map((t, i) => {
+    const b = document.createElement("button");
+    b.textContent = t.label; b.setAttribute("aria-pressed", String(i === cur));
+    b.addEventListener("click", () => { amState.cur = i; renderAutoMenu(); });
+    return b;
+  }) : []));
+  const t = targets[cur];
+  el("am-modes").replaceChildren(...AM_MODES.map(([mode, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.setAttribute("aria-pressed", String(mode === t.mode));
+    if (mode === "write") b.classList.add("w");
+    b.addEventListener("click", () => { postFx({ auto: mode, node, ...t.body }); el("automenu").hidden = true; amState = null; });
+    return b;
+  }));
+  el("am-hint").textContent = "Toucher : écrit tant que tu tiens le réglage · Latch : écrit à partir du premier geste · Écriture : écrit dès la lecture · Trim : le réglage décale la courbe. Lecture, Trim, Désactivée demandent une courbe existante.";
+}
+el("am-close").addEventListener("click", () => { el("automenu").hidden = true; amState = null; });
 // ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
 const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
 let mixShape = "", mixPending = new Map(), mixTimer = null;
@@ -663,10 +730,11 @@ function buildMix(n) {
   root.className = "mx" + (n.kind === "master" ? " master" : n.kind === "return" ? " ret" : "");
   root.style.setProperty("--c", n.color || "var(--accent)");
   const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
+  const autoBtn = n.auto ? '<button class="am" aria-label="Automation">Auto</button>' : "";
   const fxBtn = n.inserts?.length ? '<button class="fx" aria-label="Plugins de la piste">fx ' + n.inserts.length + "</button>" : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
   const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
-  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + fxBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + autoBtn + fxBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
   const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
   r.range.min = DB_MIN; r.range.max = DB_MAX;
@@ -683,6 +751,11 @@ function buildMix(n) {
   const flag = (btn, key) => btn?.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("x" + key + n.id, Date.now() + 700); postMix({ node: n.id, [key]: r[key] }); });
   flag(r.m, "mute"); flag(r.s, "solo"); flag(r.a, "arm");
   root.querySelector(".fx")?.addEventListener("click", () => openFx(n.id));
+  r.am = root.querySelector(".am");
+  r.am?.addEventListener("click", () => {
+    const cur = (fxState?.mix?.nodes ?? []).find((x) => x.id === n.id) ?? n;
+    openAutoMenu(`Automation · ${cur.name}`, [{ label: "Volume", body: { target: "gain" }, mode: cur.auto?.gain ?? "none" }, ...(n.kind === "master" ? [] : [{ label: "Pan", body: { target: "pan" }, mode: cur.auto?.pan ?? "none" }])], n.id);
+  });
   mixRows.set(n.id, r);
   return r;
 }
@@ -718,7 +791,7 @@ function showMix(mix) {
   const box = el("mixlist");
   if (!mix) { mixRows.clear(); mixGroupRows.clear(); mixShape = ""; box.replaceChildren(); return; }
   const groups = mix.groups ?? [];
-  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color, (n.inserts ?? []).length]), groups.map((g) => [g.id, g.name, g.color])]);
+  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color, (n.inserts ?? []).length, !!n.auto]), groups.map((g) => [g.id, g.name, g.color])]);
   if (shape !== mixShape) {
     mixShape = shape;
     mixRows.clear();
@@ -746,6 +819,7 @@ function showMix(mix) {
     if (r.a && !holding("xarm" + n.id)) { r.arm = !!n.arm; press(r.a, r.arm); }
     r.root.style.opacity = r.mute || (anySolo && !n.solo && n.kind !== "master") ? ".55" : "1";
     showLed(r.led, n.peak);
+    if (r.am) setAutoButton(r.am, n.auto?.gain ?? "none", n.auto?.pan ?? "none");
   }
   applyBank(mix);
 }

@@ -509,3 +509,57 @@ fn fine_settings_are_a_separate_right_limited_to_the_chosen_parameters_of_a_plug
     rig.set_role(7);
     assert_eq!(rig.state()["role"], 7);
 }
+
+#[test]
+fn automation_modes_are_set_per_track_and_per_chosen_parameter_with_the_fine_right() {
+    let mut rig = Rig::new();
+    rig.h.set_plugin_resolver(plugin_resolver());
+    let id = daw_test_plugin::PLUGIN_ID.to_str().unwrap();
+    let ev = rig.h.command_json(&format!(r#"{{"type":"add_plugin","node":1,"clap_id":"{id}","file":"test.clap"}}"#));
+    let ins = project(&ev).nodes.iter().find(|n| n.name == "Batterie").unwrap().inserts[0].id;
+    let (gid, other) = (daw_test_plugin::PARAM_GAIN, daw_test_plugin::PARAM_EXTRA_LATENCY);
+    rig.h.command_json(&format!(r#"{{"type":"set_control_page","plugin_id":"{id}","name":"Gain de test","params":[{{"id":{gid},"name":"Gain"}}]}}"#));
+    // Sans le droit des réglages fins : refusé.
+    rig.set_role(2);
+    assert_eq!(rig.fx(r#"{"auto":"touch","node":1,"target":"gain"}"#), 403);
+    rig.set_role(6);
+    let mode = |rig: &Rig, what: &str| rig.state()["mix"]["nodes"].as_array().unwrap().iter().find(|n| n["id"] == 1).unwrap()["auto"][what].as_str().unwrap().to_string();
+    rig.settle();
+    assert_eq!((mode(&rig, "gain"), mode(&rig, "pan")), ("none".into(), "none".into()));
+
+    // Armer l'écriture : Toucher, Latch, Écriture ; désarmer.
+    for m in ["touch", "latch", "write", "none"] {
+        assert_eq!(rig.fx(&format!(r#"{{"auto":"{m}","node":1,"target":"gain"}}"#)), 200);
+        rig.settle();
+        assert_eq!(mode(&rig, "gain"), m);
+    }
+    // Les modes de la courbe demandent une courbe : sans elle, rien ne change.
+    assert_eq!(rig.fx(r#"{"auto":"trim","node":1,"target":"gain"}"#), 200);
+    rig.settle();
+    assert_eq!(mode(&rig, "gain"), "none");
+    rig.h.command_json(r#"{"type":"set_lane","node":1,"target":{"kind":"gain"},"points":[{"pos":[0,1],"value":1.0,"curve":"linear"},{"pos":[1,1],"value":0.5,"curve":"linear"}]}"#);
+    for m in ["trim", "off", "read"] {
+        assert_eq!(rig.fx(&format!(r#"{{"auto":"{m}","node":1,"target":"gain"}}"#)), 200);
+        rig.settle();
+        assert_eq!(mode(&rig, "gain"), m);
+    }
+    // Armer une écriture par-dessus une courbe en lecture : l'armement l'emporte dans l'état, désarmer rend le mode de la courbe.
+    assert_eq!(rig.fx(r#"{"auto":"touch","node":1,"target":"pan"}"#), 200);
+    rig.settle();
+    assert_eq!((mode(&rig, "pan"), mode(&rig, "gain")), ("touch".into(), "read".into()));
+
+    // Un paramètre de plugin : seulement un de la page, d'un plugin de cette piste.
+    assert_eq!(rig.fx(&format!(r#"{{"open":{ins}}}"#)), 200);
+    assert_eq!(rig.fx(&format!(r#"{{"auto":"latch","node":1,"target":"insert","insert":{ins},"param":{gid}}}"#)), 200);
+    rig.settle();
+    assert_eq!(rig.state()["fine"]["page"]["params"][0]["auto"], "latch");
+    assert_eq!(rig.fx(&format!(r#"{{"auto":"touch","node":1,"target":"insert","insert":{ins},"param":{other}}}"#)), 200, "accepté par le serveur, refusé par l'hôte");
+    assert_eq!(rig.fx(&format!(r#"{{"auto":"touch","node":2,"target":"insert","insert":{ins},"param":{gid}}}"#)), 200);
+    rig.settle();
+    let armed: Vec<String> = rig.h.command_json(r#"{"type":"get_project"}"#).iter().find_map(|e| if let Event::Project(p) = e { Some(p.write_arms.iter().map(|a| format!("{}:{}", a.node, a.mode)).collect()) } else { None }).unwrap_or_default();
+    assert!(armed.iter().any(|a| a == "1:touch") && !armed.iter().any(|a| a.starts_with("2:")), "{armed:?}");
+    // Invalides : 400.
+    for bad in [r#"{"auto":"bogus","node":1,"target":"gain"}"#, r#"{"auto":"touch","target":"gain"}"#, r#"{"auto":"touch","node":1}"#, r#"{"auto":"touch","node":1,"target":"volume"}"#, r#"{"auto":"touch","node":1,"target":"insert","insert":3}"#] {
+        assert_eq!(rig.fx(bad), 400, "{bad}");
+    }
+}

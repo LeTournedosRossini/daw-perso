@@ -84,12 +84,34 @@ pub enum FxCmd {
     /// Le doigt touche (`true`) ou lâche (`false`) le contrôle : sert aux modes d'écriture de l'automation (Toucher, Latch).
     Touch { insert: u32, param: u32, active: bool },
     Bypass { insert: u32, on: bool },
+    /// Mode d'automation d'un paramètre : `none` (désarme), `read`, `trim`, `off` (mode de la courbe), `touch`, `latch`, `write` (armement pour l'écriture).
+    Auto { node: u32, target: FxTarget, mode: String },
+}
+
+/// Ce que commande l'automation d'une piste, côté tablette : son volume, son panoramique ou un paramètre de la page de contrôle d'un plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FxTarget {
+    Gain,
+    Pan,
+    Insert { insert: u32, param: u32 },
 }
 
 /// Lit le corps d'un réglage fin. `None` si le corps n'est pas une demande connue et valide.
 fn parse_fx(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
     let id = |k: &str| v[k].as_u64().filter(|n| *n <= u32::MAX as u64).map(|n| n as u32);
-    let cmd = if let Some(open) = v.get("open") {
+    let cmd = if let Some(mode) = v.get("auto").and_then(|a| a.as_str()) {
+        if !matches!(mode, "none" | "read" | "trim" | "off" | "touch" | "latch" | "write") {
+            return None;
+        }
+        let node = id("node")?;
+        let target = match v["target"].as_str()? {
+            "gain" => FxTarget::Gain,
+            "pan" => FxTarget::Pan,
+            "insert" => FxTarget::Insert { insert: id("insert")?, param: id("param")? },
+            _ => return None,
+        };
+        FxCmd::Auto { node, target, mode: mode.to_string() }
+    } else if let Some(open) = v.get("open") {
         match open {
             serde_json::Value::Null => FxCmd::Open(None),
             n => FxCmd::Open(Some(n.as_u64().filter(|x| *x <= u32::MAX as u64)? as u32)),
