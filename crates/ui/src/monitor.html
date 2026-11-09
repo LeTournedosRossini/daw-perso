@@ -26,6 +26,18 @@
   #fxpanel .byp[aria-pressed="true"] { background: #f5a524; color: #000; border-color: #f5a524; }
   #fx-tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
   #fx-msg { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  #fx-chan { display: none; }
+  /* Commande à grand débattement (volume, pan) : on attrape où l'on veut, le réglage suit le doigt **en relatif** (rien ne saute) et continue
+     hors de la barre tant qu'on ne lâche pas : 700 px de course pour toute la plage ; deux doigts ou Maj = cinq fois plus fin. */
+  .wc { display: grid; gap: 6px; }
+  .wc .wc-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); }
+  .wc output { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .wc .wc-b { position: relative; height: 72px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+  .wc .wc-b.active { border-color: var(--accent); }
+  .wc .wc-fill { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .wc .wc-thumb { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--text); }
+  .wc .wc-zero { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); opacity: .6; }
+  .wc[data-off] { opacity: .45; pointer-events: none; }
   #fx-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; }
   #fx-params .fp { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; }
   #fx-params .fp .pn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -69,9 +81,9 @@
     body.tablet #tbar #bank > span:first-child { display: none; }
     body.tablet #tbar #bank .sp { display: none; }
     /* Volet fin des sections, au-dessus de la barre */
-    body.tablet.sec-open #secpanel { display: block; position: fixed; left: 0; right: 0; bottom: var(--bar-h); background: var(--panel); border-top: 1px solid var(--line); padding: 6px 8px; z-index: 29; overflow-x: auto; }
+    body.tablet.sec-open #secpanel { display: block; position: fixed; left: 0; right: 0; bottom: var(--bar-h); background: var(--panel); border-top: 1px solid var(--line); padding: 3px 8px; z-index: 29; overflow-x: auto; }
     body.tablet #secpanel .secs { display: flex; gap: 6px; margin: 0; }
-    body.tablet #secpanel .secs button { flex: none; min-width: 130px; height: 44px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
+    body.tablet #secpanel .secs button { flex: none; min-width: 120px; height: 34px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
     body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
     /* Mixeur : tranches à toute la hauteur */
     html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - 290px), 520px); }
@@ -90,7 +102,7 @@
     body.tab-mix .mx .panrow > span:first-child { display: none; }
     body.tab-mix .mx .panrow .pv { min-width: 2.2em; font-size: 11px; }
     /* Édition : tout l'écran au-dessus de la barre ; plugins à gauche, paramètres à droite */
-    body.tablet.view-edit #fxpanel { display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 18px; position: fixed; top: 0; left: 0; right: 0; bottom: var(--bar-h); width: auto; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; overflow: hidden; z-index: 20; }
+    body.tablet.view-edit #fxpanel { display: grid; grid-template-columns: 250px minmax(0, 1fr) 290px; grid-template-rows: auto auto 1fr; column-gap: 18px; position: fixed; top: 0; left: 0; right: 0; bottom: var(--bar-h); width: auto; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; overflow: hidden; z-index: 20; }
     body.tablet.view-edit #fxpanel[hidden] { display: grid; }
     body.tablet #fxpanel .fx-head { grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; align-items: stretch; gap: 8px; overflow-y: auto; border-right: 1px solid var(--line); padding-right: 14px; }
     body.tablet #fxpanel .fx-head #fx-track { font-size: 17px; }
@@ -102,7 +114,18 @@
     body.tablet #fxpanel .fx-trk[hidden] { display: none; }
     body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
     body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
-    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 22px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 22px; align-content: start; overflow-y: auto; }
+    /* Colonne « piste » : volume, panoramique (grands débattements), muet / solo, automation */
+    body.tablet #fx-chan { display: flex; flex-direction: column; gap: 12px; grid-column: 3; grid-row: 1 / 4; border-left: 1px solid var(--line); padding-left: 16px; overflow-y: auto; }
+    body.tablet #fx-chan .ch-btns { display: flex; gap: 8px; }
+    body.tablet #fx-chan .ch-btns button, body.tablet #fx-chan .ch-auto button { flex: 1; min-height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; padding: 0 8px; }
+    body.tablet #fx-chan .ch-btns button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
+    body.tablet #fx-chan .ch-btns button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
+    body.tablet #fx-chan .ch-btns button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
+    body.tablet #fx-chan .ch-auto { display: grid; gap: 8px; }
+    body.tablet #fx-chan .ch-auto button { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    body.tablet #fx-chan .ch-auto button span { font-size: 12px; font-weight: 600; color: inherit; opacity: .85; }
+    body.tablet #fx-chan h4 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
     body.tablet #fx-params .fp .pn { font-size: 15px; }
     body.tablet #fx-params .fp input[type=range] { height: 40px; }
   }
@@ -231,6 +254,7 @@
   <div id="fx-tabs"></div>
   <div id="fx-msg"></div>
   <div id="fx-params"></div>
+  <div id="fx-chan"></div>
 </div>
 <div id="lost">Connexion perdue… nouvelle tentative.</div>
 <div id="solo-hint">Solo actif : tu n'entends que les sources en solo.</div>
@@ -598,6 +622,7 @@ function showFx(st) {
     document.getElementById("fx-tabs").replaceChildren();
     document.getElementById("fx-params").replaceChildren();
     fxRows.clear(); fxShape = "";
+    showChan(null);
     document.getElementById("fx-msg").textContent = "Aucune piste n'a de plugin : ajoutes-en sur l'ordinateur.";
     return;
   }
@@ -605,6 +630,7 @@ function showFx(st) {
   const node = st.mix.nodes.find((n) => n.id === fxNode);
   if (!node || !(node.inserts ?? []).length) return closeFx();
   document.getElementById("fx-track").textContent = node.name;
+  showChan(docked() ? node : null, st);
   if (fxInsert == null || !node.inserts.some((i) => i.id === fxInsert)) selectFx((node.inserts.find((i) => i.page) ?? node.inserts[0]).id);
   // La chaîne de plugins : un bouton pour choisir, un pour contourner.
   const chain = document.getElementById("fx-chain");
@@ -714,6 +740,118 @@ function renderAutoMenu() {
   el("am-hint").textContent = "Toucher : écrit tant que tu tiens le réglage · Latch : écrit à partir du premier geste · Écriture : écrit dès la lecture · Trim : le réglage décale la courbe. Lecture, Trim, Désactivée demandent une courbe existante.";
 }
 el("am-close").addEventListener("click", () => { el("automenu").hidden = true; amState = null; });
+// ---- écran Édition : colonne « piste » (volume, panoramique à grand débattement, muet / solo, automation) --------------------------------------
+/**
+ * Commande à grand débattement : on attrape la barre où l'on veut, le réglage suit ensuite le doigt **en relatif** (aucun saut) sur `travel` pixels pour
+ * toute la plage, et **continue hors de la barre** tant qu'on ne lâche pas (le pointeur est capturé). Un second doigt (ou Maj) rend le geste cinq fois plus
+ * fin ; double toucher = valeur par défaut.
+ */
+function wideControl({ label, min, max, def, travel, fmt, send, zero = null, round = 0.01 }) {
+  const root = document.createElement("div");
+  root.className = "wc";
+  root.innerHTML = '<div class="wc-h"><span></span><output></output></div><div class="wc-b"><i class="wc-fill"></i><i class="wc-zero"></i><i class="wc-thumb"></i></div>';
+  root.querySelector(".wc-h span").textContent = label;
+  const bar = root.querySelector(".wc-b"), out = root.querySelector("output"), fill = root.querySelector(".wc-fill"), thumb = root.querySelector(".wc-thumb"), zeroEl = root.querySelector(".wc-zero");
+  const pos = (v) => ((v - min) / (max - min)) * 100;
+  const c = { root, value: def, down: false, off: (on) => (on ? root.removeAttribute("data-off") : root.setAttribute("data-off", "")) };
+  c.set = (v) => {
+    c.value = Math.min(max, Math.max(min, Math.round(v / round) * round));
+    const p = pos(c.value);
+    thumb.style.left = p + "%";
+    const z = zero == null ? 0 : pos(zero);
+    fill.style.left = Math.min(z, p) + "%";
+    fill.style.width = Math.abs(p - z) + "%";
+    out.textContent = fmt(c.value);
+  };
+  zeroEl.style.left = zero == null ? "0%" : pos(zero) + "%";
+  zeroEl.style.display = zero == null ? "none" : "";
+  const ids = new Set();
+  let drag = null, lastX = 0;
+  const rebase = () => { if (drag) drag = { ...drag, x: lastX, v: c.value, mul: ids.size >= 2 ? 5 : 1 }; };
+  bar.addEventListener("pointerdown", (e) => {
+    ids.add(e.pointerId);
+    lastX = e.clientX;
+    if (!drag) {
+      bar.setPointerCapture?.(e.pointerId);
+      drag = { id: e.pointerId, x: e.clientX, v: c.value, mul: 1 };
+      c.down = true;
+      bar.classList.add("active");
+    } else rebase(); // un second doigt : geste plus fin
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    lastX = e.clientX;
+    const mul = drag.mul * (e.shiftKey ? 5 : 1);
+    c.set(drag.v + ((e.clientX - drag.x) / travel) * ((max - min) / mul));
+    send(c.value);
+  });
+  const end = (e) => {
+    ids.delete(e.pointerId);
+    if (!drag) return;
+    if (e.pointerId === drag.id) { drag = null; c.down = false; bar.classList.remove("active"); ids.clear(); }
+    else rebase();
+  };
+  bar.addEventListener("pointerup", end);
+  bar.addEventListener("pointercancel", end);
+  bar.addEventListener("dblclick", () => { c.set(def); send(c.value); });
+  c.set(def);
+  return c;
+}
+const chan = { node: null, vol: null, pan: null, btns: {}, auto: {} };
+function showChan(node, st) {
+  const box = el("fx-chan");
+  if (!node) { box.replaceChildren(); chan.node = null; return; }
+  const mixRight = ((st?.role ?? 0) & 2) !== 0;
+  if (chan.node !== node.id || !chan.vol) {
+    chan.node = node.id;
+    const id = node.id;
+    const btns = document.createElement("div");
+    btns.className = "ch-btns";
+    const mk = (cls, text, key) => {
+      const b = document.createElement("button");
+      b.className = cls; b.textContent = text; b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", () => { const on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(on)); lock.set("x" + key + id, Date.now() + 700); postMix({ node: id, [key]: on }); });
+      chan.btns[key] = b;
+      return b;
+    };
+    btns.append(mk("m", "M", "mute"));
+    if (node.kind !== "master") btns.append(mk("s", "S", "solo"));
+    if (node.kind === "track") btns.append(mk("a", "●", "arm"));
+    chan.vol = wideControl({ label: "Volume", min: DB_MIN, max: DB_MAX, def: 0, travel: 600, round: 0.1, zero: 0, fmt: (v) => fmt(v), send: (v) => laterMix(id, { db: v }) });
+    chan.pan = node.kind === "master" ? null : wideControl({ label: "Panoramique", min: -1, max: 1, def: 0, travel: 700, zero: 0, round: 0.01, fmt: fmtPan, send: (v) => laterMix(id, { pan: v }) });
+    const auto = document.createElement("div");
+    auto.className = "ch-auto";
+    const am = (key, label) => {
+      const b = document.createElement("button");
+      b.innerHTML = label + " <span></span>";
+      b.addEventListener("click", () => {
+        const cur = (fxState?.mix?.nodes ?? []).find((x) => x.id === id) ?? node;
+        openAutoMenu("Automation · " + cur.name, [{ label: "Volume", body: { target: "gain" }, mode: cur.auto?.gain ?? "none" }, ...(node.kind === "master" ? [] : [{ label: "Pan", body: { target: "pan" }, mode: cur.auto?.pan ?? "none" }])], id);
+        if (key === "pan" && amState?.targets[1]) { amState.cur = 1; renderAutoMenu(); }
+      });
+      chan.auto[key] = b;
+      return b;
+    };
+    auto.append(am("gain", "Auto volume"));
+    if (node.kind !== "master") auto.append(am("pan", "Auto pan"));
+    const head = document.createElement("h4");
+    head.textContent = "Piste";
+    box.replaceChildren(head, btns, chan.vol.root, ...(chan.pan ? [chan.pan.root] : []), auto);
+  }
+  for (const w of [chan.vol, chan.pan]) w?.off(mixRight);
+  for (const b of Object.values(chan.btns)) b.disabled = !mixRight;
+  if (!chan.vol.down && !mixPending.has(node.id)) chan.vol.set(node.db);
+  if (chan.pan && !chan.pan.down && !mixPending.has(node.id)) chan.pan.set(node.pan);
+  for (const key of ["mute", "solo", "arm"]) if (chan.btns[key] && !holding("x" + key + node.id)) chan.btns[key].setAttribute("aria-pressed", String(!!node[key]));
+  for (const key of ["gain", "pan"]) {
+    const b = chan.auto[key];
+    if (!b) continue;
+    const mode = node.auto?.[key] ?? "none";
+    b.querySelector("span").textContent = AM_SHORT[mode];
+    b.className = "am m-" + mode;
+  }
+}
 // ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
 const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
 let mixShape = "", mixPending = new Map(), mixTimer = null;
