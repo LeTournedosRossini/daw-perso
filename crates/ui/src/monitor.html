@@ -88,7 +88,7 @@
     body.tab-mix .mx .fader { order: 3; position: relative; width: 100%; height: var(--fh); flex: none; }
     body.tab-mix .mx .fader input.lvl { position: absolute; left: calc(50% - 22px); top: var(--fh); width: var(--fh); height: 44px; transform-origin: 0 0; transform: rotate(-90deg); touch-action: none; }
     body.tab-mix .mx .db { order: 4; min-width: 0; text-align: center; font-size: 12px; }
-    body.tab-mix .mx .panrow { order: 5; width: 100%; gap: 2px; }
+    body.tab-mix .mx .panrow { order: 5; width: 100%; gap: 0; flex-direction: column; justify-content: center; }
     body.tab-mix .mx .panrow > span:first-child { display: none; }
     body.tab-mix .mx .panrow .pv { min-width: 2.2em; font-size: 11px; }
     /* Édition : tout l'écran au-dessus de la barre ; plugins à gauche, paramètres à droite */
@@ -105,7 +105,7 @@
     body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
     body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
     /* Zones : nom, valeur, mode d'automation ; la zone touchée est celle que règle le grand curseur du bas */
-    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 56px; gap: 8px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 62px; gap: 8px; align-content: start; overflow-y: auto; }
     body.tablet #fx-params .zone { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; gap: 1px 6px; align-items: center; padding: 4px 8px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
     body.tablet #fx-params .zone.sel { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
     body.tablet #fx-params .zone .zn { grid-column: 1 / -1; font-size: 13px; font-weight: 600; line-height: 1.15; overflow: hidden; }
@@ -120,8 +120,9 @@
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
     /* Grand curseur linéaire, au-dessus du volet des sections, seulement dans l'écran Édition */
     body.tablet.view-edit #ctl { display: flex; align-items: center; gap: 0; position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h) + var(--sec-h)); height: var(--ctl-h); padding: 5px 14px; background: var(--panel); border-top: 2px solid var(--accent); z-index: 28; }
-    body.tablet #ctl .ctl-l, body.tablet #ctl .ctl-m { display: none; }
-    body.tablet #ctl .ctl-l b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.tablet #ctl .ctl-m, body.tablet #ctl .ctl-l span { display: none; }
+    body.tablet #ctl .ctl-l { flex: none; width: 120px; padding-right: 10px; display: flex; align-items: center; }
+    body.tablet #ctl .ctl-l b { font-size: 13px; line-height: 1.1; white-space: normal; max-height: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     body.tablet #ctl .ctl-l span { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     body.tablet #ctl .ctl-m { flex: none; width: 92px; text-align: center; font-size: 12px; color: var(--muted); }
     body.tablet #ctl .ctl-b { position: relative; flex: 1; height: 100%; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
@@ -132,16 +133,13 @@
   }
   /* Automation : bouton de mode par piste (volume / pan) et par paramètre de plugin, menu des modes */
   .am { font-size: 12px; }
-  .za.m-read { color: #3ecf5a !important; border-color: #3ecf5a !important; }
-  .za.m-trim { color: var(--accent) !important; border-color: var(--accent) !important; }
-  .za.m-off { color: var(--muted) !important; text-decoration: line-through; }
-  .za.m-touch, .za.m-latch { background: #f5a524 !important; color: #000 !important; border-color: #f5a524 !important; }
-  .za.m-write { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
-  .am.m-read, .pam.m-read { color: #3ecf5a; border-color: #3ecf5a; }
-  .am.m-trim, .pam.m-trim { color: var(--accent); border-color: var(--accent); }
-  .am.m-off, .pam.m-off { color: var(--muted); text-decoration: line-through; }
-  .am.m-touch, .am.m-latch, .pam.m-touch, .pam.m-latch { background: #f5a524 !important; color: #000 !important; border-color: #f5a524 !important; }
-  .am.m-write, .pam.m-write { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+  /* Couleurs des modes d'automation : Read orange, Trim bleu, Touch vert, Latch violet, Write rouge */
+  .za.m-read, .am.m-read, .pam.m-read { color: #f5a524 !important; border-color: #f5a524 !important; }
+  .za.m-trim, .am.m-trim, .pam.m-trim { color: var(--accent) !important; border-color: var(--accent) !important; }
+  .za.m-off, .am.m-off, .pam.m-off { color: var(--muted) !important; text-decoration: line-through; }
+  .za.m-touch, .am.m-touch, .pam.m-touch { background: #3ecf5a !important; color: #000 !important; border-color: #3ecf5a !important; }
+  .za.m-latch, .am.m-latch, .pam.m-latch { background: #a66cff !important; color: #000 !important; border-color: #a66cff !important; }
+  .za.m-write, .am.m-write, .pam.m-write { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
   #ctl { display: none; }
   #automenu { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 8px); transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: var(--panel); border: 2px solid var(--accent); border-radius: 14px; padding: 10px 12px 12px; z-index: 40; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55); }
   #automenu[hidden] { display: none; }
@@ -249,6 +247,9 @@
   .mx input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
   .mx .panrow { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
   .mx .panrow input { flex: 1; }
+  .mx .knob { position: relative; flex: none; width: 44px; height: 44px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line); background: var(--bg); touch-action: none; user-select: none; -webkit-user-select: none; --a: 0deg; }
+  .mx .knob i { position: absolute; left: 50%; top: 4px; width: 3px; height: 15px; margin-left: -1.5px; border-radius: 2px; background: var(--accent); transform-origin: 50% 16px; transform: rotate(var(--a)); }
+  .mx .knob:focus-visible { outline: 2px solid var(--accent); }
   .mx .panrow .pv { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
@@ -718,8 +719,10 @@ document.getElementById("fx-close").addEventListener("click", closeFx);
 const AM_MODES = [["none", "Aucune"], ["read", "Lecture"], ["trim", "Trim"], ["off", "Désactivée"], ["touch", "Toucher"], ["latch", "Latch"], ["write", "Écriture"]];
 const AM_SHORT = { none: "Auto", read: "Lect.", trim: "Trim", off: "Off", touch: "Toucher", latch: "Latch", write: "Écrit." };
 function setAutoButton(btn, gain, pan) {
-  btn.textContent = AM_SHORT[gain] + (pan !== "none" ? " +P" : "");
-  btn.className = (btn.className.replace(/\bm-\w+\b/g, "") + " m-" + gain).replace(/\s+/g, " ").trim();
+  const mode = gain !== "none" ? gain : pan; // la couleur est celle du volume, à défaut celle du panoramique
+  btn.textContent = "A";
+  btn.title = "Automation : volume " + AM_EN[gain] + (pan !== "none" ? ", pan " + AM_EN[pan] : "");
+  btn.className = (btn.className.replace(/\bm-\w+\b/g, "") + " m-" + mode).replace(/\s+/g, " ").trim();
 }
 let amState = null;
 function openAutoMenu(title, targets, node) {
@@ -927,7 +930,7 @@ function ctlBind() {
       ctl.down = false; ctl.ids.clear(); ctl.idDrag = null;
       bar.classList.remove("active");
       t.touch(false);
-      ctlPlace(t, 0);
+      syncCtl(); // valeur retenue, pas celle de l'appui (sinon le curseur repasse un instant à l'ancienne position)
     } else if (ctlRelative(ctl.t)) rebase();
   };
   bar.addEventListener("pointerup", end);
@@ -947,15 +950,40 @@ function flushMix() {
 }
 const laterMix = (node, patch) => { mixPending.set(node, { ...(mixPending.get(node) ?? {}), ...patch }); if (!mixTimer) mixTimer = setTimeout(flushMix, 60); };
 const fmtPan = (p) => (Math.abs(p) < 0.02 ? "C" : (p < 0 ? "G " : "D ") + Math.round(Math.abs(p) * 100));
+/** Potentiomètre rond du panoramique : glisser verticalement (relatif, rien ne saute), Maj ou second doigt = plus fin, double toucher = centre. */
+function bindPanKnob(r, n) {
+  const k = r.pan;
+  let val = 0, id = null, y0 = 0, v0 = 0, mul = 1, fingers = new Set(), lastTap = 0, touching = false;
+  const show = (v) => { val = v; k.style.setProperty("--a", v * 135 + "deg"); k.setAttribute("aria-valuenow", v.toFixed(2)); r.pv.textContent = fmtPan(v); };
+  Object.defineProperty(k, "value", { get: () => val, set: (v) => show(Number(v)) });
+  const touch = (on) => { if (n.auto && touching !== on) { touching = on; postFx({ node: n.id, target: "pan", touch: on }); } };
+  const set = (v) => { v = Math.round(Math.min(1, Math.max(-1, v)) * 100) / 100; show(v); laterMix(n.id, { pan: v }); };
+  k.addEventListener("pointerdown", (e) => {
+    fingers.add(e.pointerId);
+    if (id !== null) { y0 = e.clientY; v0 = val; mul = 5; e.preventDefault(); return; }
+    id = e.pointerId; y0 = e.clientY; v0 = val; mul = e.shiftKey ? 5 : 1; r.panDown = true;
+    k.setPointerCapture?.(e.pointerId); touch(true);
+    const now = Date.now();
+    if (now - lastTap < 350) set(0);
+    lastTap = now;
+    e.preventDefault();
+  });
+  k.addEventListener("pointermove", (e) => { if (e.pointerId === id) set(v0 + (y0 - e.clientY) / (140 * mul) * 2); });
+  const end = (e) => { fingers.delete(e.pointerId); if (e.pointerId === id) { id = null; mul = 1; fingers.clear(); r.panDown = false; touch(false); } };
+  k.addEventListener("pointerup", end);
+  k.addEventListener("pointercancel", end);
+  k.addEventListener("keydown", (e) => { const d = { ArrowUp: 0.05, ArrowRight: 0.05, ArrowDown: -0.05, ArrowLeft: -0.05 }[e.key]; if (d !== undefined) { set(val + d); e.preventDefault(); } else if (e.key === "Home") set(0); });
+  show(0);
+}
 function buildMix(n) {
   const root = document.createElement("div");
   root.className = "mx" + (n.kind === "master" ? " master" : n.kind === "return" ? " ret" : "");
   root.style.setProperty("--c", n.color || "var(--accent)");
   const arm = n.kind === "track" ? '<button class="a" aria-label="Armer">●</button>' : "";
-  const autoBtn = n.auto ? '<button class="am" aria-label="Automation">Auto</button>' : "";
+  const autoBtn = n.auto ? '<button class="am" aria-label="Automation">A</button>' : "";
   const fxBtn = n.inserts?.length ? '<button class="fx" aria-label="Plugins de la piste">fx ' + n.inserts.length + "</button>" : "";
   const solo = n.kind === "master" ? "" : '<button class="s" aria-label="Solo">S</button>';
-  const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><input class="pan" type="range" min="-1" max="1" step="0.05" aria-label="Panoramique"><span class="pv"></span></div>';
+  const pan = n.kind === "master" ? "" : '<div class="panrow"><span>Pan</span><div class="knob pan" role="slider" tabindex="0" aria-label="Panoramique" aria-valuemin="-1" aria-valuemax="1"><i></i></div><span class="pv"></span></div>';
   root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="btns"><button class="m" aria-label="Couper">M</button>' + solo + arm + autoBtn + fxBtn + '</span><span class="db"></span></div><div class="fader"><input class="lvl" type="range" step="0.5" aria-label="Niveau"></div>' + pan;
   const r = { root, range: root.querySelector(".lvl"), pan: root.querySelector(".pan"), out: root.querySelector(".db"), pv: root.querySelector(".pv"), led: root.querySelector(".led"), m: root.querySelector(".m"), s: root.querySelector(".s"), a: root.querySelector(".a"), down: false, panDown: false, mute: false, solo: false, arm: false };
   root.querySelector(".name").textContent = n.name;
@@ -967,12 +995,7 @@ function buildMix(n) {
   for (const ev of ["pointerup", "pointercancel", "blur"]) r.range.addEventListener(ev, () => { r.down = false; touch(false); });
   r.range.addEventListener("input", () => { const db = Number(r.range.value); r.range.style.setProperty("--fill", ((db - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"); r.out.textContent = fmt(db); laterMix(n.id, { db }); });
   r.range.addEventListener("dblclick", () => { r.range.value = 0; r.range.dispatchEvent(new Event("input")); });
-  if (r.pan) {
-    r.pan.addEventListener("pointerdown", () => (r.panDown = true));
-    for (const ev of ["pointerup", "pointercancel", "blur"]) r.pan.addEventListener(ev, () => (r.panDown = false));
-    r.pan.addEventListener("input", () => { const pan = Number(r.pan.value); r.pv.textContent = fmtPan(pan); laterMix(n.id, { pan }); });
-    r.pan.addEventListener("dblclick", () => { r.pan.value = 0; r.pan.dispatchEvent(new Event("input")); });
-  }
+  if (r.pan) bindPanKnob(r, n, postFx);
   const flag = (btn, key) => btn?.addEventListener("click", () => { r[key] = !r[key]; press(btn, r[key]); lock.set("x" + key + n.id, Date.now() + 700); postMix({ node: n.id, [key]: r[key] }); });
   flag(r.m, "mute"); flag(r.s, "solo"); flag(r.a, "arm");
   root.querySelector(".fx")?.addEventListener("click", () => openFx(n.id));
