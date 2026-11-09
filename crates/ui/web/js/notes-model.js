@@ -170,13 +170,18 @@ const isPow2 = (n) => Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0;
  */
 export function displayGrid(notes, chosen) {
   if (!isPow2(chosen[1]) || chosen[0] !== 1) return chosen;
-  let need = null;
-  for (const d of [1, 2, 4, 8, 16, 32]) {
-    if (notes.every((n) => (n.start[0] * d) % n.start[1] === 0 && (n.len[0] * d) % n.len[1] === 0)) {
-      need = d;
-      break;
-    }
+  const on = (n, d) => (n.start[0] * d) % n.start[1] === 0 && (n.len[0] * d) % n.len[1] === 0;
+  const BIN = [1, 2, 4, 8, 16, 32];
+  const binary = notes.filter((n) => BIN.some((d) => on(n, d)));
+  const odd = notes.filter((n) => !BIN.some((d) => on(n, d))); // ce qui ne tombe sur aucune grille binaire : triolets, quintolets…
+  // Les notes binaires : la plus grosse grille binaire qui les représente (les triolets ne les gênent pas, le module les écrit côte à côte).
+  const needBin = BIN.find((d) => binary.every((n) => on(n, d))) ?? 32;
+  if (!odd.length) return [1, Math.max(needBin, chosen[1])];
+  // Des n-olets : la plus grosse grille ternaire (1/6, 1/12, 1/24, 1/48) ou quinaire (1/10, 1/20, 1/40) qui les représente tous exactement et dont la
+  // grille binaire voisine (la plus petite puissance de 2 au moins égale à son dénominateur, comme la prend le module) ne grossit pas les notes binaires.
+  const neighbour = (d) => 2 ** Math.ceil(Math.log2(d));
+  for (const d of [3, 5, 6, 10, 12, 20, 24, 40, 48]) {
+    if (odd.every((n) => on(n, d)) && neighbour(d) >= needBin) return [1, d];
   }
-  if (need === null) return [1, Math.max(chosen[1], 16)];
-  return [1, Math.max(need, chosen[1])];
+  return [1, Math.max(needBin, chosen[1], 16)]; // positions ni binaires ni ternaires (jeu libre) : comme avant, le module arrondit
 }

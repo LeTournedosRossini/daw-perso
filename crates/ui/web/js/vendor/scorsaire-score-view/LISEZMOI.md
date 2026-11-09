@@ -11,7 +11,7 @@ Module ES autonome (un seul fichier, aucune dépendance, aucun réseau, aucun so
 
 ```js
 import { createScoreView } from './scorsaire-score-view.js';
-const view = createScoreView(container, { onEdit, onPlayheadSeek, onError, onNotice, locale: 'fr' | 'en' });
+const view = createScoreView(container, { onEdit, onPlayheadSeek, onError, locale: 'fr' | 'en' });
 view.setTiming({ meters: [{ bar: 1, num: 4, den: 4 }] });   // barres de mesure (la mesure `bar` à partir de 1)
 view.setClips([clip, …]);      // une portée (ou un système) par clip, dans l'ordre d'affichage
 view.updateClip(clip);         // remplace UN clip (ajouté à la fin s'il n'est pas encore affiché)
@@ -56,8 +56,8 @@ Le conteneur est observé (`ResizeObserver`, redessin 30 ms après la dernière 
 ### Erreurs
 `onError({ clip, message })` : un clip que le modèle ne sait pas écrire n'empêche pas les autres ; sa place montre le message (rouge) et l'hôte en est informé.
 
-### Triolets (grille non binaire) : écrits arrondis, avec un avertissement
-Une grille dont le dénominateur n'est pas une puissance de 2 (1/12, 1/6…) est écrite sur la plus grande grille binaire qui n'est pas plus grossière (1/12 → 1/16, 1/6 → 1/8) : les notes sont arrondies (pastille « note arrondie » comme d'habitude), un petit texte « Triolets arrondis à la grille binaire » apparaît sous le nom du clip, et `onNotice({ clip, code: 'binary-grid', message })` est appelé. Les vrais triolets (n-olets) ne sont pas écrits. L'édition (`editGrid`, positions envoyées) n'est pas touchée.
+### Triolets et n-olets
+Une grille non binaire (`presentation.grid` = 1/12, 1/6, 1/20…) est écrite en VRAIS n-olets : les temps dont des débuts ou fins de notes ne tombent pas sur une ligne binaire deviennent des triolets (3:2), quintolets, etc., avec leur crochet et leur chiffre. Trois notes d'un tiers de temps = un triolet de croches ; trois notes d'un tiers de demi-mesure (deux temps) = un triolet de noires. Un trou dans un n-olet est un silence du n-olet. Les positions binaires restent exactes à côté (une croche et un triolet dans la même mesure) : le module arrondit chaque position à la ligne la plus proche entre la grille donnée et sa grille binaire voisine. Une note qui dépasse son n-olet est coupée et liée. Les duolets (6/8) ne sont pas traités. Si les positions d'un temps ne tombent sur aucune division usuelle, elles sont arrondies au triolet (la pastille « arrondie » le dit).
 
 ### Nom du clip
 `clip.hideName: true` (ou `name: ""`) : pas de ligne de nom sous le titre de section.

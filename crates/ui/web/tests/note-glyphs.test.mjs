@@ -41,6 +41,18 @@ test("la grille d'affichage ne déforme pas les notes", () => {
   assert.deepEqual(displayGrid(sixteenths, [1, 32]), [1, 32]); // jamais plus gros que la grille choisie... ni plus fin que demandé
   assert.deepEqual(displayGrid([n([0, 1], [1, 4]), n([1, 4], [1, 4])], [1, 2]), [1, 4]);
   assert.deepEqual(displayGrid([n([0, 1], [1, 1])], [1, 1]), [1, 1]);
-  assert.deepEqual(displayGrid([n([1, 12], [1, 12])], [1, 4]), [1, 16]); // triolets : non binaire, on retombe sur la double croche
+  assert.deepEqual(displayGrid([n([1, 12], [1, 12])], [1, 4]), [1, 12]); // triolet de croches : grille 1/12, le module écrit un vrai triolet
   assert.deepEqual(displayGrid(sixteenths, [1, 12]), [1, 12]); // grille choisie non binaire : inchangée
+});
+
+test("n-olets : la grille d'écriture suit les notes sans grossir celles qui sont binaires", () => {
+  const n = (start, len) => ({ start, len, key: 60 });
+  const trip8 = [n([0, 1], [1, 12]), n([1, 12], [1, 12]), n([1, 6], [1, 12])];
+  assert.deepEqual(displayGrid(trip8, [1, 1]), [1, 12]);
+  assert.deepEqual(displayGrid([n([0, 1], [1, 6]), n([1, 6], [1, 6]), n([1, 3], [1, 6])], [1, 1]), [1, 6]); // triolet de noires
+  assert.deepEqual(displayGrid([n([1, 4], [1, 8]), ...trip8], [1, 1]), [1, 12]); // croche + triolet de croches : 1/12 (voisine 1/16)
+  assert.deepEqual(displayGrid([n([1, 4], [1, 16]), ...trip8], [1, 1]), [1, 12]); // double croche + triolet de croches
+  assert.deepEqual(displayGrid([n([1, 4], [1, 32]), ...trip8], [1, 1]), [1, 24]); // triple croche + triolet : il faut la voisine 1/32, donc 1/24
+  assert.deepEqual(displayGrid([n([0, 1], [1, 20]), n([1, 20], [1, 20])], [1, 1]), [1, 20]); // quintolet
+  assert.deepEqual(displayGrid([n([1, 7], [1, 7])], [1, 1]), [1, 16]); // ni binaire ni ternaire : comme avant
 });
