@@ -1,0 +1,16 @@
+[package]
+name = "daw-engine"
+description = "Graphe audio, pistes, bus, transport, mixage"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+# File SPSC lock-free pour les commandes vers le thread audio (MIT/Apache-2.0, petite, sans dépendance,
+# compile en WebAssembly). Écrire la nôtre exigerait du `unsafe` pour des éléments non-Copy.
+rtrb = "0.4"
+
+[dev-dependencies]
+# Le garde-fou d'allocation vit dans audio-io ; il ne sert qu'aux tests du moteur.
+daw-audio-io = { path = "../audio-io" }

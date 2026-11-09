@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Mon retour</title>
+<style>
+  :root { --bg: #14161b; --panel: #1c1f26; --line: #2c313c; --text: #e7e9ee; --muted: #9aa3b2; --accent: #4aa3ff; --bad: #ff4d5e; color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root { --bg: #eef0f4; --panel: #fff; --line: #d5d9e1; --text: #1b1f27; --muted: #5b6575; --accent: #1f7ae0; --bad: #e5303f; color-scheme: light; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; padding: max(12px, env(safe-area-inset-top)) 16px 24px; -webkit-text-size-adjust: 100%; }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  #hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  #lost { display: none; background: var(--bad); color: #fff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  #lost.on { display: block; }
+  .src { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 0; margin-bottom: 6px; }
+  .src .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .src .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src .db { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 4.5em; text-align: right; }
+  .src.on .db { color: var(--text); }
+  .src input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 32px; margin: 0; background: transparent; touch-action: pan-y; }
+  .src input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--line) var(--fill, 0%)); }
+  .src input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  .src input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+  .src input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+  .src input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: var(--text); border: 2px solid var(--bg); }
+  .led { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+  .led.g { background: #3ecf5a; }
+  .led.y { background: #ffcc00; }
+  .led.r { background: #ff3b47; box-shadow: 0 0 6px #ff3b47; }
+  .who { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; }
+  .src.dim { opacity: .45; }
+  .src .btns { display: flex; gap: 6px; flex: none; }
+  .src button { min-width: 40px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  .src button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
+  .src button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
+  .grp { border-left: 6px solid var(--c, var(--accent)); padding-left: 8px; margin-bottom: 8px; }
+  .grp > .src.head { margin-bottom: 4px; }
+  .grp .members { display: none; }
+  .grp.open .members { display: block; }
+  .grp .toggle { min-width: 36px; }
+  .grp .trim { display: block; font-size: 12px; color: var(--muted); text-align: center; padding-top: 2px; }
+  .grp .trim .off { margin-left: 8px; font-size: 16px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .grp.shifted .trim .off { color: var(--accent); }
+  .grp .trim input { width: 100%; height: 32px; margin: 0; background: transparent; touch-action: pan-y; }
+  #solo-hint { display: none; background: #ffd400; color: #000; padding: 6px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  #solo-hint.on { display: block; }
+</style>
+</head>
+<body>
+<h1 id="title">Mon retour</h1>
+<p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
+<div id="lost">Connexion perdue… nouvelle tentative.</div>
+<div id="solo-hint">Solo actif : tu n'entends que les sources en solo.</div>
+<div id="list"></div>
+<script>
+"use strict";
+const base = location.pathname.replace(/\/$/, "");
+const DB_MIN = -60, DB_MAX = 6;
+const rows = new Map(); // id de source → { root, range, out, m, s, down }
+const groups = new Map(); // id de groupe → { root, m, s, trim, count, members }
+const lock = new Map(); // "clé" → instant jusqu'auquel l'affichage local prime sur l'état du serveur
+const fmt = (db) => (db <= DB_MIN ? "−∞" : (db > 0 ? "+" : db < 0 ? "−" : "") + Math.abs(db).toFixed(1) + " dB");
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  put(k, v) { try { localStorage.setItem(k, v); } catch { /* pas de mémoire : valable pour cette visite */ } },
+};
+const paint = (r, db) => {
+  r.range.style.setProperty("--fill", ((db - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%");
+  r.out.textContent = fmt(db);
+  r.root.classList.toggle("on", db > DB_MIN);
+};
+const post = (body) => fetch(base + "/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+let pending = new Map(), pendingOffsets = new Map(), timer = null;
+function flush() {
+  timer = null;
+  for (const [node, db] of pending) post({ node, db });
+  for (const [group, offset_db] of pendingOffsets) post({ group, offset_db });
+  pending = new Map();
+  pendingOffsets = new Map();
+}
+const later = () => { if (!timer) timer = setTimeout(flush, 60); };
+const fmtOff = (db) => (db === 0 ? "0 dB" : (db > 0 ? "+" : "−") + Math.abs(db).toFixed(1).replace(".", ",") + " dB");
+const holding = (key) => (lock.get(key) ?? 0) > Date.now();
+// Témoin de signal : crête récente de ce qui arrive dans ce retour (dBFS). Éteint sous −60, vert, jaune à partir de −12, rouge à partir de −3.
+const ledOf = (sig) => (sig === undefined || sig < -60 ? "" : sig < -12 ? "g" : sig < -3 ? "y" : "r");
+const showLed = (el, sig) => { el.className = "led " + ledOf(sig); el.title = ledOf(sig) ? "Signal : " + Math.round(sig) + " dB" : "Pas de signal"; };
+const press = (btn, on) => btn.setAttribute("aria-pressed", String(on));
+
+function flagButtons(root, onMute, onSolo) {
+  const box = document.createElement("div");
+  box.className = "btns";
+  box.innerHTML = '<button class="m" aria-label="Couper">M</button><button class="s" aria-label="Solo">S</button>';
+  const m = box.querySelector(".m"), s = box.querySelector(".s");
+  m.addEventListener("click", onMute);
+  s.addEventListener("click", onSolo);
+  return { box, m, s };
+}
+
+function buildSource(src) {
+  const root = document.createElement("div");
+  root.className = "src";
+  root.innerHTML = '<div class="row"><span class="who"><i class="led"></i><span class="name"></span></span><span class="db"></span></div><input type="range" step="0.5">';
+  const r = { root, range: root.querySelector("input"), out: root.querySelector(".db"), led: root.querySelector(".led"), down: false, mute: !!src.mute, solo: !!src.solo };
+  const f = flagButtons(root,
+    () => { r.mute = !r.mute; press(r.m, r.mute); lock.set("m" + src.id, Date.now() + 700); post({ node: src.id, mute: r.mute }); },
+    () => { r.solo = !r.solo; press(r.s, r.solo); lock.set("s" + src.id, Date.now() + 700); post({ node: src.id, solo: r.solo }); });
+  r.m = f.m; r.s = f.s;
+  root.querySelector(".row").insertBefore(f.box, root.querySelector(".db"));
+  root.querySelector(".name").textContent = src.name;
+  r.range.min = DB_MIN; r.range.max = DB_MAX;
+  r.range.setAttribute("aria-label", "Niveau de " + src.name);
+  r.range.addEventListener("pointerdown", () => (r.down = true));
+  for (const ev of ["pointerup", "pointercancel", "blur"]) r.range.addEventListener(ev, () => (r.down = false));
+  r.range.addEventListener("input", () => {
+    const db = Number(r.range.value);
+    paint(r, db);
+    pending.set(src.id, db);
+    later();
+  });
+  r.range.addEventListener("dblclick", () => { r.range.value = 0; r.range.dispatchEvent(new Event("input")); });
+  rows.set(src.id, r);
+  return r;
+}
+
+function buildGroup(g) {
+  const root = document.createElement("div");
+  root.className = "grp";
+  root.style.setProperty("--c", g.color || "var(--accent)");
+  const key = "grp-open-" + base + "-" + g.id;
+  if (store.get(key) === "1") root.classList.add("open");
+  const head = document.createElement("div");
+  head.className = "src head";
+  head.innerHTML = '<div class="row"><button class="toggle" aria-label="Déplier le groupe">▸</button><span class="who"><i class="led"></i><span class="name"></span></span><span class="db"></span></div><label class="trim"><span>Niveau du groupe</span><output class="off">0 dB</output><input type="range" min="-12" max="12" step="0.5" value="0"></label>';
+  const members = document.createElement("div");
+  members.className = "members";
+  root.append(head, members);
+  const r = { root, members, count: head.querySelector(".db"), trim: head.querySelector("input"), off: head.querySelector(".off"), led: head.querySelector(".led"), down: false, mute: false, solo: false };
+  head.querySelector(".name").textContent = g.name;
+  const toggle = head.querySelector(".toggle");
+  const sync = () => { const open = root.classList.contains("open"); toggle.textContent = open ? "▾" : "▸"; toggle.setAttribute("aria-expanded", String(open)); };
+  toggle.addEventListener("click", () => { root.classList.toggle("open"); store.put(key, root.classList.contains("open") ? "1" : "0"); sync(); });
+  sync();
+  const f = flagButtons(head,
+    () => { r.mute = !r.mute; press(r.m, r.mute); lock.set("gm" + g.id, Date.now() + 700); post({ group: g.id, mute: r.mute }); },
+    () => { r.solo = !r.solo; press(r.s, r.solo); lock.set("gs" + g.id, Date.now() + 700); post({ group: g.id, solo: r.solo }); });
+  r.m = f.m; r.s = f.s;
+  head.querySelector(".row").insertBefore(f.box, r.count);
+  // Niveau du groupe : le curseur reste à sa place et affiche son décalage (de −12 à +12 dB) ; il décale d'autant le niveau de chaque
+  // source du groupe en gardant les écarts, et le remettre à 0 (ou double-toucher) rend les niveaux d'avant.
+  const show = (db) => { r.off.textContent = fmtOff(db); r.root.classList.toggle("shifted", db !== 0); };
+  r.show = show;
+  r.trim.addEventListener("pointerdown", () => (r.down = true));
+  for (const ev of ["pointerup", "pointercancel", "blur"]) r.trim.addEventListener(ev, () => (r.down = false));
+  const send = (db) => { show(db); pendingOffsets.set(g.id, db); later(); };
+  r.trim.addEventListener("input", () => send(Number(r.trim.value)));
+  r.trim.addEventListener("dblclick", () => { r.trim.value = "0"; send(0); });
+  groups.set(g.id, r);
+  return r;
+}
+
+async function poll() {
+  try {
+    const res = await fetch(base + "/state", { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    const st = await res.json();
+    document.getElementById("lost").classList.remove("on");
+    document.getElementById("title").textContent = st.name;
+    document.title = st.name;
+    const list = document.getElementById("list");
+    const gs = st.groups ?? [];
+    const shape = JSON.stringify([gs.map((g) => [g.id, g.name, g.color]), st.sources.map((s) => [s.id, s.name, s.group])]);
+    if (shape !== poll.shape) {
+      poll.shape = shape;
+      list.replaceChildren();
+      rows.clear();
+      groups.clear();
+      for (const g of gs) {
+        const gr = buildGroup(g);
+        for (const s of st.sources.filter((x) => x.group === g.id)) gr.members.append(buildSource(s).root);
+        list.append(gr.root);
+      }
+      for (const s of st.sources.filter((x) => !gs.some((g) => g.id === x.group))) list.append(buildSource(s).root);
+    }
+    const anySolo = st.sources.some((s) => s.solo);
+    document.getElementById("solo-hint").classList.toggle("on", anySolo);
+    for (const s of st.sources) {
+      const r = rows.get(s.id);
+      if (!r) continue;
+      r.root.querySelector(".name").textContent = s.name;
+      if (!r.down && !pending.has(s.id)) { r.range.value = s.db; paint(r, s.db); }
+      if (!holding("m" + s.id)) { r.mute = !!s.mute; press(r.m, r.mute); }
+      if (!holding("s" + s.id)) { r.solo = !!s.solo; press(r.s, r.solo); }
+      r.root.classList.toggle("dim", !!r.mute || (anySolo && !s.solo));
+      showLed(r.led, s.sig);
+    }
+    for (const g of gs) {
+      const r = groups.get(g.id);
+      if (!r) continue;
+      const mem = st.sources.filter((x) => x.group === g.id);
+      r.count.textContent = mem.length === 1 ? "1 source" : mem.length + " sources";
+      showLed(r.led, mem.reduce((m, x) => Math.max(m, x.sig ?? -120), -120));
+      if (!r.down && !pendingOffsets.has(g.id)) { const off = Number(g.offset_db) || 0; r.trim.value = off; r.show(off); }
+      if (!holding("gm" + g.id)) { r.mute = mem.length > 0 && mem.every((x) => x.mute); press(r.m, r.mute); }
+      if (!holding("gs" + g.id)) { r.solo = mem.length > 0 && mem.every((x) => x.solo); press(r.s, r.solo); }
+    }
+  } catch { document.getElementById("lost").classList.add("on"); }
+}
+poll();
+setInterval(poll, 400);
+</script>
+</body>
+</html>

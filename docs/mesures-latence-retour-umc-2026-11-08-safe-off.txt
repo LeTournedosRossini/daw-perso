@@ -1,0 +1,136 @@
+Latence d'un retour - Safe Mode off - 2026-11-08_16-57 
+ 
+=== Serie : tampon 128  === 
+Lecture : 44100 Hz, tampon 128 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 128, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 194 + 110 + 72 convertisseurs) : 376 échantillons (8.526 ms)
+Prises : 370688 et 370688 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 375.95 éch. (8.525 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 749.00 éch. (16.984 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 373.05 échantillons = 8.459 ms
+   Attendu pour un passage direct : 376 éch. (8.526 ms) ; écart : -2.95 éch. (-0.067 ms) — notre moteur n'ajoute rien de mesurable
+
+Résultat : OK
+Callback : traitement moyen 0.0237 ms, max 0.0627 ms (2.2 % de la période) ; cycles irréguliers 9.8 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64  === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 130 + 66 + 72 convertisseurs) : 268 échantillons (6.077 ms)
+Prises : 370816 et 370816 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 261.95 éch. (5.940 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 521.00 éch. (11.814 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 259.05 échantillons = 5.874 ms
+   Attendu pour un passage direct : 268 éch. (6.077 ms) ; écart : -8.95 éch. (-0.203 ms) — plus court que prévu
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance (voir ci-dessus)
+Callback : traitement moyen 0.0153 ms, max 0.1037 ms (7.1 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32  === 
+Lecture : 44100 Hz, tampon 32 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 32, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 98 + 66 + 72 convertisseurs) : 236 échantillons (5.351 ms)
+Prises : 370816 et 370816 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 234.95 éch. (5.328 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 467.00 éch. (10.590 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 232.05 échantillons = 5.262 ms
+   Attendu pour un passage direct : 236 éch. (5.351 ms) ; écart : -3.95 éch. (-0.090 ms) — notre moteur n'ajoute rien de mesurable
+
+Résultat : OK
+Callback : traitement moyen 0.0120 ms, max 0.1354 ms (18.7 % de la période) ; cycles irréguliers 99.6 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 16  === 
+Lecture : 44100 Hz, tampon 16 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 16, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 82 + 66 + 72 convertisseurs) : 220 échantillons (4.989 ms)
+Prises : 370448 et 370448 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 214.95 éch. (4.874 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 427.00 éch. (9.683 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 212.05 échantillons = 4.808 ms
+   Attendu pour un passage direct : 220 éch. (4.989 ms) ; écart : -7.95 éch. (-0.180 ms) — notre moteur n'ajoute rien de mesurable
+
+Résultat : OK
+Callback : traitement moyen 0.0071 ms, max 0.0831 ms (22.9 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --fx Digue === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 130 + 66 + 72 convertisseurs) : 268 échantillons (6.077 ms)
+Autre piste avec « Digue » (latence 441 éch.) qui envoie au même retour : elle ne doit PAS retarder l'écoute directe.
+Prises : 370496 et 370496 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 708.95 éch. (16.076 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 974.00 éch. (22.086 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 265.05 échantillons = 6.010 ms
+   Attendu pour un passage direct : 268 éch. (6.077 ms) ; écart : -2.95 éch. (-0.067 ms) — notre moteur n'ajoute rien de mesurable
+
+Résultat : OK
+Callback : traitement moyen 0.0324 ms, max 0.1017 ms (7.0 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 1
+ 
+=== Serie : tampon 32 --ahead 50 === 
+Lecture : 44100 Hz, tampon 32 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 32, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 98 + 66 + 72 convertisseurs) : 236 échantillons (5.351 ms)
+Prises : 370880 et 370880 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 240.95 éch. (5.464 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 479.00 éch. (10.862 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 238.05 échantillons = 5.398 ms
+   Attendu pour un passage direct : 236 éch. (5.351 ms) ; écart : +2.05 éch. (+0.047 ms) — notre moteur n'ajoute rien de mesurable
+
+Résultat : OK
+Callback : traitement moyen 0.0064 ms, max 0.1615 ms (22.3 % de la période) ; cycles irréguliers 99.7 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32 --fx Digue --ahead 50 === 
+Lecture : 44100 Hz, tampon 32 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 32, 10 entrée(s), 12 sortie(s)
+Câbles : sortie 1 → entrée 1 ; sortie 3 (retour) → entrée 2
+Attendu pour un passage direct (annoncé 98 + 66 + 72 convertisseurs) : 236 échantillons (5.351 ms)
+Autre piste avec « Digue » (latence 441 éch.) qui envoie au même retour : elle ne doit PAS retarder l'écoute directe.
+Prises : 370496 et 370496 trames, blocs perdus par le disque : 0 / 0
+Crêtes : entrée 1 0.027 (-31.5 dBFS), entrée 2 0.057 (-24.9 dBFS)
+
+Sortie 1 → entrée 1 : 670.95 éch. (15.214 ms), corrélation 0.9950
+Sortie 1 → entrée 1 → moteur → sortie 3 → entrée 2 : 898.00 éch. (20.363 ms), corrélation 0.9924
+
+=> LATENCE DU RETOUR (ce que le musicien entend) : 227.05 échantillons = 5.149 ms
+   Attendu pour un passage direct : 236 éch. (5.351 ms) ; écart : -8.95 éch. (-0.203 ms) — plus court que prévu
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance (voir ci-dessus)
+Callback : traitement moyen 0.0070 ms, max 0.0362 ms (5.0 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0

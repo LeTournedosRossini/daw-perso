@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DAW</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <header id="transport" aria-label="Transport">
+      <div class="group files" role="group" aria-label="Projet">
+        <button id="btn-new" class="text" title="Nouveau projet (Ctrl+N)">Nouveau</button>
+        <button id="btn-open" class="text" title="Ouvrir un projet (Ctrl+O)">Ouvrir</button>
+        <button id="btn-save" class="text" title="Enregistrer (Ctrl+S)">Enregistrer</button>
+        <button id="btn-saveas" class="text" title="Enregistrer sous… (Ctrl+Maj+S)">Sous…</button>
+        <button id="btn-import" class="text" title="Importer des fichiers audio (WAV, FLAC, MP3) — ou les glisser sur la timeline">Importer…</button>
+        <button id="btn-align" class="text" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)">Caler…</button>
+        <button id="btn-export" class="text" title="Exporter le mixage ou les stems en WAV / FLAC (Ctrl+E)">Exporter…</button>
+        <button id="btn-settings" class="text" title="Réglages : pilote audio, tampon, calcul parallèle, calcul en avance, métronome (Ctrl+,)">Réglages…</button>
+      </div>
+      <div id="project-name" class="project-name" aria-live="polite"></div>
+      <button id="convert-status" class="rec-status export-status" title="Conversion du projet en cours : cliquer pour l'annuler" hidden></button>
+      <button id="align-status" class="rec-status export-status" title="Calage en cours : cliquer pour l'annuler" hidden></button>
+      <button id="import-status" class="rec-status export-status" title="Import en cours : cliquer pour l'annuler" hidden></button>
+      <button id="export-status" class="rec-status export-status" title="Export en cours : cliquer pour l'afficher" hidden></button>
+      <div id="rec-status" class="rec-status" aria-live="polite" hidden></div>
+      <div id="write-status" class="rec-status" aria-live="polite" hidden>● Écriture auto</div>
+      <div class="group" role="group" aria-label="Lecture">
+        <button id="btn-rewind" title="Retour au début (Début)" aria-label="Retour au début"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button id="btn-play" title="Lecture / pause (Espace)" aria-label="Lecture" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M7 4v16l13-8z"/></svg></button>
+        <button id="btn-stop" title="Arrêt" aria-label="Arrêt"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg></button>
+        <button id="btn-record" class="rec" title="Enregistrer les pistes armées (R)" aria-label="Enregistrer" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/></svg></button>
+        <button id="btn-punch" class="text" title="Punch : R n'enregistre que dans la zone bleue de la règle (la boucle est suspendue pendant la prise, la lecture continue après) — touche P" aria-label="Punch" aria-pressed="false">Punch</button>
+        <button id="btn-looprec" class="text" title="Enregistrement en boucle : R enregistre en tournant dans la zone bleue de la règle ; chaque passage donne une prise du groupe (▤ sous la piste), à choisir ensuite" aria-pressed="false">Boucle ●</button>
+        <button id="btn-metro" title="Métronome (clic) — activé / désactivé" aria-label="Métronome" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l3.5 17h-13zm3 6.5-2.2 9h1.8l1.4-5.6 3.5-6.1-1.4-.8z"/></svg></button>
+        <button id="btn-metro-opts" class="small" title="Options du métronome : pré-compte, pré-roll, post-roll, volume" aria-label="Options du métronome">▾</button>
+        <button id="btn-loop" title="Boucle (L)" aria-label="Boucle" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></svg></button>
+      </div>
+      <div class="group" role="group" aria-label="Mixeur">
+        <button id="btn-chords" class="text" title="Voie d'accords : accords, gammes, tonalités et motifs (information que lisent les plugins)" aria-pressed="false">Accords</button>
+        <button id="btn-score" class="text" title="Ouvrir le clip de notes sélectionné en partition (touche N) ; plusieurs clips sélectionnés s'empilent">♪ Partition</button>
+        <button id="btn-mixer" class="text" title="Mixeur (M) : faders, envois, plugins de toutes les pistes" aria-pressed="false">Mixeur</button>
+      </div>
+      <div class="group" role="group" aria-label="Panique">
+        <button id="btn-panic" class="panic" title="Panique : coupe toutes les notes qui sonnent (Ctrl+.)" aria-label="Panique : couper toutes les notes">Panique</button>
+      </div>
+      <div class="group" role="group" aria-label="Édition">
+        <button id="btn-undo" title="Annuler (Ctrl+Z)" aria-label="Annuler" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.6-3.6A8 8 0 0 1 12.5 10c3.5 0 6.5 2.3 7.6 5.5l2.4-.8C21.1 10.6 17.1 8 12.5 8z"/></svg></button>
+        <button id="btn-redo" title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 8c2.65 0 5.05 1 6.9 2.6L22 7v9h-9l3.6-3.6A8 8 0 0 0 11.5 10c-3.5 0-6.5 2.3-7.6 5.5l-2.4-.8C2.9 10.6 6.9 8 11.5 8z"/></svg></button>
+        <button id="btn-split" title="Découper le clip sélectionné à la tête de lecture (S)" aria-label="Découper" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v18h-2zM4 8h5v8H4zm11 0h5v8h-5z"/></svg></button>
+        <button id="btn-xfade" title="Fondus enchaînés automatiques (aussi les raccords de 10 ms entre morceaux de prises différentes)" aria-label="Fondus enchaînés automatiques" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17.5 16 6l1.5 1.6L5 19.1zM3.5 7.6 5 6l12.5 11.5L16 19.1z"/></svg></button>
+        <button id="btn-delete" title="Supprimer le clip sélectionné (Suppr)" aria-label="Supprimer" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM9 3h6l1 2h4v2H4V5h4z"/></svg></button>
+      </div>
+      <div class="display" aria-live="off">
+        <div class="bbt" id="disp-bbt" aria-label="Position en mesures">1.1.000</div>
+        <div class="time" id="disp-time" aria-label="Position en temps">00:00.000</div>
+      </div>
+      <dl class="info">
+        <div><dt>Tempo</dt><dd><button id="disp-tempo" class="val" title="Changer le tempo">120</button></dd></div>
+        <div><dt>Mesure</dt><dd><button id="disp-meter" class="val" title="Changer le chiffrage">4/4</button></dd></div>
+        <div><dt>Marqueur</dt><dd><button id="btn-add-marker" class="val" title="Ajouter un changement de tempo ou de mesure à la mesure de la tête de lecture">＋</button></dd></div>
+        <div><dt>Latence</dt><dd id="disp-latency">—</dd></div>
+      </dl>
+      <div class="spacer"></div>
+      <div id="ui-scale" class="group" role="group" aria-label="Taille de l'interface">
+        <button id="btn-ui-smaller" title="Interface plus petite (Ctrl+Alt+−)" aria-label="Interface plus petite">A−</button>
+        <output id="ui-scale-value" title="Taille de l'interface (Ctrl+Alt+0 : automatique)">100 %</output>
+        <button id="btn-ui-bigger" title="Interface plus grande (Ctrl+Alt++)" aria-label="Interface plus grande">A+</button>
+        <button id="btn-ui-auto" title="Taille automatique d'après l'écran (Ctrl+Alt+0)" aria-label="Taille automatique" hidden>Auto</button>
+      </div>
+      <div class="zoom" role="group" aria-label="Zoom">
+        <button id="btn-zoom-out" title="Zoom arrière (−)" aria-label="Zoom arrière">−</button>
+        <button id="btn-zoom-fit" title="Tout voir" aria-label="Tout voir">⤢</button>
+        <button id="btn-zoom-in" title="Zoom avant (+)" aria-label="Zoom avant">+</button>
+      </div>
+    </header>
+    <div id="scroller">
+      <div id="grid">
+        <div id="corner"><div class="corner-top"><span>Pistes</span><button id="btn-add-track" class="add" title="Ajouter une piste ou un bus" aria-label="Ajouter une piste ou un bus" aria-haspopup="menu">＋</button></div><div id="chord-heads"></div></div>
+        <div id="ruler-wrap"><div id="markers" aria-label="Marqueurs de tempo et de mesure"></div><canvas id="ruler"></canvas><canvas id="chords" hidden></canvas></div>
+        <div id="header-list"></div>
+        <div id="tracks-wrap"><canvas id="tracks"></canvas></div>
+      </div>
+    </div>
+    <section id="mixer" class="mixer dock" aria-label="Mixeur" hidden>
+      <div class="mx-grip" title="Tirer pour changer la hauteur" aria-hidden="true"></div>
+      <header>
+        <h2>Mixeur</h2>
+        <span class="mx-tabs" role="tablist" aria-label="Vue du mixeur"></span>
+        <span class="mx-add" role="group" aria-label="Ajouter">
+          <button id="mx-add-track" title="Ajouter une piste (stéréo ou mono)" aria-haspopup="menu">＋ Piste</button>
+          <button id="mx-add-bus" title="Ajouter un bus">＋ Bus</button>
+          <button id="mx-add-group" title="Créer un groupe de pistes : mute, solo et niveau communs (aussi dans le mix de chaque retour)">＋ Groupe</button>
+        </span>
+        <span class="mx-modes" role="group" aria-label="Disposition des tranches">
+          <button id="mx-width" title="Tranches larges ou étroites" aria-pressed="false">Larges</button>
+          <button id="mx-rows" title="Disposer le mixeur sur deux lignes" aria-pressed="false">2 lignes</button>
+        </span>
+        <span class="mx-modes" role="group" aria-label="Présentation du mixeur">
+          <button data-mode="dock" title="Panneau fixe sous la timeline">Panneau</button>
+          <button data-mode="full" title="Plein écran : remplace la timeline">Plein écran</button>
+          <button data-mode="float" title="Fenêtre flottante, déplaçable et redimensionnable">Flottant</button>
+        </span>
+        <button class="close" aria-label="Fermer le mixeur">✕</button>
+      </header>
+      <div class="mx-strips"></div>
+    </section>
+    <footer id="status"><span id="status-engine"></span><span id="status-hint">Espace : lecture · glisser un clip : déplacer · bords : rogner · poignées : fondus · S : découper · R : enregistrer · Ctrl+S : enregistrer · E : fondu · Ctrl+. : panique · Suppr : supprimer · Ctrl+Z : annuler · double-clic sur un fondu : courbes · Maj : sans magnétisme</span></footer>
+  </div>
+  <dialog id="import-dialog" aria-labelledby="im-title">
+    <form method="dialog">
+      <header>
+        <h2 id="im-title">Importer de l'audio</h2>
+        <button class="close" value="cancel" aria-label="Annuler l'import">✕</button>
+      </header>
+      <ul id="im-files" class="im-files"></ul>
+      <label id="im-multi" class="im-field" hidden><span>Plus de deux canaux</span>
+        <select id="im-multichannel"><option value="split">Une piste mono par canal</option><option value="stereo">Un mixage stéréo (pairs à gauche, impairs à droite)</option></select>
+      </label>
+      <label class="im-check"><input type="checkbox" id="im-ref"> Référencer en place (ne pas copier dans le projet)</label>
+      <p id="im-ref-note" class="im-note"></p>
+      <p class="im-note">Par défaut les fichiers sont copiés dans le dossier <code>audio/</code> du projet (l'original reste intact) et convertis à la fréquence du projet si besoin. Un fichier référencé reste où il est : le projet ne se déplace plus sans lui.</p>
+      <footer class="im-buttons">
+        <button value="cancel" class="text">Annuler</button>
+        <button value="go" id="im-go" class="text primary">Importer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="drop-overlay" class="drop-overlay" hidden>Déposer pour importer</div>
+
+  <dialog id="settings-dialog" aria-labelledby="st-title">
+    <form method="dialog">
+      <header>
+        <h2 id="st-title">Réglages</h2>
+        <button class="close" value="close" aria-label="Fermer la fenêtre des réglages">✕</button>
+      </header>
+      <p id="st-running" class="st-note"></p>
+      <p id="st-forced" class="st-note warn" hidden></p>
+      <fieldset class="st-group">
+        <legend>Audio</legend>
+        <label class="st-field"><span>Pilote</span><select id="st-driver"></select></label>
+        <p id="st-driver-note" class="st-note"></p>
+        <label class="st-field"><span>Tampon</span><select id="st-buffer"></select></label>
+        <p id="st-buffer-note" class="st-note"></p>
+      </fieldset>
+      <fieldset class="st-group">
+        <legend>Calcul</legend>
+        <label class="st-field" title="Les pistes calculées dans le callback audio se partagent entre ce nombre de fils (le fil audio compte pour 1). Utile surtout sans calcul en avance."><span>Fils de calcul</span><select id="st-threads"></select></label>
+        <label class="st-field" title="Les pistes de lecture sont calculées à l'avance, dans d'autres fils, pour que le callback audio n'ait presque plus rien à faire."><span>Calcul en avance</span><select id="st-ahead"><option value="0">Désactivé</option><option value="50">50 ms</option><option value="100">100 ms</option></select></label>
+        <label class="st-field" title="Fils qui calculent à l'avance les pistes de lecture (seulement si le calcul en avance est activé)."><span>Fils de rendu</span><select id="st-ahead-threads"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+        <p id="st-budget" class="st-note"></p>
+        <p id="st-threads-note" class="st-note"></p>
+        <details class="st-help">
+          <summary>Comment choisir ? Fils de calcul, calcul en avance, fils de rendu</summary>
+          <p><b>Fils de calcul</b> : le callback audio doit calculer toutes les pistes à chaque petit tampon. Avec plusieurs fils, il se fait aider : les pistes sont réparties entre eux. Le fil audio est déjà l'un d'eux (« 3 » = le fil audio + 2 aides).</p>
+          <p><b>Calcul en avance</b> : une autre méthode. Les pistes de lecture (celles qui ne sont ni armées ni écoutées) sont calculées <i>à l'avance</i> (50 ou 100 ms) par des <b>fils de rendu</b> et mises de côté ; le callback n'a plus qu'à les lire, puis à calculer les pistes armées, les bus et la sortie. Le calcul ne dépend plus du rythme du pilote : c'est ce qui permet les plus petits tampons.</p>
+          <p><b>Les deux se cumulent, et chaque fil occupe un cœur entier</b> pendant la lecture (ils attendent activement le travail pour ne pas perdre de temps). Il faut donc que le total reste <b>inférieur au nombre de cœurs</b> : sinon les fils se volent le processeur et le son coupe. D'où le « cœurs occupés » ci-dessus.</p>
+          <p><b>Conseils.</b> <i>Sans avance</i> : 3 fils de calcul sur 4 cœurs (mesuré : bon à 64). <i>Avec avance</i> : fils de calcul à <b>1</b> et 2 fils de rendu (mesuré : propre à 32 et à 16 échantillons) ; les fils de calcul n'apportent presque plus rien, puisqu'il reste très peu à calculer dans le callback.</p>
+          <p>L'avance a un prix : un réglage de plugin sur une piste de lecture n'est entendu qu'après l'avance (50 ms) ; fader, panoramique, muet et solo agissent tout de suite.</p>
+        </details>
+        <p id="st-ahead-note" class="st-note" hidden>Les pistes de lecture sont calculées à l'avance, seules les pistes armées restent au plus petit tampon : un réglage de plugin sur une piste de lecture n'est entendu qu'après cette avance ; fader, panoramique, muet et solo agissent tout de suite.</p>
+      </fieldset>
+      <fieldset class="st-group">
+        <legend>Métronome et enregistrement (appliqué tout de suite)</legend>
+        <label class="st-field"><span>Seulement pendant l'enregistrement</span><input type="checkbox" id="st-m-only"></label>
+        <label class="st-field"><span>Volume</span><input type="range" id="st-m-vol" min="0" max="150"></label>
+        <label class="st-field"><span>Pré-compte</span><select id="st-m-count"><option value="0">Aucun</option><option value="1">1 mesure</option><option value="2">2 mesures</option></select></label>
+        <div class="st-field"><span>Pré-roll</span><span><input type="number" id="st-m-pre" min="0" max="10" step="0.5"> <select id="st-m-pre-unit" aria-label="Unité du pré-roll"><option value="seconds">secondes</option><option value="bars">mesures</option></select></span></div>
+        <label class="st-field"><span>Post-roll (s)</span><input type="number" id="st-m-post" min="0" max="10" step="0.5"></label>
+      </fieldset>
+      <p id="st-restart-note" class="st-note warn" hidden>Le pilote, le tampon et les fils de calcul enregistrés ne sont pas ceux qui tournent : ils s'appliqueront au prochain démarrage de l'application.</p>
+      <p id="st-message" class="st-message" role="alert" hidden></p>
+      <p id="st-path" class="st-note"></p>
+      <footer class="st-buttons">
+        <button type="button" id="st-restart" class="text" hidden>Redémarrer l'application</button>
+        <button type="button" id="st-save" class="text primary">Enregistrer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="export-dialog" aria-labelledby="ex-title">
+    <form method="dialog">
+      <header>
+        <h2 id="ex-title">Exporter</h2>
+        <button class="close" value="close" aria-label="Fermer la fenêtre d'export">✕</button>
+      </header>
+      <fieldset class="ex-row">
+        <legend>Quoi</legend>
+        <label><input type="radio" name="ex-mode" id="ex-mode-mix" checked> Le mixage</label>
+        <label><input type="radio" name="ex-mode" id="ex-mode-stems"> Les stems (un fichier par piste ou bus)</label>
+      </fieldset>
+      <div id="ex-stems-box" class="ex-stems-box" hidden>
+        <div id="ex-stems" class="ex-stems"></div>
+        <p class="ex-note">Un stem est la sortie d'une piste (ou d'un bus avec ce qui y arrive), avant le traitement de la sortie principale, tous alignés et de même longueur.</p>
+      </div>
+      <label class="ex-field"><span>Zone</span><select id="ex-scope"></select></label>
+      <label class="ex-field"><span>Format</span><select id="ex-format"></select></label>
+      <label class="ex-field"><span>Dither (TPDF)</span><input type="checkbox" id="ex-dither" title="Bruit triangulaire avant l'arrondi : évite la distorsion de quantification des fichiers 16 bits"></label>
+      <label class="ex-field"><span>Queue après la fin (s)</span><input type="number" id="ex-tail" min="0" max="60" step="0.5" title="Réverbes et délais : rendus jusqu'à cette durée, coupés dès que le son passe sous −90 dB"></label>
+      <div class="ex-field"><label for="ex-normalize"><input type="checkbox" id="ex-normalize"> Normaliser au pic</label><span><input type="number" id="ex-normalize-db" min="-30" max="0" step="0.5"> dBFS</span></div>
+      <p id="ex-normalize-note" class="ex-note" hidden>Pas de normalisation pour les stems : elle changerait l'équilibre entre eux.</p>
+      <label class="ex-field"><span>Nom des fichiers</span><input type="text" id="ex-name" placeholder="nom du projet"></label>
+      <div class="ex-field"><span>Dossier</span><span class="ex-dir"><code id="ex-dir-text"></code> <button type="button" id="ex-dir" class="text">Changer…</button> <button type="button" id="ex-dir-reset" class="text" hidden>Par défaut</button></span></div>
+      <p id="ex-message" class="ex-message" role="alert" hidden></p>
+      <div id="ex-result" hidden>
+        <progress id="ex-progress" max="1" value="0"></progress>
+        <div id="ex-progress-text" class="ex-progress-text"></div>
+        <ul id="ex-files" class="ex-files"></ul>
+        <pre id="ex-warnings" class="ex-warnings" hidden></pre>
+      </div>
+      <footer class="ex-buttons">
+        <button type="button" id="ex-cancel" class="text" hidden>Annuler l'export</button>
+        <button type="button" id="ex-go" class="text primary">Exporter</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="fade-editor" aria-labelledby="fe-title">
+    <form method="dialog">
+      <header>
+        <h2 id="fe-title">Fondu</h2>
+        <button class="close" value="close" aria-label="Fermer l'éditeur de fondu">✕</button>
+      </header>
+      <p id="fe-sub" class="sub"></p>
+      <canvas id="fe-wave" aria-label="Formes d'onde autour du fondu : tirer les poignées règle la longueur"></canvas>
+      <canvas id="fe-canvas" aria-label="Courbes du fondu"></canvas>
+      <div id="fe-legend" class="legend"></div>
+      <div id="fe-preview" class="preview" role="group" aria-label="Écouter le fondu">
+        <button type="button" id="fe-listen" aria-pressed="false" title="Joue le fondu en boucle avec sa marge ; chaque réglage s'entend aussitôt">▶ Écouter</button>
+        <label title="Ne joue que la piste de ce fondu"><input type="checkbox" id="fe-solo" checked><span>Piste seule</span></label>
+        <label title="Durée jouée avant et après le fondu"><span>Marge</span><input type="number" id="fe-margin" min="0" max="10" step="0.5" value="1.5"><span>s</span></label>
+      </div>
+      <div id="fe-groups"></div>
+      <p id="fe-note" class="note"></p>
+    </form>
+  </dialog>
+  <section id="piano-roll" class="piano-roll" aria-labelledby="pr-title" hidden>
+    <header>
+      <h2 id="pr-title">Piano roll</h2>
+      <label class="pr-grid"><span>Grille</span><select id="pr-grid"></select></label>
+      <button id="pr-quantize" title="Aimante le début de toutes les notes du clip sur la grille">Quantifier</button>
+      <span class="pr-zoom" role="group" aria-label="Zoom horizontal"><span aria-hidden="true">↔</span>
+        <button id="pr-zoom-out" aria-label="Zoom horizontal arrière" title="Zoom horizontal arrière (Ctrl + molette, ou pincer à deux doigts)">−</button>
+        <button id="pr-zoom-in" aria-label="Zoom horizontal avant" title="Zoom horizontal avant (Ctrl + molette, ou pincer à deux doigts)">＋</button></span>
+      <span class="pr-zoom" role="group" aria-label="Zoom vertical"><span aria-hidden="true">↕</span>
+        <button id="pr-zoomy-out" aria-label="Zoom vertical arrière" title="Zoom vertical arrière (Ctrl + Alt + molette, ou pincer à deux doigts)">−</button>
+        <button id="pr-zoomy-in" aria-label="Zoom vertical avant" title="Zoom vertical avant (Ctrl + Alt + molette, ou pincer à deux doigts)">＋</button></span>
+      <button id="pr-score" title="Voir et éditer ce clip en partition">♪ Partition</button>
+      <button id="pr-dock" title="Ancrer sous la piste, sur l'axe du temps de la timeline">⇲ Sous la piste</button>
+      <button class="close" aria-label="Fermer le piano roll">✕</button>
+    </header>
+    <div class="pr-body">
+      <canvas id="pr-keys"></canvas>
+      <canvas id="pr-roll" tabindex="0"></canvas>
+      <div class="pr-corner"></div>
+      <canvas id="pr-vel"></canvas>
+    </div>
+    <footer>Clic : ajouter · glisser : déplacer · bord droit : durée · Maj : sélection multiple · Alt : sans magnétisme · Suppr · flèches · Ctrl+A · molette : défiler (Maj : horizontal, Ctrl : zoom)</footer>
+  </section>
+  <section id="plugins-panel" class="plugins-panel" aria-labelledby="pp-title" hidden>
+    <header>
+      <h2 id="pp-title">Plugins</h2>
+      <button class="close" aria-label="Fermer la fenêtre des plugins">✕</button>
+    </header>
+    <div class="pp-body">
+      <div class="side">
+        <div class="chain"></div>
+        <button class="add"></button>
+      </div>
+      <div class="params">
+        <h3>Réglages</h3>
+        <input type="search" placeholder="Chercher un paramètre…" aria-label="Chercher un paramètre" hidden>
+        <div class="list"></div>
+      </div>
+      <div class="chooser">
+        <input type="search" placeholder="Chercher un plugin…" aria-label="Chercher un plugin">
+        <label class="allbox"><input type="checkbox" class="all"> Tout afficher</label>
+        <div class="list"></div>
+      </div>
+    </div>
+  </section>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

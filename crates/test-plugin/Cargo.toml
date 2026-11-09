@@ -1,0 +1,13 @@
+[package]
+name = "daw-test-plugin"
+description = "Plugin CLAP de test maison : gain stéréo avec latence fixe, pour vérifier le contrat de l'hôte"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# `cdylib` : un vrai fichier .clap chargeable ; `rlib` : les tests de l'hôte l'utilisent sans passer par le disque.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+clap-sys = "0.5"

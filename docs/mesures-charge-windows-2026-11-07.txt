@@ -1,0 +1,40 @@
+Plugins de Jean trouvés : AnalogSynth, Arpege, Carte, Choeur, Compresseur, Convolution, Delai, Diapason, Digue, Egaliseur, Essai Carte, FM6Op, Fournaise, LaFleche, Microdecale, Mirador, Moussaillon, Neptune, Orgamon, Trident
+Banc hors carte son : 48000 Hz, tampon 64, 24 s par mesure.
+
+projet de charge : 8 pistes × [Compresseur → Egaliseur], 2 instrument(s), 18 instances de plugins
+Un seul fil (comme aujourd'hui) :
+  18000 appels mesurés
+  période 1.333 ms · traitement moyen 0.2132 ms (16.0 %), médian 0.2113, p99 0.2524, p99,9 0.3427, max 0.4575 ms (34.3 % de la période) · latence ajoutée 0 éch.
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 17979 | 25-50 %: 21 | 50-75 %: 0 | 75-100 %: 0 | >= 100 %: 0
+
+Coût par plugin (8 instances de chacun, sans automation ; la base est le moteur seul avec 8 pistes audio) :
+  (aucun)        moyen   0.26 % · p99,9   0.80 % · max   3.32 %  (la base)
+  AnalogSynth    moyen  11.60 % · p99,9  16.55 % · max  25.08 %  → coût ≈ 11.34 % de la période pour 8 instance(s), latence 0 éch.
+  Arpege         moyen   0.54 % · p99,9   1.23 % · max   3.88 %  → coût ≈  0.28 % de la période pour 8 instance(s), latence 0 éch.
+  Carte          moyen   0.42 % · p99,9   1.01 % · max   3.64 %  → coût ≈  0.16 % de la période pour 8 instance(s), latence 0 éch.
+  Choeur         moyen   8.02 % · p99,9  12.72 % · max  19.11 %  → coût ≈  7.76 % de la période pour 8 instance(s), latence 0 éch.
+  Compresseur    moyen   6.08 % · p99,9   8.45 % · max  10.70 %  → coût ≈  5.82 % de la période pour 8 instance(s), latence 0 éch.
+  Convolution    moyen   4.52 % · p99,9   6.85 % · max  10.40 %  → coût ≈  4.26 % de la période pour 8 instance(s), latence 0 éch.
+  Delai          moyen   8.76 % · p99,9  11.70 % · max  15.09 %  → coût ≈  8.50 % de la période pour 8 instance(s), latence 0 éch.
+  Diapason       moyen   4.51 % · p99,9   8.83 % · max  10.03 %  → coût ≈  4.25 % de la période pour 8 instance(s), latence 0 éch.
+  Digue          moyen   2.37 % · p99,9   6.73 % · max   9.11 %  → coût ≈  2.11 % de la période pour 8 instance(s), latence 480 éch.
+  Egaliseur      moyen   6.74 % · p99,9  11.09 % · max  14.99 %  → coût ≈  6.48 % de la période pour 8 instance(s), latence 0 éch.
+  Essai Carte    moyen   0.41 % · p99,9   0.98 % · max   3.53 %  → coût ≈  0.15 % de la période pour 8 instance(s), latence 0 éch.
+  FM6Op          moyen   2.65 % · p99,9   6.91 % · max  11.73 %  → coût ≈  2.38 % de la période pour 8 instance(s), latence 0 éch.
+  Fournaise      moyen  23.97 % · p99,9  28.44 % · max  36.82 %  → coût ≈ 23.71 % de la période pour 8 instance(s), latence 31 éch.
+  LaFleche       moyen   8.54 % · p99,9  10.91 % · max  14.09 %  → coût ≈  8.28 % de la période pour 8 instance(s), latence 0 éch.
+  Microdecale    moyen  20.32 % · p99,9  25.12 % · max  31.24 %  → coût ≈ 20.06 % de la période pour 8 instance(s), latence 0 éch.
+  Mirador        moyen   1.17 % · p99,9   3.59 % · max 436.69 %  → coût ≈  0.91 % de la période pour 8 instance(s), latence 0 éch.  ⚠ dépasse la période
+                 appels les plus longs : 5.82 ms à t = 2217 ms (10.2 s) · 3.97 ms à t = 6544 ms (6.5 s) · 3.49 ms à t = 5352 ms (21.4 s) · 2.84 ms à t = 2777 ms (2.8 s)
+                 reproductibilité : 3.0 passages, aucun pic ne revient à chaque passage au même endroit de la boucle → bruit du système (ordonnanceur, autres processus)
+  Moussaillon    moyen   1.39 % · p99,9   2.70 % · max   3.86 %  → coût ≈  1.13 % de la période pour 8 instance(s), latence 0 éch.
+  Neptune        moyen  23.58 % · p99,9 120.62 % · max 133.38 %  → coût ≈ 23.32 % de la période pour 8 instance(s), latence 0 éch.  ⚠ dépasse la période
+                 appels les plus longs : 1.78 ms à t = 5124 ms (21.1 s) · 1.76 ms à t = 0 ms (24.0 s) · 1.73 ms à t = 1749 ms (9.7 s) · 1.71 ms à t = 4249 ms (20.2 s)
+                 reproductibilité : 3.0 passages, 63 pic(s) reviennent au même endroit de la boucle à chaque passage (≈ 123 ms, 248 ms, 373 ms, 499 ms, 624 ms, 749 ms) → vient du projet, pas du système
+  Orgamon        moyen  29.41 % · p99,9  69.30 % · max  77.15 %  → coût ≈ 29.15 % de la période pour 8 instance(s), latence 0 éch.
+                 appels les plus longs : 1.03 ms à t = 7312 ms (23.3 s) · 1.02 ms à t = 1251 ms (17.3 s) · 0.98 ms à t = 1632 ms (1.6 s) · 0.96 ms à t = 1923 ms (17.9 s)
+                 reproductibilité : 3.0 passages, 2953 pic(s) reviennent au même endroit de la boucle à chaque passage (≈ 125 ms, 128 ms, 131 ms, 133 ms, 136 ms, 139 ms) → vient du projet, pas du système
+  Trident        moyen   8.12 % · p99,9  10.58 % · max  12.55 %  → coût ≈  7.86 % de la période pour 8 instance(s), latence 0 éch.
+
+Pics les plus hauts (max, % de la période) : Mirador 436.7 % · Neptune 133.4 % · Orgamon 77.1 %
+BENCH_EXIT=0 

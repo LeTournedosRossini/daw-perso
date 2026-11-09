@@ -1,0 +1,13 @@
+[package]
+name = "daw-recorder"
+description = "Enregistrement : écriture disque hors du thread audio, lecture des prises, analyse d'alignement et d'intégrité"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+daw-engine = { path = "../engine" }
+# Lecture de fichiers audio à l'import (tranche 30) : FLAC (Apache-2.0) et MP3 (symphonia, MPL-2.0, sans code C).
+claxon = "0.4"
+symphonia = { version = "0.5", default-features = false, features = ["mp3"] }

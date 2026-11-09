@@ -1,0 +1,135 @@
+Test de charge - Safe Mode off - 2026-11-06_22-33 
+ 
+=== Serie : tampon 256  === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 256 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (5148 intervalles, période nominale 5.805 ms) :
+  intervalle min 4.852 / moyen 5.805 / max 6.162 ms, gigue 0.396 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 1004 | 0,9-1,1: 4144 | 1,1-1,5: 0 | 1,5-2,5: 0 | >= 2,5: 0
+  en retard (> 1,1) : 0   collés (< 0,9) : 1004   soit 19.5 % de cycles irréguliers
+  traitement de notre callback : moyen 2.2963 ms, max 3.8853 ms (66.9 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 5097 | 50-75 %: 51 | 75-100 %: 0 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 51 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 128  === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 128 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (10314 intervalles, période nominale 2.902 ms) :
+  intervalle min 1.882 / moyen 2.902 / max 3.151 ms, gigue 0.298 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 1006 | 0,9-1,1: 9308 | 1,1-1,5: 0 | 1,5-2,5: 0 | >= 2,5: 0
+  en retard (> 1,1) : 0   collés (< 0,9) : 1006   soit 9.8 % de cycles irréguliers
+  traitement de notre callback : moyen 1.2123 ms, max 2.2647 ms (78.0 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 10212 | 50-75 %: 101 | 75-100 %: 1 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 102 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64  === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 64 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (20647 intervalles, période nominale 1.451 ms) :
+  intervalle min 0.649 / moyen 1.451 / max 2.233 ms, gigue 0.542 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 1 | 0,5-0,9: 11321 | 0,9-1,1: 14 | 1,1-1,5: 9278 | 1,5-2,5: 33 | >= 2,5: 0
+  en retard (> 1,1) : 9311   collés (< 0,9) : 11322   soit 99.9 % de cycles irréguliers
+  traitement de notre callback : moyen 0.7165 ms, max 1.4248 ms (98.2 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 13435 | 50-75 %: 7127 | 75-100 %: 85 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 7212 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32  === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (41301 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.395 / moyen 0.726 / max 1.377 ms, gigue 0.252 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 21618 | 0,9-1,1: 1114 | 1,1-1,5: 16799 | 1,5-2,5: 1770 | >= 2,5: 0
+  en retard (> 1,1) : 18569   collés (< 0,9) : 21618   soit 97.3 % de cycles irréguliers
+  traitement de notre callback : moyen 0.4278 ms, max 1.3116 ms (180.8 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 8 | 50-75 %: 40366 | 75-100 %: 826 | >= 100 %: 101
+  callbacks au-delà de la moitié de la période : 41293 ; au-delà de la période entière (coupure probable) : 101
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --with-export === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+export simulé pendant la lecture : un second moteur, même projet, rend sans s'arrêter
+export simulé : 70 s de son rendu pendant la lecture
+Lecture : 44100 Hz, tampon 64 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (20652 intervalles, période nominale 1.451 ms) :
+  intervalle min 0.831 / moyen 1.451 / max 2.186 ms, gigue 0.494 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 11330 | 0,9-1,1: 5 | 1,1-1,5: 9316 | 1,5-2,5: 1 | >= 2,5: 0
+  en retard (> 1,1) : 9317   collés (< 0,9) : 11330   soit 100.0 % de cycles irréguliers
+  traitement de notre callback : moyen 0.7754 ms, max 1.4279 ms (98.4 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 1300 | 50-75 %: 19286 | 75-100 %: 66 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 19352 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 128 --threads 3 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 128 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (10317 intervalles, période nominale 2.902 ms) :
+  intervalle min 1.935 / moyen 2.902 / max 3.086 ms, gigue 0.296 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 1006 | 0,9-1,1: 9311 | 1,1-1,5: 0 | 1,5-2,5: 0 | >= 2,5: 0
+  en retard (> 1,1) : 0   collés (< 0,9) : 1006   soit 9.8 % de cycles irréguliers
+  traitement de notre callback : moyen 0.4753 ms, max 0.7678 ms (26.5 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 10313 | 25-50 %: 4 | 50-75 %: 0 | 75-100 %: 0 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 0 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --threads 3 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 64 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (20656 intervalles, période nominale 1.451 ms) :
+  intervalle min 0.818 / moyen 1.451 / max 2.177 ms, gigue 0.495 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 11335 | 0,9-1,1: 0 | 1,1-1,5: 9320 | 1,5-2,5: 1 | >= 2,5: 0
+  en retard (> 1,1) : 9321   collés (< 0,9) : 11335   soit 100.0 % de cycles irréguliers
+  traitement de notre callback : moyen 0.2684 ms, max 0.6670 ms (46.0 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 20513 | 25-50 %: 143 | 50-75 %: 0 | 75-100 %: 0 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 0 ; au-delà de la période entière (coupure probable) : 0
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32 --threads 3 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (41252 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.175 / moyen 0.727 / max 2.357 ms, gigue 0.336 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 11195 | 0,5-0,9: 453 | 0,9-1,1: 4387 | 1,1-1,5: 23179 | 1,5-2,5: 1978 | >= 2,5: 60
+  en retard (> 1,1) : 25217   collés (< 0,9) : 11648   soit 89.4 % de cycles irréguliers
+  traitement de notre callback : moyen 0.1793 ms, max 2.3223 ms (320.0 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 34631 | 25-50 %: 6207 | 50-75 %: 173 | 75-100 %: 67 | >= 100 %: 174
+  callbacks au-delà de la moitié de la période : 414 ; au-delà de la période entière (coupure probable) : 174
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --threads 3 --with-export === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+export simulé pendant la lecture : un second moteur, même projet, rend sans s'arrêter
+export simulé : 70 s de son rendu pendant la lecture
+Lecture : 44100 Hz, tampon 64 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (20636 intervalles, période nominale 1.451 ms) :
+  intervalle min 0.299 / moyen 1.453 / max 8.360 ms, gigue 0.509 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 22 | 0,5-0,9: 11299 | 0,9-1,1: 2 | 1,1-1,5: 9293 | 1,5-2,5: 11 | >= 2,5: 9
+  en retard (> 1,1) : 9313   collés (< 0,9) : 11321   soit 100.0 % de cycles irréguliers
+  traitement de notre callback : moyen 0.3125 ms, max 8.3145 ms (572.9 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 19600 | 25-50 %: 995 | 50-75 %: 15 | 75-100 %: 3 | >= 100 %: 23
+  callbacks au-delà de la moitié de la période : 41 ; au-delà de la période entière (coupure probable) : 23
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0

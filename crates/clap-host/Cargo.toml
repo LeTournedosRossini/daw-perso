@@ -1,0 +1,21 @@
+[package]
+name = "daw-clap-host"
+description = "Hébergement de plugins CLAP"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+# Le trait `Insert` du moteur, que `ClapInsert` implémente.
+daw-engine = { path = "../engine" }
+# Types C de l'API CLAP, générés depuis les en-têtes officiels (MIT) : évite d'imposer libclang/bindgen à la compilation.
+clap-sys = "0.5"
+# Chargement dynamique de la bibliothèque du plugin (ISC, déjà utilisée par jack-sys).
+libloading = "0.8"
+
+[dev-dependencies]
+daw-test-plugin = { path = "../test-plugin" }
+# Garde-fou d'allocation pour vérifier que `process` n'alloue pas.
+daw-audio-io = { path = "../audio-io" }
+daw-offline-render = { path = "../offline-render" }

@@ -1,0 +1,9 @@
+[package]
+name = "daw-core-types"
+description = "Types de base : temps, échantillons, identifiants, tempo"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+

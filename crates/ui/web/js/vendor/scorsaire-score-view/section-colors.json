@@ -1,0 +1,40 @@
+{
+  "format": "scorsaire-section-colors",
+  "version": 1,
+  "note": "Low-saturation pastels that sit behind the music. A section has a category (a separate field from its name) and may have a colour of its own, which wins. A `letter` section takes the colour of its letter (A, B, C… cycle over `letters`).",
+  "categories": [
+    "intro",
+    "verse",
+    "preChorus",
+    "chorus",
+    "bridge",
+    "solo",
+    "interlude",
+    "outro",
+    "coda",
+    "letter",
+    "custom"
+  ],
+  "colors": {
+    "intro": "#b8c7e6",
+    "verse": "#bfe3c0",
+    "preChorus": "#e6dcb8",
+    "chorus": "#f2c4c4",
+    "bridge": "#d9c4ec",
+    "solo": "#f7d9b0",
+    "interlude": "#c9e6e6",
+    "outro": "#cfd3d8",
+    "coda": "#cfd3d8",
+    "custom": "#e0e0e0"
+  },
+  "letters": [
+    "#c4d7f2",
+    "#f2d7c4",
+    "#d4f2c4",
+    "#f2c4e6",
+    "#f2f0c4",
+    "#c4f2ea",
+    "#dcc4f2",
+    "#f2c4c4"
+  ]
+}

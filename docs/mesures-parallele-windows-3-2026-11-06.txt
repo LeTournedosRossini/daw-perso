@@ -1,0 +1,16 @@
+Plugins de Jean trouvés : AnalogSynth, Arpege, Carte, Choeur, Compresseur, Convolution, Delai, Diapason, Digue, Egaliseur, Essai Carte, FM6Op, Fournaise, LaFleche, Microdecale, Mirador, Moussaillon, Neptune, Orgamon, Trident
+Banc hors carte son : 48000 Hz, tampon 64, 24 s par mesure.
+
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+Un seul fil (comme aujourd'hui) :
+  18000 appels mesurés
+  période 1.333 ms · traitement moyen 0.6331 ms (47.5 %), médian 0.6225, p99 0.7364, p99,9 0.9204, max 1.3077 ms (98.1 % de la période) · latence ajoutée 0 éch.
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 15667 | 50-75 %: 2332 | 75-100 %: 1 | >= 100 %: 0
+  appels les plus longs : 1.31 ms à t = 648 ms de la boucle (0.6 s après le début) · 1.00 ms à t = 3851 ms de la boucle (3.9 s après le début) · 1.00 ms à t = 4529 ms de la boucle (12.5 s après le début) · 1.00 ms à t = 3840 ms de la boucle (11.8 s après le début) · 0.97 ms à t = 6699 ms de la boucle (6.7 s après le début) · 0.97 ms à t = 6848 ms de la boucle (6.8 s après le début)
+  reproductibilité : 3.0 passages, 17 pic(s) reviennent au même endroit de la boucle à chaque passage (≈ 227 ms, 1603 ms, 4709 ms, 4725 ms, 4976 ms, 5416 ms) → vient du projet, pas du système
+
+3 fils de calcul (le fil audio + 2 fils de travail) :
+  18000 appels mesurés
+  période 1.333 ms · traitement moyen 0.2489 ms (18.7 %), médian 0.2461, p99 0.2906, p99,9 0.3450, max 0.5770 ms (43.3 % de la période) · latence ajoutée 0 éch.
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 17972 | 25-50 %: 28 | 50-75 %: 0 | 75-100 %: 0 | >= 100 %: 0
+  gain sur le temps moyen : ×2.54 ; pire appel : 98.1 % → 43.3 % de la période ; appels > moitié de la période : 2333 → 0

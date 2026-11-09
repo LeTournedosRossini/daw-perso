@@ -1,0 +1,123 @@
+Diagnostic 32 echantillons - Safe Mode off - 2026-11-06_23-18 
+ 
+=== Serie : tampon 32 --threads 1 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+latence ajoutée par les plugins : 0 échantillons
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (55097 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.396 / moyen 0.726 / max 1.554 ms, gigue 0.253 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 0 | 0,5-0,9: 30028 | 0,9-1,1: 318 | 1,1-1,5: 21843 | 1,5-2,5: 2908 | >= 2,5: 0
+  en retard (> 1,1) : 24751   collés (< 0,9) : 30028   soit 99.4 % de cycles irréguliers
+  traitement de notre callback : moyen 0.4246 ms, max 1.4768 ms (203.5 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 18 | 50-75 %: 53843 | 75-100 %: 1110 | >= 100 %: 126
+  callbacks au-delà de la moitié de la période : 55079 ; au-delà de la période entière (coupure probable) : 126
+  les 8 pires traitements (de plus de la moitié de la période), du plus long au plus court :
+    à t =   16581.7 ms : traitement  1.477 ms (  204 % de la période), intervalle depuis le callback précédent 1.107 ms
+    à t =   16583.3 ms : traitement  1.205 ms (  166 % de la période), intervalle depuis le callback précédent 1.554 ms
+    à t =   12485.7 ms : traitement  1.101 ms (  152 % de la période), intervalle depuis le callback précédent 1.134 ms
+    à t =   25218.6 ms : traitement  0.970 ms (  134 % de la période), intervalle depuis le callback précédent 1.029 ms
+    à t =   11936.5 ms : traitement  0.967 ms (  133 % de la période), intervalle depuis le callback précédent 0.896 ms
+    à t =   13580.6 ms : traitement  0.959 ms (  132 % de la période), intervalle depuis le callback précédent 1.035 ms
+    à t =   39100.5 ms : traitement  0.937 ms (  129 % de la période), intervalle depuis le callback précédent 1.073 ms
+    à t =   25769.6 ms : traitement  0.929 ms (  128 % de la période), intervalle depuis le callback précédent 1.029 ms
+  écarts entre ces instants (ms) : 2764.0, 3300.0, 2764.0, 2759.9, 549.2, 256.0, 838.9, 1099.9, 1901.2, 1.6, 2542.5, 533.9
+  périodicité à tic de l'ordonnanceur de Windows (15,625 ms) : 46 % des pires callbacks tombent dans la même phase (3.66 ms ; au hasard : environ 20 %)
+  périodicité à 1 ms (salves du pilote) : 88 % des pires callbacks tombent dans la même phase (0.63 ms ; au hasard : environ 20 %)  ← PÉRIODIQUE
+  périodicité à 10 ms : 33 % des pires callbacks tombent dans la même phase (9.56 ms ; au hasard : environ 20 %)
+  périodicité à 100 ms : 33 % des pires callbacks tombent dans la même phase (76.61 ms ; au hasard : environ 20 %)
+  parmi eux, 5 arrivent après un intervalle de plus de 1,5 période : le pilote nous a livré tard ; les 19 autres arrivent à l'heure : c'est notre traitement qui a été lent (plugin, attente d'un fil, préemption)
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32 --threads 2 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 2 fils (le fil audio + 1 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+attente des fils de travail par le fil audio : 32080 attente(s) sur 55131 tâches parallèles, total 253.58 ms, plus longue 0.123 ms, dont 3 de plus de 0,1 ms
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (55112 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.230 / moyen 0.726 / max 1.199 ms, gigue 0.298 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 14849 | 0,5-0,9: 2391 | 0,9-1,1: 11635 | 1,1-1,5: 23566 | 1,5-2,5: 2671 | >= 2,5: 0
+  en retard (> 1,1) : 26237   collés (< 0,9) : 17240   soit 78.9 % de cycles irréguliers
+  traitement de notre callback : moyen 0.2421 ms, max 0.5798 ms (79.9 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 54944 | 50-75 %: 161 | 75-100 %: 7 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 168 ; au-delà de la période entière (coupure probable) : 0
+  les 8 pires traitements (de plus de la moitié de la période), du plus long au plus court :
+    à t =   19297.5 ms : traitement  0.580 ms (   80 % de la période), intervalle depuis le callback précédent 0.426 ms
+    à t =   23195.0 ms : traitement  0.567 ms (   78 % de la période), intervalle depuis le callback précédent 1.021 ms
+    à t =   17635.0 ms : traitement  0.557 ms (   77 % de la période), intervalle depuis le callback précédent 1.088 ms
+    à t =   35444.1 ms : traitement  0.551 ms (   76 % de la période), intervalle depuis le callback précédent 1.154 ms
+    à t =   30414.9 ms : traitement  0.547 ms (   75 % de la période), intervalle depuis le callback précédent 0.969 ms
+    à t =   23766.0 ms : traitement  0.545 ms (   75 % de la période), intervalle depuis le callback précédent 1.018 ms
+    à t =   37113.9 ms : traitement  0.544 ms (   75 % de la période), intervalle depuis le callback précédent 0.997 ms
+    à t =   24319.0 ms : traitement  0.541 ms (   75 % de la période), intervalle depuis le callback précédent 1.020 ms
+  écarts entre ces instants (ms) : 1660.0, 3353.0, 2.0, 549.0, 1670.0, 1659.9, 6675.0, 1.6, 1660.9, 1093.5, 573.1, 544.0
+  périodicité à tic de l'ordonnanceur de Windows (15,625 ms) : 38 % des pires callbacks tombent dans la même phase (7.50 ms ; au hasard : environ 20 %)
+  périodicité à 1 ms (salves du pilote) : 88 % des pires callbacks tombent dans la même phase (0.99 ms ; au hasard : environ 20 %)  ← PÉRIODIQUE
+  périodicité à 10 ms : 33 % des pires callbacks tombent dans la même phase (5.02 ms ; au hasard : environ 20 %)
+  périodicité à 100 ms : 29 % des pires callbacks tombent dans la même phase (35.02 ms ; au hasard : environ 20 %)
+  parmi eux, 2 arrivent après un intervalle de plus de 1,5 période : le pilote nous a livré tard ; les 22 autres arrivent à l'heure : c'est notre traitement qui a été lent (plugin, attente d'un fil, préemption)
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32 --threads 3 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+attente des fils de travail par le fil audio : 37871 attente(s) sur 55137 tâches parallèles, total 308.57 ms, plus longue 0.206 ms, dont 5 de plus de 0,1 ms
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (55118 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.178 / moyen 0.726 / max 1.175 ms, gigue 0.335 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 15100 | 0,5-0,9: 86 | 0,9-1,1: 5311 | 1,1-1,5: 31715 | 1,5-2,5: 2906 | >= 2,5: 0
+  en retard (> 1,1) : 34621   collés (< 0,9) : 15186   soit 90.4 % de cycles irréguliers
+  traitement de notre callback : moyen 0.1675 ms, max 0.6063 ms (83.6 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 51433 | 25-50 %: 3664 | 50-75 %: 20 | 75-100 %: 1 | >= 100 %: 0
+  callbacks au-delà de la moitié de la période : 21 ; au-delà de la période entière (coupure probable) : 0
+  les 8 pires traitements (de plus de la moitié de la période), du plus long au plus court :
+    à t =   19527.2 ms : traitement  0.606 ms (   84 % de la période), intervalle depuis le callback précédent 0.310 ms
+    à t =    3987.0 ms : traitement  0.508 ms (   70 % de la période), intervalle depuis le callback précédent 1.019 ms
+    à t =    1216.0 ms : traitement  0.473 ms (   65 % de la période), intervalle depuis le callback précédent 0.799 ms
+    à t =   10651.0 ms : traitement  0.468 ms (   65 % de la période), intervalle depuis le callback précédent 0.997 ms
+    à t =    2328.0 ms : traitement  0.460 ms (   63 % de la période), intervalle depuis le callback précédent 0.986 ms
+    à t =   33992.9 ms : traitement  0.436 ms (   60 % de la période), intervalle depuis le callback précédent 0.973 ms
+    à t =   20627.9 ms : traitement  0.434 ms (   60 % de la période), intervalle depuis le callback précédent 0.698 ms
+    à t =    5412.2 ms : traitement  0.429 ms (   59 % de la période), intervalle depuis le callback précédent 0.272 ms
+  écarts entre ces instants (ms) : 551.0, 1112.0, 1659.0, 1425.2, 1358.7, 2219.0, 1661.0, 548.0, 1123.0, 538.0, 2785.1, 1649.9
+  périodicité à tic de l'ordonnanceur de Windows (15,625 ms) : 24 % des pires callbacks tombent dans la même phase (12.24 ms ; au hasard : environ 20 %)
+  périodicité à 1 ms (salves du pilote) : 90 % des pires callbacks tombent dans la même phase (0.94 ms ; au hasard : environ 20 %)  ← PÉRIODIQUE
+  périodicité à 10 ms : 33 % des pires callbacks tombent dans la même phase (0.87 ms ; au hasard : environ 20 %)
+  périodicité à 100 ms : 33 % des pires callbacks tombent dans la même phase (21.95 ms ; au hasard : environ 20 %)
+  parmi eux, 1 arrivent après un intervalle de plus de 1,5 période : le pilote nous a livré tard ; les 20 autres arrivent à l'heure : c'est notre traitement qui a été lent (plugin, attente d'un fil, préemption)
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32 --threads 3 === 
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+calcul parallèle : 3 fils (le fil audio + 2 fils de travail)
+latence ajoutée par les plugins : 0 échantillons
+attente des fils de travail par le fil audio : 38458 attente(s) sur 55122 tâches parallèles, total 343.63 ms, plus longue 1.975 ms, dont 29 de plus de 0,1 ms
+Lecture : 44100 Hz, tampon 32 échantillons, sortie UMC ASIO Driver sorties 1 + 2
+Régularité des cycles (55103 intervalles, période nominale 0.726 ms) :
+  intervalle min 0.182 / moyen 0.726 / max 2.323 ms, gigue 0.332 ms (écart type)
+  répartition (intervalle / période) : < 0,5: 15076 | 0,5-0,9: 167 | 0,9-1,1: 6792 | 1,1-1,5: 30313 | 1,5-2,5: 2749 | >= 2,5: 6
+  en retard (> 1,1) : 33068   collés (< 0,9) : 15243   soit 87.7 % de cycles irréguliers
+  traitement de notre callback : moyen 0.1731 ms, max 2.2865 ms (315.1 % de la période)
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 47855 | 25-50 %: 7164 | 50-75 %: 50 | 75-100 %: 10 | >= 100 %: 24
+  callbacks au-delà de la moitié de la période : 84 ; au-delà de la période entière (coupure probable) : 24
+  les 8 pires traitements (de plus de la moitié de la période), du plus long au plus court :
+    à t =   14052.0 ms : traitement  2.287 ms (  315 % de la période), intervalle depuis le callback précédent 1.106 ms
+    à t =    3543.9 ms : traitement  2.279 ms (  314 % de la période), intervalle depuis le callback précédent 0.986 ms
+    à t =    4006.9 ms : traitement  2.162 ms (  298 % de la période), intervalle depuis le callback précédent 1.008 ms
+    à t =    3876.3 ms : traitement  2.115 ms (  291 % de la période), intervalle depuis le callback précédent 0.310 ms
+    à t =    3564.3 ms : traitement  2.088 ms (  288 % de la période), intervalle depuis le callback précédent 0.341 ms
+    à t =    3956.9 ms : traitement  1.996 ms (  275 % de la période), intervalle depuis le callback précédent 0.898 ms
+    à t =    3624.9 ms : traitement  1.778 ms (  245 % de la période), intervalle depuis le callback précédent 0.667 ms
+    à t =    3695.9 ms : traitement  1.261 ms (  174 % de la période), intervalle depuis le callback précédent 1.009 ms
+  écarts entre ces instants (ms) : 20.4, 10.6, 49.9, 10.0, 0.9, 60.1, 20.1, 9.9, 30.1, 110.9, 9.4, 9.9
+  périodicité à tic de l'ordonnanceur de Windows (15,625 ms) : 33 % des pires callbacks tombent dans la même phase (6.03 ms ; au hasard : environ 20 %)
+  périodicité à 1 ms (salves du pilote) : 83 % des pires callbacks tombent dans la même phase (0.93 ms ; au hasard : environ 20 %)  ← PÉRIODIQUE
+  périodicité à 10 ms : 58 % des pires callbacks tombent dans la même phase (6.20 ms ; au hasard : environ 20 %)
+  périodicité à 100 ms : 33 % des pires callbacks tombent dans la même phase (27.91 ms ; au hasard : environ 20 %)
+  parmi eux, 2 arrivent après un intervalle de plus de 1,5 période : le pilote nous a livré tard ; les 22 autres arrivent à l'heure : c'est notre traitement qui a été lent (plugin, attente d'un fil, préemption)
+Xruns / dépassements : 0 (le pilote ne les signale peut-être pas tous)
+Allocations dans le callback : 0

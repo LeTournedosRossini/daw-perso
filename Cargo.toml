@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core-types",
+    "crates/audio-io",
+    "crates/engine",
+    "crates/clap-host",
+    "crates/session",
+    "crates/recorder",
+    "crates/offline-render",
+    "crates/cli",
+    "crates/ui",
+    "crates/test-plugin",
+    "crates/align",
+]
+# L'application Tauri a son propre espace de travail (dépendances lourdes, bibliothèques système sous Linux) :
+# elle ne doit pas gêner `cargo test --workspace`. Voir crates/app/README.md.
+exclude = ["crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+# Un panic dans le callback audio doit être attrapé à la frontière FFI (catch_unwind), pas laissé se propager.
+panic = "unwind"

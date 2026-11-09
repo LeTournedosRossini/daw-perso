@@ -1,0 +1,24 @@
+[package]
+name = "daw-ui"
+description = "Hôte du protocole de l'interface : commandes et événements JSON entre la page web et le moteur"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+daw-engine = { path = "../engine" }
+daw-clap-host = { path = "../clap-host" }
+daw-session = { path = "../session" }
+daw-align = { path = "../align" }
+daw-recorder = { path = "../recorder" }
+daw-offline-render = { path = "../offline-render" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Serveur web local des retours de monitoring (tranche 56) : synchrone, sans dépendance lourde (MIT/Apache-2.0).
+tiny_http = "0.12"
+# Code QR en SVG (MIT/Apache-2.0), sans la prise en charge des images.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+daw-test-plugin = { path = "../test-plugin" }

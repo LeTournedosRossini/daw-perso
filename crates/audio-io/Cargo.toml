@@ -1,0 +1,17 @@
+[package]
+name = "daw-audio-io"
+description = "Abstraction des pilotes audio et implémentations par plateforme"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+
+# Compilation de la couche C++ ASIO (licence MIT/Apache, très répandue).
+[build-dependencies]
+cc = "1"
+
+# Liaison JACK fine (licence MIT, maintenue). Ne sert qu'au backend Linux : JACK/PipeWire.
+[target.'cfg(target_os = "linux")'.dependencies]
+jack = "0.13"

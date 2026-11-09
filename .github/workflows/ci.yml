@@ -1,0 +1,74 @@
+# Intégration continue du DAW. Déclenchement MANUEL (workflow_dispatch) tant que Jean n'a pas décidé autrement :
+# rien ne tourne tout seul. Le projet Tauri (crates/app) a son propre espace de travail et n'est pas testé ici.
+name: CI
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux:
+    name: Linux (espace de travail complet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Paquets système (JACK, ALSA)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y pkg-config libasound2-dev libjack-jackd2-dev
+      - name: Tests
+        run: cargo test --workspace --no-fail-fast
+
+  windows:
+    name: Windows (espace de travail complet)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Sans le SDK ASIO le backend ASIO échoue proprement (il n'est pas dans le dépôt).
+      - name: Tests
+        run: cargo test --workspace --no-fail-fast
+
+  macos-core:
+    name: macOS ARM (crates sans dépendance système)
+    runs-on: macos-latest # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Ce job vérifie surtout que le rendu hors ligne donne les mêmes empreintes de référence sur ARM
+      # (determinism.rs, export.rs, resample.rs). En cas d'écart, le message d'échec affiche l'empreinte obtenue.
+      - name: Tests des crates portables
+        run: >
+          cargo test --no-fail-fast
+          -p daw-core-types -p daw-engine -p daw-session -p daw-offline-render -p daw-recorder
+          -- --nocapture
+
+  macos-workspace:
+    name: macOS ARM (espace de travail complet, informatif)
+    runs-on: macos-latest
+    continue-on-error: true # la couche CoreAudio n'existe pas : ne bloque pas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test --workspace --no-fail-fast
+
+  page:
+    name: Page (tests Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Tests
+        working-directory: crates/ui/web
+        run: node --test tests/*.test.mjs

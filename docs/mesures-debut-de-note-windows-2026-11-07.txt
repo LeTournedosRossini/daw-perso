@@ -1,0 +1,44 @@
+Coût d'un début de note : blocs qui contiennent un début de note (une note toutes les 125 ms, accords de ~8 voix) contre les autres blocs.
+
+Neptune — 1 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 0.104 ms (7.8 %), p99 0.163, max 0.170 ms (12.7 %) · autres blocs (17808) : médiane 0.029 ms (2.2 %), max 0.122 ms (9.2 %) · pic/médiane des autres ×5.8
+  sans note                          tous les blocs (18000) : médiane 0.009 ms (0.7 %), p99 0.013, max 0.051 ms (3.8 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.018 ms (1.3 %), p99 0.033, max 0.196 ms (14.7 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 0.114 ms (8.5 %), p99 0.177, max 0.182 ms (13.7 %) · autres blocs (17808) : médiane 0.039 ms (2.9 %), max 0.081 ms (6.1 %) · pic/médiane des autres ×4.6
+  notes, piste muette                blocs avec début de note (192) : médiane 0.102 ms (7.6 %), p99 0.164, max 0.172 ms (12.9 %) · autres blocs (17808) : médiane 0.029 ms (2.2 %), max 0.147 ms (11.0 %) · pic/médiane des autres ×6.0
+
+Neptune — 8 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 1.468 ms (110.1 %), p99 1.756, max 1.840 ms (138.0 %) · autres blocs (17808) : médiane 0.286 ms (21.4 %), max 0.733 ms (55.0 %) · pic/médiane des autres ×6.4
+  sans note                          tous les blocs (18000) : médiane 0.114 ms (8.5 %), p99 0.204, max 0.395 ms (29.6 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.193 ms (14.4 %), p99 0.320, max 0.539 ms (40.4 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 1.568 ms (117.6 %), p99 1.790, max 1.914 ms (143.6 %) · autres blocs (17808) : médiane 0.377 ms (28.3 %), max 1.291 ms (96.8 %) · pic/médiane des autres ×5.1
+  notes, piste muette                blocs avec début de note (192) : médiane 1.479 ms (111.0 %), p99 1.798, max 1.819 ms (136.5 %) · autres blocs (17808) : médiane 0.285 ms (21.4 %), max 1.961 ms (147.1 %) · pic/médiane des autres ×6.4
+
+AnalogSynth — 1 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 0.025 ms (1.9 %), p99 0.029, max 0.037 ms (2.8 %) · autres blocs (17808) : médiane 0.020 ms (1.5 %), max 0.059 ms (4.4 %) · pic/médiane des autres ×1.9
+  sans note                          tous les blocs (18000) : médiane 0.002 ms (0.1 %), p99 0.002, max 0.044 ms (3.3 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.003 ms (0.3 %), p99 0.004, max 0.031 ms (2.3 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 0.027 ms (2.0 %), p99 0.031, max 0.032 ms (2.4 %) · autres blocs (17808) : médiane 0.022 ms (1.7 %), max 0.058 ms (4.4 %) · pic/médiane des autres ×1.4
+  notes, piste muette                blocs avec début de note (192) : médiane 0.025 ms (1.9 %), p99 0.028, max 0.028 ms (2.1 %) · autres blocs (17808) : médiane 0.020 ms (1.5 %), max 0.059 ms (4.5 %) · pic/médiane des autres ×1.4
+
+AnalogSynth — 8 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 0.197 ms (14.8 %), p99 0.247, max 0.261 ms (19.6 %) · autres blocs (17808) : médiane 0.158 ms (11.9 %), max 0.257 ms (19.2 %) · pic/médiane des autres ×1.6
+  sans note                          tous les blocs (18000) : médiane 0.014 ms (1.0 %), p99 0.019, max 0.118 ms (8.9 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.025 ms (1.9 %), p99 0.031, max 0.057 ms (4.2 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 0.212 ms (15.9 %), p99 0.278, max 0.290 ms (21.8 %) · autres blocs (17808) : médiane 0.180 ms (13.5 %), max 0.752 ms (56.4 %) · pic/médiane des autres ×1.6
+  notes, piste muette                blocs avec début de note (192) : médiane 0.197 ms (14.8 %), p99 0.228, max 0.238 ms (17.9 %) · autres blocs (17808) : médiane 0.158 ms (11.8 %), max 0.323 ms (24.2 %) · pic/médiane des autres ×1.5
+
+FM6Op — 1 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 0.006 ms (0.5 %), p99 0.010, max 0.011 ms (0.8 %) · autres blocs (17808) : médiane 0.005 ms (0.4 %), max 0.050 ms (3.7 %) · pic/médiane des autres ×2.3
+  sans note                          tous les blocs (18000) : médiane 0.002 ms (0.2 %), p99 0.002, max 0.043 ms (3.2 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.003 ms (0.3 %), p99 0.004, max 0.049 ms (3.7 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 0.008 ms (0.6 %), p99 0.010, max 0.010 ms (0.8 %) · autres blocs (17808) : médiane 0.006 ms (0.5 %), max 0.067 ms (5.0 %) · pic/médiane des autres ×1.7
+  notes, piste muette                blocs avec début de note (192) : médiane 0.006 ms (0.5 %), p99 0.008, max 0.009 ms (0.6 %) · autres blocs (17808) : médiane 0.005 ms (0.4 %), max 0.038 ms (2.8 %) · pic/médiane des autres ×1.8
+
+FM6Op — 8 instance(s), tampon 64, 48000 Hz, 24 s par situation (période 1.333 ms)
+  notes seules                       blocs avec début de note (192) : médiane 0.046 ms (3.4 %), p99 0.056, max 0.056 ms (4.2 %) · autres blocs (17808) : médiane 0.035 ms (2.6 %), max 0.090 ms (6.7 %) · pic/médiane des autres ×1.6
+  sans note                          tous les blocs (18000) : médiane 0.014 ms (1.1 %), p99 0.015, max 0.046 ms (3.5 %)
+  sans note, paramètre automatisé    tous les blocs (18000) : médiane 0.026 ms (2.0 %), p99 0.041, max 0.164 ms (12.3 %)
+  notes + paramètre automatisé       blocs avec début de note (192) : médiane 0.059 ms (4.4 %), p99 0.072, max 0.076 ms (5.7 %) · autres blocs (17808) : médiane 0.048 ms (3.6 %), max 0.102 ms (7.7 %) · pic/médiane des autres ×1.6
+  notes, piste muette                blocs avec début de note (192) : médiane 0.046 ms (3.4 %), p99 0.068, max 0.107 ms (8.0 %) · autres blocs (17808) : médiane 0.035 ms (2.6 %), max 0.150 ms (11.2 %) · pic/médiane des autres ×3.1
+EXIT=0 

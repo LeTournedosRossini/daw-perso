@@ -1,0 +1,17 @@
+[package]
+name = "daw-cli"
+description = "Outils en ligne de commande : test de latence, diagnostic"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+daw-audio-io = { path = "../audio-io" }
+daw-engine = { path = "../engine" }
+daw-clap-host = { path = "../clap-host" }
+daw-recorder = { path = "../recorder" }
+daw-session = { path = "../session" }
+
+[dev-dependencies]
+daw-offline-render = { path = "../offline-render" }

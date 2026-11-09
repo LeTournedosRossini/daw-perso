@@ -1,0 +1,18 @@
+Plugins de Jean trouvés : AnalogSynth, Arpege, Carte, Choeur, Compresseur, Convolution, Delai, Diapason, Digue, Egaliseur, Essai Carte, FM6Op, Fournaise, LaFleche, Microdecale, Mirador, Moussaillon, Neptune, Orgamon, Trident
+Banc hors carte son : 48000 Hz, tampon 32, 24 s par mesure.
+
+projet de charge : 16 pistes × [Compresseur → Egaliseur] (avec automation à 100 points/s), 2 instrument(s), 34 instances de plugins
+Un seul fil (comme aujourd'hui) :
+  36000 appels mesurés
+  période 0.667 ms · traitement moyen 0.3696 ms (55.4 %), médian 0.3643, p99 0.4594, p99,9 0.6515, max 0.9694 ms (145.4 % de la période) · latence ajoutée 0 éch.
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 0 | 25-50 %: 0 | 50-75 %: 35808 | 75-100 %: 162 | >= 100 %: 30
+  appels les plus longs : 0.97 ms à t = 5051 ms de la boucle (21.1 s après le début) · 0.89 ms à t = 479 ms de la boucle (0.5 s après le début) · 0.86 ms à t = 3960 ms de la boucle (20.0 s après le début) · 0.82 ms à t = 4372 ms de la boucle (20.4 s après le début) · 0.81 ms à t = 1947 ms de la boucle (17.9 s après le début) · 0.80 ms à t = 1003 ms de la boucle (17.0 s après le début)
+  reproductibilité : 3.0 passages, 5975 pic(s) reviennent au même endroit de la boucle à chaque passage (≈ 33 ms, 35 ms, 36 ms, 37 ms, 39 ms, 40 ms) → vient du projet, pas du système
+
+3 fils de calcul (le fil audio + 2 fils de travail) :
+  36000 appels mesurés
+  période 0.667 ms · traitement moyen 0.1430 ms (21.5 %), médian 0.1405, p99 0.1777, p99,9 0.2220, max 1.8338 ms (275.1 % de la période) · latence ajoutée 0 éch.
+  répartition du temps de traitement (en % de la période) : < 5 %: 0 | 5-10 %: 0 | 10-25 %: 35354 | 25-50 %: 641 | 50-75 %: 4 | 75-100 %: 0 | >= 100 %: 1
+  appels les plus longs : 1.83 ms à t = 6462 ms de la boucle (6.5 s après le début) · 0.43 ms à t = 6463 ms de la boucle (6.5 s après le début) · 0.42 ms à t = 4117 ms de la boucle (4.1 s après le début) · 0.39 ms à t = 1165 ms de la boucle (9.2 s après le début) · 0.34 ms à t = 5746 ms de la boucle (13.7 s après le début) · 0.30 ms à t = 1873 ms de la boucle (9.9 s après le début)
+  reproductibilité : 3.0 passages, aucun pic ne revient à chaque passage au même endroit de la boucle → bruit du système (ordonnanceur, autres processus)
+  gain sur le temps moyen : ×2.58 ; pire appel : 145.4 % → 275.1 % de la période ; appels > moitié de la période : 36000 → 5

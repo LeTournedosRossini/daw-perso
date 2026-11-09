@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Autorisations de la fenêtre principale : événements du moteur, commandes de l'application, dialogues de fichiers et titre de la fenêtre.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-set-title", "dialog:default"]
+}

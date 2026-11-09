@@ -1,0 +1,7 @@
+src/Align.cpp
+src/Progress.cpp
+src/Render.cpp
+src/Pipeline.cpp
+src/Settings.cpp
+src/align_c.cpp
+third_party/rubberband/single/RubberBandSingle.cpp

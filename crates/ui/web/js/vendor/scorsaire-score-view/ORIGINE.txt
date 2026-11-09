@@ -1,0 +1,1 @@
+Copie du module Scorsaire (branche module-vue-partition-daw ; dernier commit indiqué : 902e1ca), version du 9 novembre 2026 : voix, getSelection, keyChanges, aperçu pendant le glisser, paroles (clip.lyrics), titre de section (clip.section), numéros de mesure, note fantôme au survol (setHoverGhost). Ne pas modifier ici.

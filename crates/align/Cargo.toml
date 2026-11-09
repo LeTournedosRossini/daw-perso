@@ -1,0 +1,15 @@
+[package]
+name = "daw-align"
+description = "Caler une prise (double) sur une autre (guide) sans changer la hauteur : interface vers la bibliothèque C++ flibuste-align"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+# Compilation de la bibliothèque C++ (comme la couche ASIO).
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+daw-recorder = { path = "../recorder" }

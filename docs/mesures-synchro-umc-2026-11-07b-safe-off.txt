@@ -1,0 +1,119 @@
+Test synchro - Safe Mode off - 2026-11-07_20-39 
+ 
+=== Serie : tampon 128  === 
+Lecture : 44100 Hz, tampon 128 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 128, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 194 en entrée + 110 en sortie + 72 (convertisseurs) = 376 échantillons (8.526 ms) pour la carte
+Compensation de l'application : 376 échantillons (8.526 ms)
+Prise : 370944 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.026 (-31.8 dBFS)
+
+Retard de bout en bout mesuré : 381.95 échantillons (8.661 ms) ; corrélation 0.9949 ; gain de la boucle -22.06 dB
+Retard sur les trois tiers de la prise : 381.95 / 381.95 / 381.95 (dérive 0.00 éch.)
+Après soustraction de l'original (retard 382 éch., gain ajusté) : il reste -19.9 dB de la prise
+
+=> Rangée avec la compensation de l'application (376 éch.), la prise tombe +5.95 échantillon(s) (+0.135 ms) par rapport à l'original (en retard).
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance de 3 échantillons (voir ci-dessus)
+Callback : traitement moyen 0.0135 ms, max 0.0839 ms (2.9 % de la période) ; cycles irréguliers 9.8 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64  === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 130 en entrée + 66 en sortie + 72 (convertisseurs) = 268 échantillons (6.077 ms) pour la carte
+Compensation de l'application : 268 échantillons (6.077 ms)
+Prise : 370688 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.026 (-31.8 dBFS)
+
+Retard de bout en bout mesuré : 262.95 échantillons (5.963 ms) ; corrélation 0.9949 ; gain de la boucle -22.06 dB
+Retard sur les trois tiers de la prise : 262.95 / 262.95 / 262.95 (dérive 0.00 éch.)
+Après soustraction de l'original (retard 263 éch., gain ajusté) : il reste -19.9 dB de la prise
+
+=> Rangée avec la compensation de l'application (268 éch.), la prise tombe -5.05 échantillon(s) (-0.114 ms) par rapport à l'original (en avance).
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance de 3 échantillons (voir ci-dessus)
+Callback : traitement moyen 0.0092 ms, max 0.0579 ms (4.0 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 32  === 
+Lecture : 44100 Hz, tampon 32 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 32, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 98 en entrée + 66 en sortie + 72 (convertisseurs) = 236 échantillons (5.351 ms) pour la carte
+Compensation de l'application : 236 échantillons (5.351 ms)
+Prise : 370624 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.026 (-31.8 dBFS)
+
+Retard de bout en bout mesuré : 234.95 échantillons (5.328 ms) ; corrélation 0.9949 ; gain de la boucle -22.06 dB
+Retard sur les trois tiers de la prise : 234.95 / 234.95 / 234.95 (dérive 0.00 éch.)
+Après soustraction de l'original (retard 235 éch., gain ajusté) : il reste -19.9 dB de la prise
+
+=> Rangée avec la compensation de l'application (236 éch.), la prise tombe -1.05 échantillon(s) (-0.024 ms) par rapport à l'original (en avance).
+
+Résultat : OK (alignement à moins de 3 échantillons, sans dérive)
+Callback : traitement moyen 0.0071 ms, max 0.0738 ms (10.2 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --ahead 50 === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 130 en entrée + 66 en sortie + 72 (convertisseurs) = 268 échantillons (6.077 ms) pour la carte
+Compensation de l'application : 268 échantillons (6.077 ms)
+Prise : 370432 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.026 (-31.8 dBFS)
+
+Retard de bout en bout mesuré : 261.32 échantillons (5.926 ms) ; corrélation 0.7265 ; gain de la boucle -24.79 dB
+Retard sur les trois tiers de la prise : 260.95 / 261.20 / 261.95 (dérive 1.00 éch.)
+Après soustraction de l'original (retard 261 éch., gain ajusté) : il reste -3.3 dB de la prise
+
+=> Rangée avec la compensation de l'application (268 éch.), la prise tombe -6.68 échantillon(s) (-0.151 ms) par rapport à l'original (en avance).
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance de 3 échantillons (voir ci-dessus)
+Callback : traitement moyen 0.0173 ms, max 0.1277 ms (8.8 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --fx Digue === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 130 en entrée + 66 en sortie + 72 (convertisseurs) = 268 échantillons (6.077 ms) pour la carte
+Latence ajoutée par les plugins (compensation du moteur) : 441 échantillons (10.000 ms)
+Compensation de l'application : 709 échantillons (16.077 ms)
+Prise : 370560 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.035 (-29.1 dBFS)
+
+Retard de bout en bout mesuré : 702.95 échantillons (15.940 ms) ; corrélation 0.9949 ; gain de la boucle -19.36 dB
+Retard sur les trois tiers de la prise : 702.95 / 702.95 / 702.95 (dérive 0.00 éch.)
+Après soustraction de l'original (retard 703 éch., gain ajusté) : il reste -19.9 dB de la prise
+
+=> Rangée avec la compensation de l'application (709 éch.), la prise tombe -6.05 échantillon(s) (-0.137 ms) par rapport à l'original (en avance).
+   Avec la seule latence de la carte (comportement d'avant la correction du 7 novembre), la prise serait tombée +434.95 échantillon(s) (+9.863 ms) par rapport à l'original.
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance de 3 échantillons (voir ci-dessus)
+Callback : traitement moyen 0.0260 ms, max 0.0819 ms (5.6 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0
+ 
+=== Serie : tampon 64 --fx Digue --ahead 50 === 
+Lecture : 44100 Hz, tampon 64 échantillons
+
+Pilote : UMC ASIO Driver, 44100 Hz, tampon 64, 10 entrée(s) ; prise sur l'entrée 1
+Latences annoncées : 130 en entrée + 66 en sortie + 72 (convertisseurs) = 268 échantillons (6.077 ms) pour la carte
+Latence ajoutée par les plugins (compensation du moteur) : 441 échantillons (10.000 ms)
+Compensation de l'application : 709 échantillons (16.077 ms)
+Prise : 370944 trames, départ à la position 0, blocs perdus par le disque : 0
+Crête de l'entrée : 0.035 (-29.1 dBFS)
+
+Retard de bout en bout mesuré : 702.95 échantillons (15.940 ms) ; corrélation 0.9949 ; gain de la boucle -19.36 dB
+Retard sur les trois tiers de la prise : 702.95 / 702.95 / 702.95 (dérive 0.00 éch.)
+Après soustraction de l'original (retard 703 éch., gain ajusté) : il reste -19.9 dB de la prise
+
+=> Rangée avec la compensation de l'application (709 éch.), la prise tombe -6.05 échantillon(s) (-0.137 ms) par rapport à l'original (en avance).
+   Avec la seule latence de la carte (comportement d'avant la correction du 7 novembre), la prise serait tombée +434.95 échantillon(s) (+9.863 ms) par rapport à l'original.
+
+Résultat : PROBLÈME ou écart au-delà de la tolérance de 3 échantillons (voir ci-dessus)
+Callback : traitement moyen 0.0046 ms, max 0.0280 ms (1.9 % de la période) ; cycles irréguliers 100.0 %
+Allocations dans le callback : 0

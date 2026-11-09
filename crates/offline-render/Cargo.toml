@@ -1,0 +1,16 @@
+[package]
+name = "daw-offline-render"
+description = "Rendu déterministe hors temps réel"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-core-types = { path = "../core-types" }
+daw-engine = { path = "../engine" }
+# Écriture FLAC de l'export (Apache-2.0, pur Rust).
+flacenc = { version = "0.4", default-features = false }
+
+[dev-dependencies]
+# Relecture des fichiers exportés dans les tests.
+daw-recorder = { path = "../recorder" }
