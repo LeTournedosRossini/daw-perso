@@ -273,6 +273,26 @@ export function applyLyricTap(list, d, tap, typed) {
   return { syllables, label: "Écrire une syllabe", extra };
 }
 
+/**
+ * Poignée du trait de prolongation (`lyricExtend` du module : `start` et `end` depuis le début de la matière, `verse`; `end` absent = supprimer le trait).
+ * Rend la nouvelle liste et son libellé, ou `null` si la syllabe n'existe pas, si `end` ne dépasse pas le début ou si rien ne change.
+ */
+export function applyLyricExtend(list, d, cmd) {
+  const verse = cmd.verse ?? 1;
+  const abs = (rel) => fadd(d.start, fsub(rel, d.offset));
+  const at = abs(cmd.start);
+  const i = list.findIndex((s) => (s.verse ?? 1) === verse && fcmp(s.at, at) === 0);
+  if (i < 0) return null;
+  const cur = list[i];
+  const end = cmd.end ? abs(cmd.end) : null;
+  if (end && fcmp(end, at) <= 0) return null;
+  if (!end && !cur.end) return null;
+  if (end && cur.end && fcmp(cur.end, end) === 0) return null;
+  const { end: _old, ...rest } = cur;
+  const next = end ? { ...rest, end } : rest;
+  return { syllables: list.map((s, k) => (k === i ? next : s)), label: end ? "Prolonger une syllabe" : "Retirer un trait de prolongation" };
+}
+
 /** Les indices des notes qui commencent à l'instant de la première note sélectionnée ou après (là où les syllabes démarrent). */
 export function notesFromFirstSelected(d, sel) {
   const first = sel.map((i) => d.notes[i]).filter(Boolean).sort((a, b) => fcmp(a.start, b.start))[0];

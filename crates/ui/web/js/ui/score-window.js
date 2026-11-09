@@ -9,7 +9,7 @@ import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction, startInBarOf } from "../score-adapter.js";
 import { GRIDS, gridById, noteId } from "../notes-model.js";
 import { splitBlocks, blockData, sectionOf, orderBlocks, toClipIndices, toBlockIndices } from "../section-blocks.js";
-import { applyLyricTap, lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
+import { applyLyricExtend, applyLyricTap, lyricsForClip, lyricsToText, parseLyricsText, noteOnsets, noteSpans, placeOnNotes, clearVerseRange, verseCount, notesFromFirstSelected } from "../lyrics-model.js";
 import { glyphSvg, nextCycle, durationLabel, DIRECT_DURATIONS, CYCLE_PAIR, CYCLE_DELAY_MS } from "../note-glyphs.js";
 import { TouchPinch } from "../touch-pinch.js";
 import { LyricReserve } from "./lyric-reserve.js";
@@ -923,6 +923,12 @@ export class ScoreWindow {
       return;
     }
     if (cmd.type === "preview") return this.#preview(cmd, it);
+    if (cmd.type === "lyricExtend") {
+      const res = this.reserve.active ? null : applyLyricExtend(this.state.lyrics ?? [], it.data, cmd);
+      if (res) this.client.send({ type: "set_lyrics", syllables: res.syllables, label: res.label });
+      else this.#refreshAll();
+      return;
+    }
     if (cmd.type === "lyricTap") return this.reserve.active ? this.reserve.onTap(cmd, it.data) : this.#lyricTap(cmd, it);
     if (cmd.type === "delete") it.sel = [];
     const node = this.#clip(cmd.clip)?.node.id;
