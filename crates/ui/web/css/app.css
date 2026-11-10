@@ -344,7 +344,9 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 /* Le mixeur ne doit jamais dépasser son conteneur (il serait coupé, bouton « Larges » et sortie principale hors de l'écran) : les tranches défilent, la sortie principale reste épinglée à droite. */
 .mixer { min-width: 0; max-width: 100%; }
 .mx-strips { min-width: 0; }
-.mx-strip.master { position: sticky; right: 0; z-index: 2; }
+.mx-strip.master { position: sticky; right: 0; z-index: 2; background: var(--panel-2); }
+/* zone master opaque : les tranches défilent derrière sans reparaître dans la gouttière (6 px) ni la marge (8 px) */
+.mx-strip.master { box-shadow: -7px 0 0 0 var(--panel), 8px 0 0 0 var(--panel); }
 .mx-name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mx-rename { width: 100%; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 0 3px; }
 .mx-name small { font-weight: 400; color: var(--muted); margin-left: 4px; font-size: 10px; }
