@@ -40,7 +40,7 @@
      - Barre du bas, de la hauteur d'un bouton : lecture, pré-roll, clic, sections (volet fin au-dessus), bancs de pistes, Édition / Mixeur, Retour, plein écran. */
   :root { --bar-h: 56px; --sec-h: 0px; }
   body.tablet.sec-open { --sec-h: 36px; }
-  body.tablet.view-edit { --ctl-h: 40px; }
+  body.tablet.view-edit { --ctl-h: 0px; }
   body:not(.tab-mix) #fxpanel { display: none; }
   .mx[hidden] { display: none !important; }
   #bank, #tbar, #secpanel { display: none; }
@@ -107,31 +107,24 @@
     body.tablet #fx-close, body.tablet #fx-tabs { display: none; }
     body.tablet #fx-msg { grid-column: 2; grid-row: 1; margin: 2px 0 6px; }
     /* Zones : nom, valeur, mode d'automation ; la zone touchée est celle que règle le grand curseur du bas */
-    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 62px; gap: 8px; align-content: start; overflow-y: auto; }
-    body.tablet #fx-params .zone { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; gap: 1px 6px; align-items: center; padding: 4px 8px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+    body.tablet #fx-params { grid-column: 2; grid-row: 2 / 4; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 76px; gap: 8px; align-content: start; overflow-y: auto; }
+    body.tablet #fx-params .zone { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; grid-template-areas: "zn zn" "zv zk" "za zk"; gap: 1px 8px; align-items: center; padding: 5px 8px 5px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
     body.tablet #fx-params .zone.sel { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
-    body.tablet #fx-params .zone .zn { grid-column: 1 / -1; font-size: 13px; font-weight: 600; line-height: 1.15; overflow: hidden; }
-    body.tablet #fx-params .zone .zv { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    body.tablet #fx-params .zone .za { min-width: 56px; height: 26px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
-    body.tablet #fx-params .zone .zb { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
-    body.tablet #fx-params .zone .zb i { display: block; height: 100%; background: var(--accent); }
+    body.tablet #fx-params .zone .zn { grid-area: zn; font-size: 13px; font-weight: 600; line-height: 1.15; overflow: hidden; }
+    body.tablet #fx-params .zone .zv { grid-area: zv; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    body.tablet #fx-params .zone .za { grid-area: za; justify-self: start; min-width: 56px; height: 26px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+    /* Potentiomètre rond : anneau rempli depuis le minimum + aiguille ; il ne sert qu'à montrer la valeur (on règle en glissant n'importe où) */
+    body.tablet #fx-params .zone .zk { grid-area: zk; position: relative; width: 42px; height: 42px; border-radius: 50%; --f: 0; --a: -135deg; }
+    body.tablet #fx-params .zone .zk::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from -135deg, var(--accent) calc(var(--f) * 270deg), var(--line) 0 270deg, transparent 0); -webkit-mask: radial-gradient(circle, transparent 56%, #000 58%); mask: radial-gradient(circle, transparent 56%, #000 58%); }
+    body.tablet #fx-params .zone .zk i { position: absolute; left: 50%; top: 6px; width: 3px; height: 13px; margin-left: -1.5px; border-radius: 2px; background: var(--text); transform-origin: 50% 15px; transform: rotate(var(--a)); }
+    body.tablet #fx-params .zone.sel .zk i { background: var(--accent); }
+    body.tablet #fx-params { touch-action: none; }
     body.tablet #fx-params .zone.tog { grid-column: span 2; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr; gap: 8px; cursor: default; }
     body.tablet #fx-params .zone.tog button { min-height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].m { background: #f5a524; color: #000; border-color: #f5a524; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].s { background: #ffd400; color: #000; border-color: #ffd400; }
     body.tablet #fx-params .zone.tog button[aria-pressed="true"].a { background: var(--bad); color: #fff; border-color: var(--bad); }
     /* Grand curseur linéaire, au-dessus du volet des sections, seulement dans l'écran Édition */
-    body.tablet.view-edit #ctl { display: flex; align-items: center; gap: 0; position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h) + var(--sec-h)); height: var(--ctl-h); padding: 5px 14px; background: var(--panel); border-top: 2px solid var(--accent); z-index: 28; }
-    body.tablet #ctl .ctl-m, body.tablet #ctl .ctl-l span { display: none; }
-    body.tablet #ctl .ctl-l { flex: none; width: 120px; padding-right: 10px; display: flex; align-items: center; }
-    body.tablet #ctl .ctl-l b { font-size: 13px; line-height: 1.1; white-space: normal; max-height: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    body.tablet #ctl .ctl-l span { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    body.tablet #ctl .ctl-m { flex: none; width: 92px; text-align: center; font-size: 12px; color: var(--muted); }
-    body.tablet #ctl .ctl-b { position: relative; flex: 1; height: 100%; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
-    body.tablet #ctl .ctl-b.active { border-color: var(--accent); }
-    body.tablet #ctl .ctl-fill { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 32%, transparent); }
-    body.tablet #ctl .ctl-zero { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); opacity: .55; }
-    body.tablet #ctl .ctl-thumb { position: absolute; top: 5px; bottom: 5px; width: 14px; margin-left: -7px; border-radius: 7px; background: var(--text); box-shadow: 0 0 0 2px var(--bg); }
   }
   /* Automation : bouton de mode par piste (volume / pan) et par paramètre de plugin, menu des modes */
   .am { font-size: 12px; }
@@ -142,7 +135,6 @@
   .za.m-touch, .am.m-touch, .pam.m-touch { background: #3ecf5a !important; color: #000 !important; border-color: #3ecf5a !important; }
   .za.m-latch, .am.m-latch, .pam.m-latch { background: #a66cff !important; color: #000 !important; border-color: #a66cff !important; }
   .za.m-write, .am.m-write, .pam.m-write { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
-  #ctl { display: none; }
   #automenu { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 8px); transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: var(--panel); border: 2px solid var(--accent); border-radius: 14px; padding: 10px 12px 12px; z-index: 40; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55); }
   #automenu[hidden] { display: none; }
   #automenu .am-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -280,7 +272,6 @@
   <div class="am-modes" id="am-modes"></div>
   <div class="am-hint" id="am-hint"></div>
 </div>
-<div id="ctl" aria-label="Réglage du paramètre choisi"><div class="ctl-l"><b id="ctl-name"></b><span id="ctl-val"></span></div><div class="ctl-m" id="ctl-mode"></div><div class="ctl-b" id="ctl-bar"><i class="ctl-fill"></i><i class="ctl-zero"></i><i class="ctl-thumb"></i></div></div>
 <div id="secpanel"></div>
 <div id="tbar"><span id="tb-remote"></span><button id="tb-secs" aria-pressed="false">Sections</button><span class="sp"></span><span id="tb-bank"></span><button id="tb-edit">Édition</button><button id="tb-me" title="Revenir à l'écran « Mon retour »">Retour</button><button id="tb-full" title="Plein écran" hidden>⛶</button></div>
 <div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
@@ -769,11 +760,11 @@ function mkZone(key, name) {
   const root = document.createElement("div");
   root.className = "zone";
   root.dataset.key = key;
-  root.innerHTML = '<span class="zn"></span><span class="zv"></span><button type="button" class="za" aria-label="Automation"></button><div class="zb"><i></i></div>';
+  root.innerHTML = '<span class="zn"></span><span class="zv"></span><button type="button" class="za" aria-label="Automation"></button><div class="zk"><i></i></div>';
   root.querySelector(".zn").textContent = name;
-  const z = { root, val: root.querySelector(".zv"), bar: root.querySelector(".zb i"), am: root.querySelector(".za") };
-  root.addEventListener("click", () => { fxSel = key; updateZones(fxState?.fine?.page, fxNodeInfo()); });
+  const z = { root, val: root.querySelector(".zv"), knob: root.querySelector(".zk"), am: root.querySelector(".za") };
   zoneRefs.set(key, z);
+  gestureBind(z, key);
   return z;
 }
 function buildZones(page, node, container) {
@@ -825,9 +816,9 @@ function updateZones(page, node) {
   if (!zoneKeyOk(fxSel)) fxSel = page.params.length ? "p:" + page.params[0].id : "gain";
   const setAm = (z, mode) => { z.am.textContent = AM_EN[mode ?? "none"]; z.am.className = "za m-" + (mode ?? "none"); };
   const g = zoneRefs.get("gain");
-  if (g) { const v = held("gain", node.db, 0.06) ?? node.db; g.val.textContent = fmt(v); g.bar.style.width = ((v - DB_MIN) / (DB_MAX - DB_MIN)) * 100 + "%"; setAm(g, node.auto?.gain); }
+  if (g) { const v = held("gain", node.db, 0.06) ?? node.db; g.val.textContent = fmt(v); setKnob(g, (v - DB_MIN) / (DB_MAX - DB_MIN)); setAm(g, node.auto?.gain); }
   const pz = zoneRefs.get("pan");
-  if (pz) { const v = held("pan", node.pan, 0.006) ?? node.pan; pz.val.textContent = fmtPan(v); pz.bar.style.width = ((v + 1) / 2) * 100 + "%"; setAm(pz, node.auto?.pan); }
+  if (pz) { const v = held("pan", node.pan, 0.006) ?? node.pan; pz.val.textContent = fmtPan(v); setKnob(pz, (v + 1) / 2); setAm(pz, node.auto?.pan); }
   const tog = zoneRefs.get("tog");
   if (tog) for (const [key, b] of Object.entries(tog.refs)) if (!holding("x" + key + node.id)) b.setAttribute("aria-pressed", String(!!node[key]));
   for (const p of page.params) {
@@ -836,11 +827,16 @@ function updateZones(page, node) {
     const h = held("p:" + p.id, p.value, (p.max - p.min) * 0.002);
     if (h === null) z.val.textContent = p.text; // pendant la retenue le texte du plugin est encore l'ancien : on garde l'affichage
     const pv = h ?? p.value;
-    z.bar.style.width = (p.max > p.min ? ((pv - p.min) / (p.max - p.min)) * 100 : 0) + "%";
+    setKnob(z, p.max > p.min ? (pv - p.min) / (p.max - p.min) : 0);
     setAm(z, p.auto);
   }
   for (const [key, z] of zoneRefs) z.root.classList.toggle("sel", key === fxSel);
-  syncCtl();
+}
+/** Potentiomètre d'une dalle : f de 0 à 1 → anneau rempli et aiguille de −135° à +135°. */
+function setKnob(z, f) {
+  const k = Math.min(1, Math.max(0, Number.isFinite(f) ? f : 0));
+  z.knob.style.setProperty("--f", k);
+  z.knob.style.setProperty("--a", -135 + 270 * k + "deg");
 }
 /** Ce que règle le grand curseur : la zone sélectionnée (valeur, plage, mode, envois). */
 function ctlTarget() {
@@ -864,82 +860,81 @@ function held(key, serverValue, tol) {
   if (Date.now() > o.until || Math.abs(serverValue - o.v) <= tol) { ovr.delete(key); return null; }
   return o.v;
 }
-const ctl = { down: false, t: null, ids: new Set(), x0: 0, v0: 0, mul: 1, lastX: 0, value: 0, idDrag: null };
-const ctlRelative = (t) => t.mode === "touch" || t.mode === "latch";
-function ctlPlace(t, relOffsetPct) {
-  const pos = (v) => ((v - t.min) / (t.max - t.min)) * 100;
-  const rel = ctlRelative(t);
-  const thumb = el("ctl-bar").querySelector(".ctl-thumb"), fill = el("ctl-bar").querySelector(".ctl-fill"), zero = el("ctl-bar").querySelector(".ctl-zero");
-  if (rel) {
-    const c = 50, p = Math.min(100, Math.max(0, c + (relOffsetPct ?? 0)));
-    thumb.style.left = p + "%"; fill.style.left = Math.min(c, p) + "%"; fill.style.width = Math.abs(p - c) + "%";
-    zero.style.left = "50%"; zero.style.display = "";
-  } else {
-    const p = pos(ctl.down ? ctl.value : t.value), z = t.min < 0 && t.max > 0 ? pos(0) : 0;
-    thumb.style.left = p + "%"; fill.style.left = Math.min(z, p) + "%"; fill.style.width = Math.abs(p - z) + "%";
-    zero.style.left = z + "%"; zero.style.display = t.min < 0 && t.max > 0 ? "" : "none";
+// ---- geste : toucher une dalle la sélectionne ; glisser ensuite, n'importe où, règle sa valeur en **relatif** sur toute la largeur de l'écran ----
+// Rien ne bouge avant 8 px de mouvement (un simple toucher ne fait que sélectionner, et n'écrit pas d'automation) ; un second doigt rend le réglage
+// cinq fois plus fin ; deux touchers rapides sur une dalle la remettent à sa valeur par défaut.
+const gest = { key: null, t: null, id: null, ids: new Set(), x0: 0, v0: 0, value: 0, mul: 1, lastX: 0, started: false };
+let lastTap = { key: null, at: 0 };
+const GEST_PX = 8;
+function gestMove(e) {
+  if (e.pointerId !== gest.id || !gest.t) return;
+  const t = gest.t;
+  gest.lastX = e.clientX;
+  if (!gest.started) {
+    if (Math.abs(e.clientX - gest.x0) < GEST_PX) return;
+    gest.started = true;
+    gest.x0 = e.clientX; // on repart du seuil : pas de saut
+    t.touch(true);
+  }
+  const range = t.max - t.min;
+  const q = (v) => (t.round ? Math.round(v / t.round) * t.round : v);
+  gest.value = q(Math.min(t.max, Math.max(t.min, gest.v0 + ((e.clientX - gest.x0) / (window.innerWidth || 1)) * (range / gest.mul))));
+  t.send(gest.value);
+  const z = zoneRefs.get(gest.key);
+  if (z) {
+    setKnob(z, range > 0 ? (gest.value - t.min) / range : 0);
+    if (t.fmt) z.val.textContent = t.fmt(gest.value);
   }
 }
-function syncCtl() {
-  const band = el("ctl");
-  const t = ctl.down ? ctl.t : ctlTarget();
-  if (!t || !document.body.classList.contains("view-edit") || !docked()) return;
-  el("ctl-name").textContent = t.name;
-  if (!(t.held && !ctl.down)) el("ctl-val").textContent = ctl.down && t.fmt ? t.fmt(ctl.value) : t.text;
-  el("ctl-mode").textContent = AM_EN[t.mode] + " · " + (ctlRelative(t) ? "relatif" : "absolu");
-  if (!ctl.down) ctlPlace(t, 0);
+function gestExtra(e) {
+  if (gest.id === null || e.pointerId === gest.id) return;
+  e.stopPropagation(); e.preventDefault(); // le second doigt ne doit rien toucher d'autre
+  gest.ids.add(e.pointerId);
+  if (gest.started) { gest.x0 = gest.lastX; gest.v0 = gest.value; }
+  gest.mul = 5;
 }
-function ctlBind() {
-  const bar = el("ctl-bar");
-  const widthPx = () => bar.getBoundingClientRect().width || 1;
-  const absValue = (x, t) => { const r = bar.getBoundingClientRect(); return Math.min(t.max, Math.max(t.min, t.min + ((x - r.left) / (r.width || 1)) * (t.max - t.min))); };
-  const q = (t, v) => (t.round ? Math.round(v / t.round) * t.round : v);
-  const rebase = () => { ctl.x0 = ctl.lastX; ctl.v0 = ctl.value; ctl.mul = ctl.ids.size >= 2 ? 5 : 1; };
-  bar.addEventListener("pointerdown", (e) => {
-    ctl.ids.add(e.pointerId);
-    ctl.lastX = e.clientX;
-    if (ctl.down) { if (ctlRelative(ctl.t)) rebase(); e.preventDefault(); return; }
+function gestEnd(e) {
+  if (gest.id === null) return;
+  gest.ids.delete(e.pointerId);
+  if (e.pointerId !== gest.id) {
+    if (gest.ids.size < 2) { if (gest.started) { gest.x0 = gest.lastX; gest.v0 = gest.value; } gest.mul = 1; }
+    return;
+  }
+  const { t, key, started } = gest;
+  gest.id = null; gest.ids.clear();
+  window.removeEventListener("pointermove", gestMove);
+  window.removeEventListener("pointerup", gestEnd);
+  window.removeEventListener("pointercancel", gestEnd);
+  window.removeEventListener("pointerdown", gestExtra, true);
+  if (started) {
+    // La dernière valeur part avant le « lâcher » (sinon, en Toucher / Latch, elle arriverait après la fin du geste)
+    if (mixTimer) { clearTimeout(mixTimer); flushMix(); }
+    if (fxTimer) { clearTimeout(fxTimer); fxTimer = null; const batch = fxPending; fxPending = new Map(); for (const v of batch.values()) postFx(v); }
+    t?.touch(false);
+    lastTap = { key: null, at: 0 };
+  } else if (e.type === "pointerup" && t) {
+    const now = Date.now();
+    if (lastTap.key === key && now - lastTap.at < 350) { t.send(t.def); lastTap = { key: null, at: 0 }; }
+    else lastTap = { key, at: now };
+  }
+  updateZones(fxState?.fine?.page, fxNodeInfo());
+}
+function gestureBind(z, key) {
+  z.root.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".za") || gest.id !== null) return;
+    fxSel = key;
+    updateZones(fxState?.fine?.page, fxNodeInfo());
     const t = ctlTarget();
     if (!t) return;
-    ctl.t = t; ctl.down = true; ctl.idDrag = e.pointerId; ctl.mul = 1;
-    bar.setPointerCapture?.(e.pointerId);
-    bar.classList.add("active");
-    t.touch(true);
-    if (ctlRelative(t)) { ctl.x0 = e.clientX; ctl.v0 = t.value; ctl.value = t.value; }
-    else { ctl.value = q(t, absValue(e.clientX, t)); t.send(ctl.value); ctlPlace(t, 0); syncCtl(); }
+    Object.assign(gest, { key, t, id: e.pointerId, x0: e.clientX, lastX: e.clientX, v0: t.value, value: t.value, mul: 1, started: false });
+    gest.ids = new Set([e.pointerId]);
+    window.addEventListener("pointermove", gestMove);
+    window.addEventListener("pointerup", gestEnd);
+    window.addEventListener("pointercancel", gestEnd);
+    window.addEventListener("pointerdown", gestExtra, true);
     e.preventDefault();
   });
-  bar.addEventListener("pointermove", (e) => {
-    if (!ctl.down || e.pointerId !== ctl.idDrag) return;
-    ctl.lastX = e.clientX;
-    const t = ctl.t;
-    if (ctlRelative(t)) {
-      const dx = e.clientX - ctl.x0;
-      ctl.value = q(t, Math.min(t.max, Math.max(t.min, ctl.v0 + (dx / widthPx()) * ((t.max - t.min) / ctl.mul))));
-      ctlPlace(t, (dx / widthPx()) * 100);
-    } else {
-      ctl.value = q(t, absValue(e.clientX, t));
-      ctlPlace(t, 0);
-    }
-    t.send(ctl.value);
-    syncCtl();
-  });
-  const end = (e) => {
-    ctl.ids.delete(e.pointerId);
-    if (!ctl.down) return;
-    if (e.pointerId === ctl.idDrag) {
-      const t = ctl.t;
-      ctl.down = false; ctl.ids.clear(); ctl.idDrag = null;
-      bar.classList.remove("active");
-      t.touch(false);
-      syncCtl(); // valeur retenue, pas celle de l'appui (sinon le curseur repasse un instant à l'ancienne position)
-    } else if (ctlRelative(ctl.t)) rebase();
-  };
-  bar.addEventListener("pointerup", end);
-  bar.addEventListener("pointercancel", end);
-  bar.addEventListener("dblclick", () => { const t = ctlTarget(); if (t) { t.send(t.def); } });
 }
-ctlBind();
 
 // ---- régie (droit « mixage » : toutes les pistes) --------------------------------------------------------------------------
 const mixRows = new Map(); // id → { root, range, pan, out, pv, meter, m, s, a, down, panDown }
