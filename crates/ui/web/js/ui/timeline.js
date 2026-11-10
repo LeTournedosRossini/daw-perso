@@ -9,6 +9,7 @@ import { fadeGain } from "../fades.js";
 import { canvasPoint, pixelRatio } from "../ui-scale.js";
 import { TILE_COLUMNS } from "./peaks-cache.js";
 import { orderedRows } from "./order.js";
+import { StretchMarkers } from "./stretch-markers.js";
 import { clickSelect, clipsInRect, clampGroupDelta, prune, groupDragCommand, trackIds, clampNodeDelta, shiftedTrack } from "../selection.js";
 
 export const ROW_MIN = 80;
@@ -56,6 +57,7 @@ export class Timeline {
     this.band = null; // rectangle de sélection en cours
     this.takeDrag = null; // glissement sur une voie de prises (composer)
     this.state.selected ??= new Set();
+    this.stretch = new StretchMarkers(this); // marqueurs d'étirement des clips audio
     this.autoFit = true; // tant que l'utilisateur n'a pas zoomé ni défilé, la vue suit la taille de la fenêtre
     this.#bind();
   }
@@ -245,6 +247,17 @@ export class Timeline {
         }
         return;
       }
+      // Un marqueur d'étirement touché : on le saisit (priorité sur le déplacement du clip).
+      const marker = this.stretch.hit(this.nodes(), this.rowH, x, y);
+      if (marker) {
+        this.band = null;
+        this.edit = null;
+        this.#setSelected(new Set([marker.clip.id]), marker.clip.id);
+        this.stretch.begin(marker, x);
+        this.tracks.setPointerCapture(e.pointerId);
+        this.dirty = true;
+        return;
+      }
       const hit = hitTest(this.nodes(), this.state.view, this.rowH, x, y);
       const additive = e.ctrlKey || e.metaKey || e.shiftKey;
       this.band = null;
@@ -279,6 +292,11 @@ export class Timeline {
     });
     this.tracks.addEventListener("pointermove", (e) => {
       const { x, y } = local(e);
+      if (this.stretch.drag) {
+        this.stretch.move(x, e.shiftKey);
+        this.tracks.style.cursor = "ew-resize";
+        return;
+      }
       if (this.takeDrag) {
         this.takeDrag.x = x;
         this.takeDrag.alt = e.altKey;
@@ -299,6 +317,10 @@ export class Timeline {
         return;
       }
       if (!this.edit) {
+        if (this.stretch.hovering(this.nodes(), this.rowH, x, y)) {
+          this.tracks.style.cursor = "ew-resize";
+          return;
+        }
         const hit = hitTest(this.nodes(), this.state.view, this.rowH, x, y);
         this.tracks.style.cursor = hit ? CURSORS[hit.zone] : "default";
         const h = hit ? { id: hit.clip.id, zone: hit.zone } : null;
@@ -329,6 +351,10 @@ export class Timeline {
       this.dirty = true;
     });
     const finish = (commit) => {
+      if (this.stretch.drag) {
+        this.stretch.end(commit);
+        return;
+      }
       if (this.takeDrag) {
         const d = this.takeDrag;
         this.takeDrag = null;
@@ -383,11 +409,16 @@ export class Timeline {
       const { view } = this.state;
       const cf = crossfadeAt(node, xToSample(view, x), 6 * view.spp);
       if (cf) return this.onFadeEditor?.({ kind: "crossfade", outId: cf.a.id, inId: cf.b.id });
+      const marker = this.stretch.hit(this.nodes(), this.rowH, x, y);
+      if (marker) return this.stretch.remove(marker.clip, marker.index); // double-clic sur un marqueur d'étirement : le supprime
       const hit = hitTest(this.nodes(), view, this.rowH, x, y);
       if (hit && hit.clip.kind === "midi") return this.onPianoRoll?.(hit.clip.id);
       if (hit && hit.clip.kind === "audio" && (hit.zone === "fade-in" || hit.zone === "fade-out")) {
         this.onFadeEditor?.({ kind: "single", clipId: hit.clip.id, side: hit.zone === "fade-in" ? "in" : "out" });
+        return;
       }
+      // Double-clic sur le corps d'un clip audio : pose un marqueur d'étirement.
+      if (hit && hit.clip.kind === "audio" && hit.zone === "body") this.stretch.addAt(hit.clip, x, e.shiftKey);
     });
     // Deux doigts : zoom horizontal et défilement ; le geste d'un doigt en cours (clip, rectangle, boucle) est abandonné, et le doigt qui
     // reste ne déplace plus rien tant que tous les doigts ne sont pas levés.
@@ -426,7 +457,22 @@ export class Timeline {
     new TouchPinch(this.ruler, pinch);
     this.tracks.addEventListener("pointerup", () => finish(true));
     this.tracks.addEventListener("pointercancel", () => finish(false));
+    // Suppr sur un marqueur d'étirement sélectionné : il est retiré, la touche n'atteint pas « supprimer le clip ».
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if ((e.key !== "Delete" && e.key !== "Backspace") || !this.stretch.sel) return;
+        const t = e.target;
+        if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+        if (this.stretch.deleteSelected()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.stretch.escape();
       if (e.key === "Escape" && (this.band || this.takeDrag || (this.edit && !this.edit.committed))) finish(false);
     });
 
@@ -753,8 +799,12 @@ export class Timeline {
     }
     const bodyTop = y + bar;
     const bodyH = h - bar;
-    if (clip.kind === "audio") this.#drawWave(g, clip, color, bodyTop, bodyH);
-    else this.#drawNotes(g, clip, color, bodyTop, bodyH);
+    if (clip.kind === "audio") {
+      const warp = this.stretch.warpFor(clip);
+      if (warp) this.#drawWarpedWave(g, clip, color, bodyTop, bodyH, warp);
+      else this.#drawWave(g, clip, color, bodyTop, bodyH);
+      this.stretch.draw(g, clip, { x0, x1, y, h, bodyTop, bodyH });
+    } else this.#drawNotes(g, clip, color, bodyTop, bodyH);
     if (clip.missing) {
       // Fichier référencé en place introuvable : hachures et mention (le clip joue du silence).
       g.strokeStyle = "#ff6b6bcc";
@@ -849,6 +899,44 @@ export class Timeline {
       }
     }
     void TILE_COLUMNS;
+  }
+
+  /**
+   * Forme d'onde **déformée** pendant le glissement d'un marqueur d'étirement : chaque tronçon de la nouvelle carte montre le tronçon de
+   * source qu'il montrait avant (`segs` : `{ from, to }` en échantillons absolus), en lisant les crêtes déjà chargées du clip.
+   */
+  #drawWarpedWave(g, clip, color, top, height, segs) {
+    const { view } = this.state;
+    const mid = top + height / 2;
+    const half = height / 2 - 2;
+    g.fillStyle = color;
+    for (const seg of segs) {
+      const xa = sampleToX(view, seg.to[0]);
+      const xb = sampleToX(view, seg.to[1]);
+      if (xb <= 0 || xa >= this.width || xb - xa < 0.5) continue;
+      const [oa, ob] = seg.from;
+      const lo = Math.max(0, Math.floor(xa));
+      const hi = Math.min(this.width, Math.ceil(xb));
+      const at = (px) => oa + ((px - xa) / (xb - xa)) * (ob - oa);
+      const tiles = this.peaks.tilesFor(clip, view.spp, Math.min(at(lo), at(hi)), Math.max(at(lo), at(hi)));
+      for (let px = lo; px < hi; px++) {
+        const s0 = Math.min(at(px), at(px + 1));
+        const s1 = Math.max(at(px), at(px + 1));
+        let cmin = 1;
+        let cmax = -1;
+        for (const t of tiles) {
+          const a = Math.max(0, Math.floor((s0 - t.from) / t.spp));
+          const b = Math.min(t.columns.length - 1, Math.floor((Math.max(s1, s0 + 1) - t.from) / t.spp));
+          for (let i = a; i <= b; i++) {
+            const [l, h] = t.columns[i];
+            if (l < cmin) cmin = l;
+            if (h > cmax) cmax = h;
+          }
+        }
+        if (cmax < cmin) continue;
+        g.fillRect(px, mid - cmax * half, 1, Math.max(1, (cmax - cmin) * half));
+      }
+    }
   }
 
   #drawNotes(g, clip, color, top, height) {

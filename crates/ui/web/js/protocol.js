@@ -110,6 +110,20 @@ export function validateCommand(m) {
       if (!Number.isInteger(m.guide) || !Array.isArray(m.doubles) || m.doubles.length < 1 || m.doubles.length > 32 || !m.doubles.every(Number.isInteger) || m.doubles.includes(m.guide)) return "align_clips : un guide et de 1 à 32 doubles (clips), différents du guide";
       if (m.guide_more !== undefined && (!Array.isArray(m.guide_more) || m.guide_more.length > 32 || !m.guide_more.every(Number.isInteger) || m.guide_more.some((g) => m.doubles.includes(g)))) return "align_clips : guide_more = clips de la piste du guide, pas parmi les doubles";
       return m.settings === undefined || m.settings === null || typeof m.settings === "string" ? null : "align_clips : settings = texte JSON";
+    case "set_stretch": {
+      if (!Number.isInteger(m.clip) || m.clip <= 0) return "set_stretch : clip";
+      if (!Array.isArray(m.markers) || m.markers.length > 256) return "set_stretch : markers (256 au plus)";
+      let prev = [0, 0];
+      for (const p of m.markers) {
+        if (!Array.isArray(p) || p.length !== 2 || !Number.isInteger(p[0]) || !Number.isInteger(p[1])) return "set_stretch : chaque marqueur est [position dans le clip, position dans la source] en échantillons entiers";
+        if (p[0] <= prev[0] || p[1] <= prev[1]) return "set_stretch : marqueurs strictement croissants (position dans le clip et dans la source, au-delà de 0)";
+        prev = p;
+      }
+      if (m.engine !== undefined && !["signalsmith", "rubberband_r2", "rubberband_r3"].includes(m.engine)) return "set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3";
+      return null;
+    }
+    case "cancel_stretch":
+      return null;
     case "align_redo": {
       if (!Array.isArray(m.clips) || m.clips.length < 1 || m.clips.length > 32 || !m.clips.every(Number.isInteger)) return "align_redo : de 1 à 32 clips";
       if (m.settings !== undefined && m.settings !== null && typeof m.settings !== "string") return "align_redo : settings = texte JSON";

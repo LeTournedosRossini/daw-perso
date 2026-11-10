@@ -22,6 +22,7 @@
       <div id="project-name" class="project-name" aria-live="polite"></div>
       <button id="convert-status" class="rec-status export-status" title="Conversion du projet en cours : cliquer pour l'annuler" hidden></button>
       <button id="align-status" class="rec-status export-status" title="Calage en cours : cliquer pour l'annuler" hidden></button>
+      <button id="stretch-status" class="rec-status export-status" title="Étirement en cours : cliquer pour l'annuler (Échap)" hidden></button>
       <button id="import-status" class="rec-status export-status" title="Import en cours : cliquer pour l'annuler" hidden></button>
       <button id="export-status" class="rec-status export-status" title="Export en cours : cliquer pour l'afficher" hidden></button>
       <div id="rec-status" class="rec-status" aria-live="polite" hidden></div>
@@ -50,6 +51,7 @@
         <button id="btn-redo" title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 8c2.65 0 5.05 1 6.9 2.6L22 7v9h-9l3.6-3.6A8 8 0 0 0 11.5 10c-3.5 0-6.5 2.3-7.6 5.5l-2.4-.8C2.9 10.6 6.9 8 11.5 8z"/></svg></button>
         <button id="btn-split" title="Découper le clip sélectionné à la tête de lecture (S)" aria-label="Découper" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v18h-2zM4 8h5v8H4zm11 0h5v8h-5z"/></svg></button>
         <button id="btn-xfade" title="Fondus enchaînés automatiques (aussi les raccords de 10 ms entre morceaux de prises différentes)" aria-label="Fondus enchaînés automatiques" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17.5 16 6l1.5 1.6L5 19.1zM3.5 7.6 5 6l12.5 11.5L16 19.1z"/></svg></button>
+        <select id="stretch-engine" class="stretch-engine" title="Moteur d'étirement (marqueurs : double-clic sur un clip audio pour en poser un, tirer pour étirer). Changer de moteur rerend le clip étiré sélectionné." aria-label="Moteur d'étirement"></select>
         <button id="btn-delete" title="Supprimer le clip sélectionné (Suppr)" aria-label="Supprimer" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM9 3h6l1 2h4v2H4V5h4z"/></svg></button>
       </div>
       <div class="display" aria-live="off">

@@ -838,3 +838,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .score-window .sc-lyrpop label { display: grid; }
 .monitor-pop .mp-role { display: grid; gap: 4px; font-size: 12px; margin: 8px 0 4px; color: var(--muted); }
 .monitor-pop .mp-role select { width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font: inherit; }
+
+/* Marqueurs d'étirement : choix du moteur dans la barre d'édition. */
+.stretch-engine { height: 28px; max-width: 128px; padding: 0 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: inherit; font-size: 11px; }
+@media (pointer: coarse) { .stretch-engine { height: 36px; } }

@@ -95,6 +95,7 @@ automation.onHeaders = () => {
 };
 
 // Voie d'accords : deux lignes en tête de la timeline, bouton « Accords » dans la barre.
+timeline.onNotice = (m) => flash(m);
 const chordLane = new ChordLane(state, engine, timeline, makeDialogs(), (m) => flash(m));
 timeline.chordLane = chordLane;
 headers.chordLane = chordLane;

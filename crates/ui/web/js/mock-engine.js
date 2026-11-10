@@ -11,6 +11,7 @@ import { waveformFor, columnPeaks } from "./mock-waveform.js";
 import { MOCK_CHORD_CATALOG } from "./mock-chord-catalog.js";
 import { resolveQuality } from "./chord-model.js";
 import { fadd, fcmp } from "./notes-model.js";
+import { ENGINES, plain, rewindow, validate as validateStretch } from "./stretch-model.js";
 
 const SR = 48_000;
 const BAR = SR * 2; // 4/4 à 120 noires par minute : une ronde = 2 s
@@ -308,6 +309,7 @@ export class MockEngine extends EngineClient {
         const d = msg.at - c.start;
         const node = this.project.nodes.find((n) => n.clips.includes(c));
         const right = structuredClone({ ...c, id: this.#nextClipId(), start: msg.at, offset: c.offset + d, len: c.len - d, fade_in: 0 });
+        this.#splitStretch(c, right, d);
         c.len = d;
         c.fade_out = 0;
         c.fade_in = Math.min(c.fade_in, c.len);
@@ -902,6 +904,11 @@ export class MockEngine extends EngineClient {
       case "cancel_align":
         if (this.alignJob) this.alignJob.cancelled = true;
         break;
+      case "set_stretch":
+        return this.#startStretch(msg);
+      case "cancel_stretch":
+        if (this.stretchJob) this.stretchJob.cancelled = true;
+        break;
       case "listen_align": {
         const g = this.clip(msg.guide);
         if (!g) return (this.emit("error", { command: msg.type, message: `guide inconnu : ${msg.guide}` }), false);
@@ -1491,6 +1498,8 @@ export class MockEngine extends EngineClient {
         return this.#edit("Rogner un clip", msg, () => {
           const c = this.#clipOrFail(msg.clip);
           const dataStart = c.start - c.offset;
+          const oldStart = c.start;
+          const oldLen = c.len;
           let { start } = c;
           let end = c.start + c.len;
           if (msg.start !== undefined) {
@@ -1506,6 +1515,8 @@ export class MockEngine extends EngineClient {
           c.len = end - start;
           c.fade_in = Math.min(c.fade_in, c.len);
           c.fade_out = Math.min(c.fade_out, c.len);
+          // Un clip étiré rogné garde ses marqueurs (ceux qui restent dans la fenêtre) ; une extension au-delà de ce qu'il couvrait n'est pas simulée.
+          if (c.stretch && start >= oldStart && start - oldStart + c.len <= oldLen) c.stretch = rewindow(c.stretch, oldLen, start - oldStart, start - oldStart + c.len) ?? undefined;
           this.#autoCrossfade(this.project.nodes.find((n) => n.clips.includes(c)));
         });
       case "split_clip":
@@ -1515,6 +1526,7 @@ export class MockEngine extends EngineClient {
           const d = msg.at - c.start;
           const node = this.project.nodes.find((n) => n.clips.includes(c));
           const right = structuredClone({ ...c, id: this.#nextClipId(), start: msg.at, offset: c.offset + d, len: c.len - d, fade_in: 0 });
+          this.#splitStretch(c, right, d);
           c.len = d;
           c.fade_out = 0;
           c.fade_in = Math.min(c.fade_in, c.len);
@@ -1915,6 +1927,55 @@ export class MockEngine extends EngineClient {
     return true;
   }
 
+  /** Chaque moitié d'un clip étiré découpé garde ses marqueurs (`d` : position de la coupe dans le clip, avant que `c.len` ne change). */
+  #splitStretch(c, right, d) {
+    if (!c.stretch) return;
+    const len = c.len;
+    right.stretch = rewindow(c.stretch, len, d, len) ?? undefined;
+    c.stretch = rewindow(c.stretch, len, 0, d) ?? undefined;
+  }
+
+  /** Étirement simulé : mêmes refus que l'hôte, 0,4 s fictive, annulable ; une seule action annulable à la fin ; sans marqueur, retour au clip ordinaire. */
+  #startStretch(msg) {
+    const fail = (message) => (this.emit("error", { command: msg.type, message }), false);
+    if (this.recording) return fail("arrête d'abord l'enregistrement");
+    if (this.stretchJob) return fail("un étirement est déjà en cours");
+    if (this.alignJob) return fail("un calage est en cours : attends sa fin ou annule-le");
+    const c = this.clip(msg.clip);
+    if (!c || c.kind !== "audio") return fail(`clip audio inconnu : ${msg.clip}`);
+    const info = c.stretch ?? plain(c.len);
+    const engine = msg.engine ?? info.engine;
+    if (!ENGINES.includes(engine)) return fail(`moteur inconnu : « ${engine} »`);
+    const error = validateStretch(msg.markers, c.len, info.src_len, this.project.sample_rate);
+    if (error) return fail(error);
+    if (!msg.markers.length && info.src_len === c.len) {
+      if (!c.stretch) return fail("ce clip n'a pas de marqueur : rien à étirer");
+      return this.#edit("Retirer l'étirement", msg, () => {
+        delete c.stretch;
+      });
+    }
+    this.stretchJob = { msg, clip: c, engine, src_len: info.src_len, elapsed: 0, cancelled: false };
+    this.emit("stretch", { active: true, progress: 0, clip: c.id, name: c.name, cancelled: false, error: null, fell_back: false });
+    return true;
+  }
+
+  #advanceStretch(ms) {
+    const j = this.stretchJob;
+    if (!j) return;
+    if (j.cancelled) {
+      this.stretchJob = null;
+      this.emit("stretch", { active: false, progress: 1, clip: j.clip.id, name: j.clip.name, cancelled: true, error: null, fell_back: false });
+      return;
+    }
+    j.elapsed += ms;
+    if (j.elapsed < 400) return this.emit("stretch", { active: true, progress: j.elapsed / 400, clip: j.clip.id, name: j.clip.name, cancelled: false, error: null, fell_back: false });
+    this.stretchJob = null;
+    this.#edit("Étirer l'audio", j.msg, () => {
+      j.clip.stretch = { engine: j.engine, src_len: j.src_len, markers: structuredClone(j.msg.markers) };
+    });
+    this.emit("stretch", { active: false, progress: 1, clip: j.clip.id, name: j.clip.name, cancelled: false, error: null, fell_back: false });
+  }
+
   #emitAlign(active, extra = {}) {
     const j = this.alignJob;
     const total = j.items.length;
@@ -2030,6 +2091,7 @@ export class MockEngine extends EngineClient {
     this.#advanceExport(ms);
     this.#advanceImport(ms);
     this.#advanceAlign(ms);
+    this.#advanceStretch(ms);
     this.#advanceConvert(ms);
     if (this.playing) {
       this.pos += Math.round((ms * SR) / 1000);
