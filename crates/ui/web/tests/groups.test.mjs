@@ -299,3 +299,18 @@ test("the mock engine sets a plugin's side chain, refuses loops and forgets it w
   e.send({ type: "add_plugin", node: b, clap_id: "mock.egaliseur" });
   assert.equal(p().nodes.find((n) => n.id === b).inserts[1].has_sidechain, false);
 });
+
+test("vue « Groupes » : repliée = les groupes seuls, dépliée = leurs pistes, jamais les retours ni les groupes propres", async () => {
+  const { groupsLayout } = await import("../js/ui/mixer.js");
+  const node = (id, extra = {}) => ({ id, name: `n${id}`, kind: "stereo", group: 0, sends: [], inserts: [], ...extra });
+  const project = {
+    groups: [{ id: 1, name: "Batterie" }, { id: 2, name: "Cordes" }],
+    nodes: [node(0, { kind: "master" }), node(1, { group: 1 }), node(2, { group: 2 }), node(3, { group: 1 }), node(4), node(5, { kind: "bus", is_return: true })],
+  };
+  const names = (open) => groupsLayout(project, new Set(open)).map((i) => (i.group ? `G:${i.group.name}` : i.node.name));
+  assert.deepEqual(names([]), ["G:Batterie", "G:Cordes", "n0"], "replié : seulement les groupes, puis la sortie principale");
+  assert.deepEqual(names([1]), ["G:Batterie", "n1", "n3", "G:Cordes", "n0"], "déplié : ses pistes dans l'ordre d'affichage");
+  assert.deepEqual(names([1, 2]), ["G:Batterie", "n1", "n3", "G:Cordes", "n2", "n0"]);
+  assert.ok(!names([1, 2]).includes("n4"), "les pistes sans groupe n'y sont pas");
+  assert.ok(groupsLayout(project, new Set([1])).filter((i) => i.groupId).every((i) => i.groupId === 1));
+});

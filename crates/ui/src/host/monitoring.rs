@@ -12,6 +12,8 @@ use crate::protocol::{Command, Event, MonitorReturn};
 
 const DEFAULT_PORT: u16 = 8780;
 const PUBLISH_EVERY: Duration = Duration::from_millis(200);
+/// Pendant qu'une tablette tire un paramètre de plugin : republication plus fréquente, pour que le texte de la valeur (celui du plugin) suive le geste.
+const HOT_EVERY: Duration = Duration::from_millis(50);
 const DB_MIN: f64 = -60.0;
 const DB_MAX: f64 = 6.0;
 
@@ -196,7 +198,9 @@ impl Host {
         for r in requests {
             events.extend(self.monitor_request(r));
         }
-        if changed || self.monitor_last.elapsed() >= PUBLISH_EVERY {
+        let elapsed = self.monitor_last.elapsed();
+        if changed || elapsed >= PUBLISH_EVERY || (self.fine_hot && elapsed >= HOT_EVERY) {
+            self.fine_hot = false;
             self.monitor_last = Instant::now();
             self.monitor_publish();
         }

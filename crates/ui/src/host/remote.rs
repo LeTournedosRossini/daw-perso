@@ -193,6 +193,7 @@ impl Host {
                 let ph = self.plugin_handle(insert).expect("plugin déjà vérifié par la page");
                 let value = ph.params().iter().find(|p| p.id == param).map_or(value, |p| value.clamp(p.min.min(p.max), p.max.max(p.min)));
                 self.remote_msg = None;
+                self.fine_hot = true;
                 self.command(Command::SetPluginParam { insert, param, value })
             }
             FxCmd::Touch { insert, param, active } => {

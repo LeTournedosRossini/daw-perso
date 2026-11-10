@@ -25,6 +25,7 @@ const KEY_H = "daw-mixer-h";
 const KEY_WIDE = "daw-mixer-wide";
 const KEY_ROWS = "daw-mixer-rows";
 const KEY_VIEW = "daw-mixer-view";
+const KEY_GROUPS_OPEN = "daw-mixer-groups-open"; // groupes dépliés dans la vue « Groupes » (liste d'identifiants)
 
 const get = (k) => {
   try {
@@ -38,6 +39,15 @@ const put = (k, v) => {
     localStorage.setItem(k, v);
   } catch {
     // Pas de mémorisation possible : le réglage vaut pour cette session.
+  }
+};
+
+const parseIds = (text) => {
+  try {
+    const v = JSON.parse(text ?? "[]");
+    return Array.isArray(v) ? v.filter(Number.isInteger) : [];
+  } catch {
+    return [];
   }
 };
 
@@ -104,6 +114,22 @@ export function viewNodes(project, view) {
   return keep ? all.filter((n) => n.kind === "master" || keep(n)) : all;
 }
 
+/**
+ * La vue « Groupes » : une tranche par groupe **du projet** (repliée : seulement elle), suivie de ses pistes membres quand le groupe est
+ * déplié (`open` : ensemble d'identifiants de groupes) ; puis la sortie principale. Les groupes propres à un retour restent dans « Mix · X ».
+ * Rend `[{ group }, { node }, …]` dans l'ordre d'affichage.
+ */
+export function groupsLayout(project, open) {
+  const nodes = orderedNodes(project);
+  const out = [];
+  for (const g of project.groups ?? []) {
+    out.push({ group: g });
+    if (open.has(g.id)) for (const n of nodes) if (n.kind !== "master" && !isReturn(n) && (n.group ?? 0) === g.id) out.push({ node: n, groupId: g.id });
+  }
+  for (const n of nodes) if (n.kind === "master") out.push({ node: n });
+  return out;
+}
+
 /** Les envois d'un retour « Mix de X » : pour chaque piste et bus qui n'est pas X ni un retour, le niveau de son envoi vers X (silence s'il n'y en a pas). */
 export function mixSources(project, retour) {
   return orderedNodes(project)
@@ -137,6 +163,7 @@ export class Mixer {
     this.view = get(KEY_VIEW) || "all"; // vue : all | tracks | buses | returns | mix:<numéro du retour>
     this.mixRefs = new Map(); // vue « Mix de X » : id de la source → éléments de sa tranche
     this.groupRefs = new Map(); // id de groupe → éléments de sa tranche (dans la vue courante)
+    this.groupsOpen = new Set(parseIds(get(KEY_GROUPS_OPEN))); // groupes dépliés dans la vue « Groupes »
     this.tabs = this.root.querySelector(".mx-tabs");
     this.wide = get(KEY_WIDE) === "1";
     this.rows2 = get(KEY_ROWS) === "1";
@@ -259,11 +286,26 @@ export class Mixer {
     const mixId = this.view.startsWith("mix:") ? Number(this.view.slice(4)) : null;
     const retour = mixId === null ? null : this.#node(mixId);
     if (mixId !== null && !(retour && isReturn(retour))) this.view = "all";
+    if (this.view === "groups" && !(project.groups ?? []).length) this.view = "all"; // plus aucun groupe : retour à « Tout »
     this.#renderTabs(project);
     if (retour && this.view.startsWith("mix:")) {
       this.strips.append(this.#groupBar(retour));
       for (const g of effectiveGroups(project, retour.id).groups) this.strips.append(this.#groupStrip(g, retour.id));
       for (const { node, send } of mixSources(project, retour)) this.strips.append(this.#mixStrip(node, send, retour));
+      return;
+    }
+    if (this.view === "groups") {
+      for (const item of groupsLayout(project, this.groupsOpen)) {
+        if (item.group) this.strips.append(this.#groupStrip(item.group, null, true));
+        else {
+          const el = this.#strip(item.node, project);
+          if (item.groupId) {
+            el.classList.add("grouped");
+            el.style.setProperty("--gc", groupColor(project, project.groups.find((g) => g.id === item.groupId), project.groups));
+          }
+          this.strips.append(el);
+        }
+      }
       return;
     }
     if (this.view === "all") for (const g of project.groups ?? []) this.strips.append(this.#groupStrip(g, null));
@@ -296,6 +338,7 @@ export class Mixer {
     mk("tracks", "Pistes", "Seulement les pistes");
     mk("buses", "Bus", "Seulement les bus (sans les retours de monitoring)");
     const returns = project.nodes.filter(isReturn);
+    if ((project.groups ?? []).length) mk("groups", "Groupes", "Les groupes du projet (muet, solo, niveau) ; déplie un groupe pour voir ses pistes");
     if (returns.length) mk("returns", "Retours", "Les bus qui sortent sur la carte son (retours de monitoring des musiciens)");
     for (const r of returns) mk(`mix:${r.id}`, `Mix · ${r.name}`, `Ce qu'entend « ${r.name} » : les faders règlent le niveau envoyé à son retour`);
   }
@@ -305,7 +348,7 @@ export class Mixer {
    * décale d'autant (de −12 à +12 dB) le niveau de chaque membre en gardant les écarts entre eux ; le remettre à 0 (ou double-clic) rend
    * les niveaux d'avant. Avec `to`, la tranche agit sur les envois des membres vers ce retour (vue « Mix · X ») ; sans, sur les pistes.
    */
-  #groupStrip(g, to) {
+  #groupStrip(g, to, foldable = false) {
     const project = this.state.project;
     const eff = effectiveGroups(project, to);
     const root = document.createElement("div");
@@ -314,7 +357,21 @@ export class Mixer {
     root.innerHTML = `<div class="mx-name"></div><div class="mx-gcount"></div><div class="mx-gtitle">Niveau du groupe</div><output class="mx-goff" aria-live="off"></output><div class="mx-fader-wrap"><div class="mx-fader centered" role="slider" aria-label="Décaler le niveau de tout le groupe (dB)" aria-valuemin="-${OFFSET_RANGE}" aria-valuemax="${OFFSET_RANGE}" tabindex="0"><div class="zero"></div><div class="thumb"></div></div></div><div class="mx-btns"><button class="m" title="Couper tout le groupe" aria-label="Muet du groupe">M</button><button class="s" title="Solo du groupe" aria-label="Solo du groupe">S</button><button class="edit" title="Modifier le groupe" aria-label="Modifier le groupe">⚙</button></div>`;
     const q = (s) => root.querySelector(s);
     q(".mx-name").textContent = g.name;
-    const refs = { root, count: q(".mx-gcount"), m: q(".m"), s: q(".s"), fader: q(".mx-fader"), thumb: q(".thumb"), zero: q(".zero"), off: q(".mx-goff"), to };
+    if (foldable) {
+      // Vue « Groupes » : le compteur devient le bouton qui déplie les pistes du groupe (mémorisé).
+      const fold = document.createElement("button");
+      fold.className = "mx-gcount fold";
+      fold.setAttribute("aria-expanded", String(this.groupsOpen.has(g.id)));
+      fold.title = "Montrer ou cacher les pistes de ce groupe";
+      fold.addEventListener("click", () => {
+        if (!this.groupsOpen.delete(g.id)) this.groupsOpen.add(g.id);
+        put(KEY_GROUPS_OPEN, JSON.stringify([...this.groupsOpen]));
+        this.key = "";
+        this.render(true);
+      });
+      q(".mx-gcount").replaceWith(fold);
+    }
+    const refs = { root, count: q(".mx-gcount"), foldable, gid: g.id, m: q(".m"), s: q(".s"), fader: q(".mx-fader"), thumb: q(".thumb"), zero: q(".zero"), off: q(".mx-goff"), to };
     this.groupRefs.set(g.id, refs);
     const flags = () => groupFlags(this.state.project, g.id, to);
     const toPart = to === null ? {} : { to };
@@ -763,7 +820,8 @@ export class Mixer {
       r.off.textContent = formatOffset(off);
       r.off.classList.toggle("shifted", off !== 0);
       const n = groupMembers(this.state.project, id, r.to).length;
-      r.count.textContent = n === 1 ? "1 membre" : `${n} membres`;
+      const label = n === 1 ? "1 membre" : `${n} membres`;
+      r.count.textContent = r.foldable ? `${this.groupsOpen.has(r.gid) ? "▾" : "▸"} ${label}` : label;
     }
     for (const [id, r] of this.refs) {
       const n = this.#node(id);

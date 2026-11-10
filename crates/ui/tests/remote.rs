@@ -480,6 +480,15 @@ fn fine_settings_are_a_separate_right_limited_to_the_chosen_parameters_of_a_plug
     rig.settle();
     let max = rig.state()["fine"]["page"]["params"][0]["max"].as_f64().unwrap();
     assert!((rig.state()["fine"]["page"]["params"][0]["value"].as_f64().unwrap() - max).abs() < 1e-9, "borné au maximum du paramètre");
+    // Pendant un geste, l'état est republié sans attendre la période ordinaire de 200 ms : 70 ms après le réglage, un seul `tick`
+    // suffit pour que la tablette lise la nouvelle valeur (et le texte du plugin qui va avec).
+    rig.settle();
+    assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{gid},"value":0.6}}"#)), 200);
+    std::thread::sleep(Duration::from_millis(70));
+    rig.h.tick();
+    let live = rig.state()["fine"]["page"]["params"][0].clone();
+    assert!((live["value"].as_f64().unwrap() - 0.6).abs() < 1e-9, "republié vite : {live}");
+    assert!(!live["text"].as_str().unwrap().is_empty());
     let other = daw_test_plugin::PARAM_EXTRA_LATENCY;
     assert_eq!(rig.fx(&format!(r#"{{"insert":{ins},"param":{other},"value":10}}"#)), 200);
     rig.settle();

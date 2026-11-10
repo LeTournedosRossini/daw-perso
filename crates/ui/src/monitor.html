@@ -835,7 +835,7 @@ function updateZones(page, node) {
     const z = zoneRefs.get("p:" + p.id);
     if (!z) continue;
     const h = held("p:" + p.id, p.value, (p.max - p.min) * 0.002);
-    if (h === null) z.val.textContent = p.text; // pendant la retenue le texte du plugin est encore l'ancien : on garde l'affichage
+    z.val.textContent = p.text; // le texte du plugin suit le geste (republié toutes les 50 ms pendant qu'on tire) : il retarde de quelques dixièmes de seconde sur le doigt
     const pv = h ?? p.value;
     setKnob(z, p.max > p.min ? (pv - p.min) / (p.max - p.min) : 0);
     setAm(z, p.auto);
@@ -1152,8 +1152,12 @@ function showTabs(hasMix) {
     else { autoDocked = true; pick(true, false); } // chargée en paysage : directement la console
   }
 }
-poll();
-setInterval(poll, 400);
+// Lecture de l'état : toutes les 400 ms au repos, toutes les 100 ms pendant (et juste après) un geste, pour que la valeur affichée suive le doigt.
+async function pollLoop() {
+  await poll();
+  setTimeout(pollLoop, ovr.size ? 100 : 400);
+}
+pollLoop();
 </script>
 </body>
 </html>
