@@ -31,7 +31,14 @@ Chans renderRubberBand (const Chans& dub, const WarpMap& m, double sr, bool fine
     std::map<size_t, size_t> keys;
     long lastIn = -1;
     const size_t keyEvery = 8;
-    for (size_t k = 0; k * m.stepSamples <= m.outputLength && k < m.sourceAtOutput.size(); k += keyEvery)
+    for (const auto& a : m.anchors) // carte par marqueurs : ses points de rupture exacts suffisent, la carte est linéaire entre eux
+    {
+        const long inC = std::clamp ((long) std::llround (a.first - (double) s0), 0L, (long) inLen);
+        if (inC <= lastIn || inC == 0) continue;
+        keys[(size_t) inC] = (size_t) std::llround (a.second);
+        lastIn = inC;
+    }
+    for (size_t k = 0; m.anchors.empty() && k * m.stepSamples <= m.outputLength && k < m.sourceAtOutput.size(); k += keyEvery)
     {
         const long inC = std::clamp ((long) std::llround (m.sourceAtOutput[k] - (double) s0), 0L, (long) inLen);
         if (inC <= lastIn || inC == 0 || k == 0) continue; // le point (0, 0) est implicite : Rubber Band R3 en tire un rapport NaN

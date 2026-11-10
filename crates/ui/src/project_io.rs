@@ -78,6 +78,23 @@ pub struct UiMeta {
     /// Prises calées sur un guide : réglages, analyse (octets en base 64) et d'où elles viennent, pour refaire le rendu.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aligns: Vec<UiAlign>,
+    /// Clips étirés par des marqueurs : la source, la partie couverte, les marqueurs et le moteur, pour refaire le rendu.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stretches: Vec<UiStretch>,
+}
+
+/// Un clip étiré tel qu'il est enregistré (les fichiers sont désignés par leur chemin dans le projet).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiStretch {
+    /// Fichier audio étiré (ce que joue le clip).
+    pub asset: String,
+    /// Fichier source (jamais modifié).
+    pub source_asset: String,
+    pub source_start: u64,
+    pub source_len: u64,
+    /// Marqueurs `[secondes de source, secondes de sortie]`.
+    pub keys: Vec<[f64; 2]>,
+    pub engine: String,
 }
 
 /// Où lire l'audio d'un clip : le fichier (chemin du projet), la position du clip dans le projet, son décalage et sa longueur.
@@ -400,6 +417,7 @@ pub fn convert_project(src: &Path, dst: &Path, rate: u32, progress: &mut dyn FnM
     // Les fiches de calage comptent en échantillons (analyse, fenêtres) : à une autre fréquence elles n'ont plus de sens ; les prises rendues restent.
     let mut ui = pf.ui;
     ui.aligns.clear();
+    ui.stretches.clear(); // même raison : les positions de la source sont en trames
     let result = write_project(&part, &mut session, pf.plugins, ui, Vec::new()).map_err(fail).and_then(|w| fs::rename(&part, dst).map(|_| w).map_err(|e| fail(format!("{} : {e}", dst.display()))));
     if result.is_err() {
         let _ = fs::remove_dir_all(&part);

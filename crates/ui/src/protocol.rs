@@ -425,6 +425,16 @@ pub enum Command {
     /// modification, ou quand l'utilisateur reprend le transport. Réponse : événement `listen`.
     ListenAlign { guide: u64, #[serde(default)] guide_more: Vec<u64>, node: u32, aligned: Option<u64>, what: String },
     StopListen,
+    /// **Marqueurs d'étirement** : remplace les marqueurs d'un clip audio. `markers` : les marqueurs **intérieurs**, `[position dans le clip,
+    /// position dans la source du clip]`, tous deux en échantillons depuis le début du clip (le début et la fin du clip sont implicites et ne
+    /// bougent pas) ; strictement croissants dans les deux colonnes, jamais au bord. L'audio entre deux marqueurs est étiré ou comprimé **sans
+    /// changer la hauteur** (rapport de 25 % à 400 %, tronçon de source d'au moins 10 ms) ; la longueur du clip ne change pas. `engine` :
+    /// `signalsmith` (défaut), `rubberband_r2` ou `rubberband_r3` ; absent : celui du clip. **Sans marqueur**, un clip étiré retrouve sa source
+    /// (aucun rendu). Le rendu a lieu sur un fil de travail (événement `stretch`) ; **une seule action annulable** à la fin (« Étirer l'audio »
+    /// / « Retirer l'étirement »). Refusé : enregistrement, calage ou étirement en cours, clip inconnu, marqueurs invalides.
+    SetStretch { clip: u64, markers: Vec<[u64; 2]>, #[serde(default)] engine: Option<String> },
+    /// Annule l'étirement en cours (rien n'est posé).
+    CancelStretch,
     /// Détails du calage d'une prise calée (pour l'écran de réglage) : chemin, décalage appliqué, consonnes, force suggérée. Réponse :
     /// événement `align_detail`.
     GetAlign { clip: u64, settings: Option<String>, #[serde(default)] threshold_ms: Option<f64> },
@@ -531,6 +541,8 @@ impl Command {
             Command::CancelAlign => "cancel_align",
             Command::ListenAlign { .. } => "listen_align",
             Command::StopListen => "stop_listen",
+            Command::SetStretch { .. } => "set_stretch",
+            Command::CancelStretch => "cancel_stretch",
             Command::GetAlign { .. } => "get_align",
             Command::MergeAlignSettings { .. } => "merge_align_settings",
             Command::Export { .. } => "export",
@@ -852,6 +864,22 @@ impl Command {
                 }
                 Ok(())
             }
+            Command::SetStretch { markers, engine, .. } => {
+                if markers.len() > crate::host::MAX_STRETCH_MARKERS {
+                    return Err(format!("set_stretch : {} marqueurs au plus", crate::host::MAX_STRETCH_MARKERS));
+                }
+                let mut prev = [0u64, 0u64];
+                for m in markers {
+                    if m[0] <= prev[0] || m[1] <= prev[1] {
+                        return Err("set_stretch : marqueurs strictement croissants (position dans le clip et dans la source, au-delà de 0)".into());
+                    }
+                    prev = *m;
+                }
+                match engine.as_deref() {
+                    None | Some("signalsmith") | Some("rubberband_r2") | Some("rubberband_r3") => Ok(()),
+                    Some(_) => Err("set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3".into()),
+                }
+            }
             Command::ListenAlign { what, aligned, .. } => {
                 if !["guide", "original", "aligned", "guide_original", "guide_aligned"].contains(&what.as_str()) {
                     return Err("listen_align : what = guide, original, aligned, guide_original ou guide_aligned".into());
@@ -1087,7 +1115,9 @@ pub enum ClipInfo {
         /// Clip muet (prise inactive ou clip coupé) : conservé mais jamais joué. `take_group` : groupe de prises (0 = aucun).
         muted: bool, take_group: u32,
         /// Prise calée sur un guide (ses réglages de calage sont enregistrés : `get_align`, `align_redo`).
-        aligned: bool },
+        aligned: bool,
+        /// Clip étiré par des marqueurs (voir `set_stretch`) ; `null` : clip ordinaire (la page peut en poser).
+        stretch: Option<StretchInfo> },
     /// `offset`, `fade_in`, `fade_out` : en échantillons (le décalage de la fenêtre visible dans la matière, les fondus de
     /// vélocité) ; `source_len` : pratiquement illimité (un clip de notes peut être étendu à droite à volonté).
     Midi { id: u64, name: String, start: u64, len: u64, offset: u64, source_len: u64, fade_in: u64, fade_out: u64, notes: Vec<NoteInfo>, muted: bool, take_group: u32 },
@@ -1450,6 +1480,8 @@ pub enum Event {
     AudioInfo { files: Vec<AudioFileInfo> },
     /// Avancement de l'import. `active` faux = terminé, annulé ou en échec ; `clips` : ce qui a été posé (à la fin).
     /// Calage de prises en cours ou terminé (voir `align_clips`). `clips` : les prises créées (à la fin).
+    /// Rendu d'un étirement (`set_stretch`) : avancement, fin, annulation ou erreur. `fell_back` : Rubber Band a échoué, Signalsmith l'a remplacé.
+    Stretch { active: bool, progress: f64, clip: u64, name: String, cancelled: bool, error: Option<String>, fell_back: bool },
     Align { active: bool, progress: f64, done: u32, total: u32, current: String, clips: Vec<AlignedClip>, warnings: Vec<String>, cancelled: bool, error: Option<String> },
     /// Détails du calage d'une prise calée. Temps en secondes ; le chemin donne, pour chaque point (`hop` secondes) de la fenêtre du guide,
     /// la position correspondante dans le double ; `shift` le décalage appliqué ; `consonants` les paires (début, fin) dans le double ;
@@ -1473,6 +1505,17 @@ pub struct AudioFileInfo {
     pub frames: Option<u64>,
     pub needs_conversion: bool,
     pub error: Option<String>,
+}
+
+/// Les marqueurs d'étirement d'un clip, tels que la page les montre.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StretchInfo {
+    /// Moteur du dernier rendu.
+    pub engine: String,
+    /// Longueur, en échantillons, de la partie de la source que couvre le clip (égale à la longueur du clip si le rapport d'ensemble est 1).
+    pub src_len: u64,
+    /// Marqueurs intérieurs `[position dans le clip, position dans la source du clip]`, en échantillons depuis le début du clip.
+    pub markers: Vec<[u64; 2]>,
 }
 
 /// Une prise calée créée par `align_clips` / `align_redo`.

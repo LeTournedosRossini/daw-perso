@@ -453,6 +453,28 @@ double WarpMap::sourceAt (double u) const
     return sourceAtOutput[i] * (1.0 - t) + sourceAtOutput[i + 1] * t;
 }
 
+WarpMap makeLinearWarpMap (const std::vector<std::pair<double, double>>& keys, double sr)
+{
+    WarpMap m;
+    m.stepSamples = 64; // fin : un point de rupture tombe à moins d'un pas, donc à moins de 1,5 ms d'un point échantillonné
+    m.outputLength = keys.empty() ? 0 : (size_t) std::llround (keys.back().second * sr);
+    if (keys.size() < 2) return m;
+    for (const auto& k : keys) m.anchors.emplace_back (k.first * sr, k.second * sr);
+    m.anchors.back().second = (double) m.outputLength; // la fin exacte, à l'échantillon près
+    const size_t n = m.outputLength / m.stepSamples + 3; // un peu au-delà de la fin : le moteur lit un peu après
+    m.sourceAtOutput.resize (n);
+    size_t seg = 0;
+    for (size_t i = 0; i < n; ++i)
+    {
+        const double u = (double) (i * m.stepSamples);
+        while (seg + 2 < m.anchors.size() && u >= m.anchors[seg + 1].second) ++seg; // après la fin : le dernier tronçon se prolonge
+        const auto& a = m.anchors[seg];
+        const auto& b = m.anchors[seg + 1];
+        m.sourceAtOutput[i] = a.first + (u - a.second) * (b.first - a.first) / (b.second - a.second);
+    }
+    return m;
+}
+
 WarpMap makeWarpMap (const std::vector<double>& p, double hop, double sr, size_t outLen, size_t step)
 {
     WarpMap m;

@@ -42,6 +42,7 @@ mod ffi {
         pub fn align_analyse(g: *const RawGuide, data: *const f32, frames: usize, channels: c_int, rate: c_double, settings: *const c_char, progress: ProgressFn, user: *mut c_void, out: *mut *mut RawAnalysis) -> c_int;
         pub fn align_analysis_free(a: *mut RawAnalysis);
         pub fn align_render(a: *const RawAnalysis, data: *const f32, frames: usize, channels: c_int, rate: c_double, settings: *const c_char, progress: ProgressFn, user: *mut c_void, out: *mut *mut f32, out_frames: *mut usize, info: *mut RenderInfo) -> c_int;
+        pub fn align_warp_render(data: *const f32, frames: usize, channels: c_int, rate: c_double, keys: *const c_double, key_count: usize, settings: *const c_char, progress: ProgressFn, user: *mut c_void, out: *mut *mut f32, out_frames: *mut usize, info: *mut RenderInfo) -> c_int;
         pub fn align_analysis_serialize(a: *const RawAnalysis, out: *mut *mut u8, size: *mut usize) -> c_int;
         pub fn align_analysis_deserialize(bytes: *const u8, size: usize, out: *mut *mut RawAnalysis) -> c_int;
         pub fn align_analysis_hop_seconds(a: *const RawAnalysis) -> c_double;
@@ -348,4 +349,44 @@ impl Drop for Analysis {
         // SAFETY: poignée rendue par la bibliothèque, libérée une seule fois.
         unsafe { ffi::align_analysis_free(self.raw) }
     }
+}
+
+/// Un marqueur d'étirement : l'instant `source` (en secondes depuis le début de la source) se retrouve à l'instant `output` de la sortie.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WarpKey {
+    pub source: f64,
+    pub output: f64,
+}
+
+/// Rapport sortie / source permis pour un tronçon (la bibliothèque le refuse au-delà).
+pub const WARP_RATIO_MIN: f64 = 0.25;
+pub const WARP_RATIO_MAX: f64 = 4.0;
+/// Durée minimale de source d'un tronçon, en secondes (la bibliothèque refuse moins).
+pub const WARP_MIN_SEGMENT: f64 = 0.010;
+
+/// Étire `audio` selon des marqueurs, **sans changer la hauteur** (interface C version 2, sans guide ni analyse).
+///
+/// `keys` : au moins deux marqueurs, le premier à (0, 0), le dernier à (durée de la source, durée voulue) ; temps strictement croissants dans les
+/// deux colonnes ; entre deux marqueurs le rapport est constant, dans [`WARP_RATIO_MIN`, `WARP_RATIO_MAX`] ; chaque tronçon d'au moins
+/// [`WARP_MIN_SEGMENT`] de source. `settings` : fiche JSON dont seul `general.engine` est lu (`signalsmith`, `rubberband_r2`, `rubberband_r3` ;
+/// `None` = Signalsmith). Rend `round(dernier instant de sortie × fréquence)` échantillons par voie, alignés sur la ligne de temps de sortie.
+/// Déterministe. **Hors temps réel : fil de travail seulement.**
+pub fn warp_render(audio: Audio<'_>, keys: &[WarpKey], settings: Option<&str>, progress: Option<Progress<'_>>) -> Result<(Vec<f32>, RenderInfo), AlignError> {
+    let frames = audio.frames()?;
+    let s = c_settings(settings)?;
+    let flat: Vec<f64> = keys.iter().flat_map(|k| [k.source, k.output]).collect();
+    let (mut out, mut out_frames) = (ptr::null_mut::<f32>(), 0usize);
+    let mut info = ffi::RenderInfo::default();
+    // SAFETY: tampons, marqueurs et texte valides pendant l'appel ; la sortie est copiée dans un `Vec` puis libérée par `align_free`.
+    let code = with_progress(progress, |p, user| unsafe {
+        ffi::align_warp_render(audio.samples.as_ptr(), frames, audio.channels as c_int, audio.sample_rate, flat.as_ptr(), keys.len(), ptr_of(&s), p, user, &mut out, &mut out_frames, &mut info)
+    });
+    check(code)?;
+    // SAFETY: en cas de succès la bibliothèque a rendu `out_frames × channels` flottants valides.
+    let data = unsafe {
+        let v = std::slice::from_raw_parts(out, out_frames * audio.channels).to_vec();
+        ffi::align_free(out as *mut c_void);
+        v
+    };
+    Ok((data, RenderInfo { engine_used: info.engine_used, fell_back: info.fell_back != 0 }))
 }

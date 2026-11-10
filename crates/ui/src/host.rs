@@ -277,8 +277,11 @@ mod import;
 mod monitoring;
 mod plugin_out;
 mod plugin_ui;
+mod stretch;
 mod remote;
 mod write;
+
+pub(crate) use stretch::MAX_MARKERS as MAX_STRETCH_MARKERS;
 
 pub struct Host {
     handle: EngineHandle,
@@ -311,6 +314,9 @@ pub struct Host {
     /// Écoute de calage en cours (voir `listen_align`).
     listen: Option<align::Listen>,
     aligns: Vec<align::AlignRecord>,
+    /// Étirement par marqueurs en cours (fil de travail) et fiches des clips étirés.
+    stretch: Option<stretch::StretchJob>,
+    stretches: Vec<stretch::StretchRecord>,
     /// Témoin d'entrée MIDI : types reçus par piste et instant de la dernière réception ; dernier ensemble envoyé à la page.
     midi_act: HashMap<u32, (u8, Instant)>,
     midi_act_sent: BTreeMap<String, u8>,
@@ -402,7 +408,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -1379,6 +1385,7 @@ impl Host {
             Command::ImportAudio { .. } => self.start_import(cmd),
             Command::CancelImport => self.cancel_import(),
             Command::AlignClips { .. } | Command::AlignRedo { .. } => self.start_align(cmd),
+            Command::SetStretch { .. } | Command::CancelStretch => self.stretch_command(cmd),
             Command::CancelAlign => self.cancel_align(),
             Command::ListenAlign { guide, guide_more, node, aligned, what } => self.listen_align(guide, guide_more, node, aligned, what),
             Command::StopListen => self.end_listen(true, true),
@@ -1386,11 +1393,11 @@ impl Host {
             Command::MergeAlignSettings { dst, src } => self.merge_align_settings(&dst, &src),
             Command::Export { .. } => self.start_export(cmd),
             Command::CancelExport => self.cancel_export(),
-            Command::NewProject => match self.refuse_while_recording(name).or_else(|| self.refuse_while_exporting(name)).or_else(|| self.refuse_while_importing(name)).or_else(|| self.refuse_while_aligning(name)).or_else(|| self.refuse_while_converting(name)) {
+            Command::NewProject => match self.refuse_while_recording(name).or_else(|| self.refuse_while_exporting(name)).or_else(|| self.refuse_while_importing(name)).or_else(|| self.refuse_while_aligning(name)).or_else(|| self.refuse_while_stretching(name)).or_else(|| self.refuse_while_converting(name)) {
                 Some(refused) => refused,
                 None => self.new_project(),
             },
-            Command::OpenProject { path, recover } => match self.refuse_while_recording(name).or_else(|| self.refuse_while_exporting(name)).or_else(|| self.refuse_while_importing(name)).or_else(|| self.refuse_while_aligning(name)).or_else(|| self.refuse_while_converting(name)) {
+            Command::OpenProject { path, recover } => match self.refuse_while_recording(name).or_else(|| self.refuse_while_exporting(name)).or_else(|| self.refuse_while_importing(name)).or_else(|| self.refuse_while_aligning(name)).or_else(|| self.refuse_while_stretching(name)).or_else(|| self.refuse_while_converting(name)) {
                 Some(refused) => refused,
                 None => self.open_project(&path, recover),
             },
@@ -1520,6 +1527,7 @@ impl Host {
         events.extend(self.export_tick());
         events.extend(self.import_tick());
         events.extend(self.align_tick());
+        events.extend(self.stretch_tick());
         events.extend(self.convert_tick());
         // Un plugin qui a demandé à être relancé (latence changée...) l'est maintenant : la latence totale a pu changer.
         if matches!(self.handle.poll_restarts(self.session.graph()), Ok(n) if n > 0) {
@@ -2200,6 +2208,7 @@ impl Host {
         ui.node_order = self.session.display_order().iter().map(|n| n.0).collect();
         ui.punch_on = self.punch_on;
         ui.aligns = self.aligns_for_file();
+        ui.stretches = self.stretches_for_file();
         ui.write_arms = self.write_arms_for_file();
         self.remember_window_places();
         ui.plugin_windows = self.window_places.iter().map(|(k, &(x, y))| (k.clone(), [x, y])).collect();
@@ -2261,6 +2270,7 @@ impl Host {
         self.gui_cache.borrow_mut().clear();
         self.clipboard.clear();
         self.aligns.clear(); // les fiches de calage appartiennent à leur projet
+        self.stretches.clear(); // celles d'étirement aussi
         self.write_arms.clear(); // un autre projet : ses armements (et ce qui s'enregistrait) n'ont plus de sens
         self.plugin_values.clear();
         let old_nodes = self.nodes.len();
@@ -2480,6 +2490,7 @@ impl Host {
         events.push(self.punch_event());
         let mut arm_warnings = self.restore_write_arms(&loaded.ui.write_arms, &slots);
         arm_warnings.extend(self.restore_aligns(&loaded.ui.aligns));
+        arm_warnings.extend(self.restore_stretches(&loaded.ui.stretches));
         if !loaded.ui.write_arms.is_empty() {
             events.push(self.project_event());
         }
@@ -2753,6 +2764,7 @@ impl Host {
                         muted: c.muted,
                         take_group: c.take_group,
                         aligned: self.aligns.iter().any(|r| Arc::ptr_eq(&r.rendered, &c.data)),
+                        stretch: self.stretch_info(c),
                     });
                 }
                 for (k, mid) in self.session.midi_clip_ids(id).iter().enumerate() {

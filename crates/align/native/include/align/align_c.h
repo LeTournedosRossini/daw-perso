@@ -40,7 +40,7 @@ extern "C" {
 #  define ALIGN_API
 #endif
 
-#define ALIGN_C_API_VERSION 1
+#define ALIGN_C_API_VERSION 2 /* 2 : align_warp_render (étirement par marqueurs) */
 
 enum
 {
@@ -89,6 +89,21 @@ ALIGN_API void align_analysis_free(align_analysis*);
 ALIGN_API int align_render(const align_analysis* analysis, const float* dub_interleaved, size_t frames, int channels, double sample_rate,
                            const char* settings_json, align_progress_fn progress, void* user, float** out_interleaved, size_t* out_frames,
                            align_render_info* info);
+
+/* ---- étirement par marqueurs (sans guide ni analyse) : étire `data` selon une carte de temps linéaire par morceaux, sans changer la hauteur.
+ * keys : `key_count` couples (t_source, t_sortie) en secondes, ENTRELACÉS (t_source0, t_sortie0, t_source1, t_sortie1, ...), strictement croissants dans
+ *        les deux colonnes. Le premier couple est (0, 0) ; le dernier est (durée de la source, durée voulue en sortie) ; la durée de la source est
+ *        frames / sample_rate, à un échantillon près. Entre deux couples le rapport sortie / source est constant.
+ *        Refusé (ALIGN_ERR_ARGUMENT, message en clair) : moins de 2 couples, premier couple différent de (0, 0), valeurs non finies ou pas strictement
+ *        croissantes, dernier temps source différent de la durée de la source, un tronçon de moins de 10 ms de source, un rapport hors de [0,25 ; 4].
+ * settings_json : même fiche que le reste de l'interface ; seul `general.engine` est lu ("signalsmith" | "rubberband_r2" | "rubberband_r3") ; NULL = Signalsmith.
+ * Sortie : *out_frames = round(dernier t_sortie x sample_rate) exactement ; même nombre de voies et même fréquence que l'entrée ; alignée sur la ligne de
+ *        temps de sortie (le retard propre du moteur est compensé). Mêmes entrées = mêmes échantillons, pour les trois moteurs.
+ * Si le moteur demandé échoue, Signalsmith le remplace et `info->fell_back` vaut 1 (Signalsmith lui-même ne se remplace pas : erreur ALIGN_ERR_FAILED).
+ * Pas de limite de durée propre à cette fonction ; la mémoire et le temps croissent linéairement avec la durée (voir LISEZMOI). Annulation : comme les autres appels. */
+ALIGN_API int align_warp_render(const float* data_interleaved, size_t frames, int channels, double sample_rate, const double* keys, size_t key_count,
+                                const char* settings_json, align_progress_fn progress, void* user, float** out_interleaved, size_t* out_frames,
+                                align_render_info* info);
 
 /* ---- enregistrer / relire l'analyse (avec la prise) : octets à libérer par align_free */
 ALIGN_API int align_analysis_serialize(const align_analysis*, unsigned char** out_bytes, size_t* out_size);

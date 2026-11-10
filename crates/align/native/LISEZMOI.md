@@ -33,6 +33,15 @@ cc::Build::new().cpp(true).std("c++17")
 - **Pour l'interface** : `align_analysis_get_path` (position du double à chaque point de 5 ms), `align_applied_shift` (décalage appliqué après force et courbe), `align_analysis_get_consonants` / `_set_consonants`, `align_suggest_strength` (courbe de force proposée).
 - **Durée** : jusqu'à 3 minutes d'un coup (mesuré : 127 s de voix stéréo : analyse 7 s, 290 Mo ; rendu 3 s avec Signalsmith).
 
+## Étirement par marqueurs (`align_warp_render`, interface version 2)
+Sans guide ni analyse : une liste de couples (temps source, temps de sortie) en secondes, entrelacés, le premier (0, 0), le dernier (durée de la source, durée voulue). Chaque tronçon a son rapport sortie / source, borné à [0,25 ; 4] (sinon `ALIGN_ERR_ARGUMENT` avec le tronçon fautif dans `align_last_error()`) ; tronçon de moins de 10 ms de source refusé. Sortie : durée exacte à l'échantillon près, mêmes voies et même fréquence, retard du moteur compensé, mêmes entrées = mêmes échantillons (les trois moteurs, `general.engine` des réglages). `info->fell_back` dit si Rubber Band a été remplacé par Signalsmith.
+Mesuré (Linux, 44,1 kHz, mono, voir `tests/test_c_api.cpp`) :
+- **Instants** : pour des salves de bruit de 8 ms, Signalsmith les rend 1,9 à 2,8 ms après l'instant prévu (début de la salve) ; Rubber Band R2 : centre de la salve à 9 ms au plus ; R3 : jusqu'à 17 ms (il étale les attaques et ajoute un pré-écho). Ce n'est donc pas du ± 1 ms : le chiffre vaut pour les pistes tonales, pas pour des transitoires isolés.
+- **Rapport exactement 1** : pas laissé intact par Signalsmith (écart maximal 0,015 pour un sinus de crête 0,5, soit environ -30 dB) ; Rubber Band R2 : 0,0007 ; R3 : 0,0000 (inchangé). Si l'inaltéré compte, ne pas rendre les tronçons à rapport 1 et copier la source.
+- **Niveau** : un moteur peut dépasser la crête de l'entrée (sinus de 0,5 étiré par R2 : crête 0,8 ; salves de bruit : crête de 1,58 pour 0,8 en entrée avec Signalsmith). Prévoir un écrêtage ou une limite de crête côté DAW.
+- **Durée** : aucune limite propre à cette fonction (celle de 3 minutes est celle du calage). Mesuré pour 5 minutes en stéréo à 48 kHz, quatre marqueurs : Signalsmith 12 s, Rubber Band R2 25 s, R3 89 s ; crête mémoire environ 510 Mo (Linux, un fil). Annulation propre à tout moment.
+- Réglages propres à l'étirement : aucun pour ce premier lot (valeurs par défaut des moteurs).
+
 ## Test de bout en bout
 `ctest` (ou `align_demo ref/guide.wav ref/double.wav ref/onsets.txt`) : le chemin doit retrouver les débuts de notes de `onsets.txt` (erreur moyenne sous 15 ms, pire sous 45 ms), la sortie a la durée du guide, l'analyse relue donne le même rendu, l'annulation est propre. Le même scénario, écrit côté Rust, est le test d'intégration attendu côté DAW.
 

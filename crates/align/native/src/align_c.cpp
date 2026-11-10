@@ -208,6 +208,69 @@ int align_render(const align_analysis* an, const float* x, size_t frames, int ch
     });
 }
 
+int align_warp_render(const float* x, size_t frames, int channels, double sr, const double* keys, size_t keyCount, const char* json, align_progress_fn progress,
+                      void* user, float** outBuf, size_t* outFrames, align_render_info* info)
+{
+    return guarded ([&] {
+        if (! outBuf || ! outFrames) return fail (ALIGN_ERR_ARGUMENT, "pointeur de sortie absent");
+        *outBuf = nullptr;
+        *outFrames = 0;
+        if (! x) return fail (ALIGN_ERR_ARGUMENT, "audio : tampon absent");
+        if (channels < 1 || channels > 16) return fail (ALIGN_ERR_ARGUMENT, "audio : nombre de voies hors limites (1 à 16)");
+        if (! (sr >= 8000.0 && sr <= 384000.0)) return fail (ALIGN_ERR_ARGUMENT, "audio : fréquence d'échantillonnage hors limites");
+        if (frames < (size_t) (0.05 * sr)) return fail (ALIGN_ERR_ARGUMENT, "audio : trop court (moins de 50 ms)");
+        if (! keys || keyCount < 2) return fail (ALIGN_ERR_ARGUMENT, "marqueurs : au moins deux couples (début et fin) sont nécessaires");
+        std::vector<std::pair<double, double>> k (keyCount);
+        for (size_t i = 0; i < keyCount; ++i)
+        {
+            k[i] = { keys[2 * i], keys[2 * i + 1] };
+            if (! std::isfinite (k[i].first) || ! std::isfinite (k[i].second)) return fail (ALIGN_ERR_ARGUMENT, "marqueurs : valeur non finie");
+        }
+        if (k[0].first != 0.0 || k[0].second != 0.0) return fail (ALIGN_ERR_ARGUMENT, "marqueurs : le premier couple doit être (0, 0)");
+        const double srcDur = (double) frames / sr;
+        if (std::fabs (k.back().first - srcDur) > 1.5 / sr) return fail (ALIGN_ERR_ARGUMENT, "marqueurs : le dernier temps source doit être la durée de la source");
+        k.back().first = srcDur;
+        for (size_t i = 1; i < keyCount; ++i)
+        {
+            const double ds = k[i].first - k[i - 1].first, dout = k[i].second - k[i - 1].second;
+            const std::string where = "marqueurs : tronçon " + std::to_string (i) + " (source " + std::to_string (k[i - 1].first) + " s à " + std::to_string (k[i].first) + " s)";
+            if (! (ds > 0.0 && dout > 0.0)) return fail (ALIGN_ERR_ARGUMENT, where + " : les temps doivent être strictement croissants");
+            if (ds < 0.010) return fail (ALIGN_ERR_ARGUMENT, where + " : moins de 10 ms de source");
+            const double ratio = dout / ds;
+            if (ratio < 0.25 || ratio > 4.0)
+                return fail (ALIGN_ERR_ARGUMENT, where + " : rapport sortie / source " + std::to_string (ratio) + " hors de [0,25 ; 4]");
+        }
+        int code = ALIGN_OK;
+        align::SettingsSheet sheet;
+        if (! loadSettings (json, sheet, code)) return code;
+        const auto engine = align::renderSettingsOf (sheet).engine;
+        const align::ProgressFn fn = [&] (double f) { return progress != nullptr && progress (f, user) != 0; };
+        align::progress::Scope scope (&fn);
+        std::vector<std::vector<float>> planar ((size_t) channels, std::vector<float> (frames));
+        for (size_t i = 0; i < frames; ++i)
+            for (int c = 0; c < channels; ++c) planar[(size_t) c][i] = x[i * (size_t) channels + (size_t) c];
+        const auto map = align::makeLinearWarpMap (k, sr);
+        auto r = align::render (planar, map, sr, engine);
+        if (r.channels.empty() || r.channels[0].size() != map.outputLength) return fail (ALIGN_ERR_FAILED, "le moteur d'étirement a échoué");
+        // Un moteur qui n'a rien rendu est remplacé par du silence par render() : on ne le laisse pas passer pour un résultat.
+        bool allZero = true;
+        for (const auto& ch : r.channels) for (float v : ch) if (v != 0.f) { allZero = false; break; }
+        bool srcZero = true;
+        for (const auto& ch : planar) for (float v : ch) if (v != 0.f) { srcZero = false; break; }
+        if (allZero && ! srcZero) return fail (ALIGN_ERR_FAILED, "le moteur d'étirement n'a rien rendu");
+        const size_t n = map.outputLength;
+        float* buf = (float*) std::malloc (n * (size_t) channels * sizeof (float));
+        if (! buf) return fail (ALIGN_ERR_FAILED, "mémoire insuffisante");
+        for (size_t i = 0; i < n; ++i)
+            for (int c = 0; c < channels; ++c) buf[i * (size_t) channels + (size_t) c] = r.channels[(size_t) c][i];
+        align::progress::report (1.0);
+        *outBuf = buf;
+        *outFrames = n;
+        if (info) { info->engine_used = r.engineUsed == align::Engine::Signalsmith ? 0 : (r.engineUsed == align::Engine::RubberBandR2 ? 1 : 2); info->fell_back = r.fellBack ? 1 : 0; }
+        return ok();
+    });
+}
+
 int align_analysis_serialize(const align_analysis* a, unsigned char** outBytes, size_t* outSize)
 {
     return guarded ([&] {

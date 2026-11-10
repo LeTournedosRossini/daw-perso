@@ -6,6 +6,7 @@
 // Aucune dépendance : le cœur se compile et se teste seul.
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace align
@@ -111,8 +112,15 @@ struct WarpMap
     std::vector<double> sourceAtOutput; // un point tous les `stepSamples` échantillons de sortie
     size_t stepSamples = 0;
     size_t outputLength = 0;
+    // Carte linéaire par morceaux (makeLinearWarpMap) : points de rupture EXACTS (échantillon source, échantillon de sortie), strictement croissants.
+    // Rubber Band les prend tels quels comme points clés au lieu d'échantillonner la carte ; vide pour une carte d'alignement.
+    std::vector<std::pair<double, double>> anchors;
     double sourceAt (double outputSample) const;
 };
+
+// Carte d'étirement par marqueurs : `keys` = couples (temps source s, temps de sortie s), strictement croissants, le premier (0, 0). Entre deux couples
+// la correspondance est linéaire ; la sortie dure round(dernier temps de sortie x sampleRate) échantillons. Ne vérifie rien (voir align_warp_render).
+WarpMap makeLinearWarpMap (const std::vector<std::pair<double, double>>& keys, double sampleRate);
 WarpMap makeWarpMap (const std::vector<double>& pathSeconds, double hopSeconds, double sampleRate, size_t outputLength, size_t stepSamples = 220);
 
 // Même chose en protégeant les consonnes du double (`consonants`, en secondes dans le double). `protect` de 0 à 1 : à 1, la consonne est jouée à
