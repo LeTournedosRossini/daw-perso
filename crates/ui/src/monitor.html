@@ -392,6 +392,7 @@ async function poll() {
     const st = await res.json();
     document.getElementById("expired").classList.toggle("on", !!st.expired);
     fxState = st;
+    followOrientation(); // (l'événement du navigateur peut manquer : on vérifie aussi à chaque lecture de l'état)
     layoutTablet();
     showRemote(st.remote);
     showTabs(!!st.mix);
@@ -544,7 +545,16 @@ function selectFx(insert) {
 // Paysage : la page de contrôle est fixée à droite de la régie et montre ses seize paramètres d'un coup (plus de feuille, plus d'onglets).
 const LANDSCAPE = window.matchMedia("(orientation: landscape) and (min-width: 820px)");
 const docked = () => LANDSCAPE.matches && document.body.classList.contains("tab-mix");
-LANDSCAPE.addEventListener?.("change", () => { fxShape = ""; layoutTablet(); showFx(fxState); if (fxState?.mix) { el("bank").dataset.key = ""; applyBank(fxState.mix); } });
+// En paysage la console (onglet Régie) remplace « Mon retour » ; en revenant en portrait on retrouve l'onglet d'avant (sans toucher à la mémoire du choix).
+let autoDocked = false, lastLand = LANDSCAPE.matches;
+function followOrientation() {
+  if (LANDSCAPE.matches === lastLand) return; // seulement quand l'orientation change (« Retour » en paysage reste respecté)
+  lastLand = LANDSCAPE.matches;
+  const hasMix = !!fxState?.mix;
+  if (LANDSCAPE.matches && hasMix && !document.body.classList.contains("tab-mix")) { autoDocked = true; showTabs.pick?.(true, false); }
+  else if (!LANDSCAPE.matches && autoDocked) { autoDocked = false; showTabs.pick?.(false, false); }
+}
+LANDSCAPE.addEventListener?.("change", () => { followOrientation(); fxShape = ""; layoutTablet(); showFx(fxState); if (fxState?.mix) { el("bank").dataset.key = ""; applyBank(fxState.mix); } });
 // ---- tablette en paysage : barre du bas, écrans Mixeur et Édition, plein écran ---------------------------------------------------------
 // La barre réunit des éléments qui, en portrait, vivent ailleurs dans la page (transport, bancs de pistes, cartes de sections) : on les y déplace
 // quand la disposition « tablette » s'applique et on les remet à leur place sinon (mêmes éléments, mêmes écouteurs).
@@ -1124,18 +1134,22 @@ function showTabs(hasMix) {
   if (!hasMix) { document.body.classList.remove("tab-mix"); return; }
   if (!showTabs.wired) {
     showTabs.wired = true;
-    const pick = (mix) => {
+    const pick = (mix, remember = true) => {
+      if (remember) autoDocked = false;
       document.body.classList.toggle("tab-mix", mix);
       el("tab-mix").setAttribute("aria-selected", String(mix));
       el("tab-me").setAttribute("aria-selected", String(!mix));
-      store.put("tab-" + base, mix ? "mix" : "me");
+      if (remember) store.put("tab-" + base, mix ? "mix" : "me");
       fxShape = "";
       layoutTablet();
       showFx(fxState);
     };
     el("tab-me").addEventListener("click", () => pick(false));
     el("tab-mix").addEventListener("click", () => pick(true));
-    pick(store.get("tab-" + base) === "mix");
+    showTabs.pick = pick;
+    const chosen = store.get("tab-" + base) === "mix";
+    if (chosen || !LANDSCAPE.matches) pick(chosen);
+    else { autoDocked = true; pick(true, false); } // chargée en paysage : directement la console
   }
 }
 poll();
