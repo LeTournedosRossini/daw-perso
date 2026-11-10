@@ -46,7 +46,7 @@ impl Rig {
         let (session, meta) = demo_session(SR);
         let mut h = Host::new(handle, session, meta).unwrap();
         h.set_audio_outputs(8);
-        let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Retour Marie"}"#);
+        let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Marie"}"#);
         let bus = node(&ev, "Retour Marie").id;
         h.command_json(&format!(r#"{{"type":"set_return_output","node":{bus},"output":{{"first":3,"stereo":true,"mono":false}}}}"#));
         h.command_json(r#"{"type":"set_structure","sections":[{"at":[0,1],"dur":[4,1],"name":"Intro"},{"at":[4,1],"dur":[4,1],"name":"Refrain"}]}"#);

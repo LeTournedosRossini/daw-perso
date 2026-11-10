@@ -159,7 +159,7 @@ export class MockEngine extends EngineClient {
   }
 
   #emitMonitor() {
-    const returns = this.monitorOn ? this.project.nodes.filter((n) => n.kind === "bus" && n.phys).map((n) => ({ node: n.id, name: n.name, role: n.monitor_role ?? 0, url: `http://192.168.0.10:8780/r/${this.#token(n)}`, qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="160" height="160"><rect width="4" height="4" fill="#fff"/><path d="M0 0h2v2H0zM2 2h2v2H2z"/></svg>' })) : [];
+    const returns = this.monitorOn ? this.project.nodes.filter((n) => n.kind === "bus" && n.is_return).map((n) => ({ node: n.id, name: n.name, role: n.monitor_role ?? 0, url: `http://192.168.0.10:8780/r/${this.#token(n)}`, qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" width="160" height="160"><rect width="4" height="4" fill="#fff"/><path d="M0 0h2v2H0zM2 2h2v2H2z"/></svg>' })) : [];
     this.emit("monitor", { active: !!this.monitorOn, port: this.monitorOn ? 8780 : 0, returns, error: null });
   }
 
@@ -244,11 +244,22 @@ export class MockEngine extends EngineClient {
     for (const key of [...(this.groupOffsets ?? new Map()).keys()]) if (key.endsWith(`:${ret}`)) this.groupOffsets.delete(key);
   }
 
+  /** Valide une sortie sur la carte son pour `n` (un bus ou un retour) et rend la sortie physique, ou lève le refus. */
+  #checkPhys(n, o) {
+    const last = o.first + (o.stereo ? 2 : 1) - 1;
+    if (n.kind !== "bus") throw new Error("seul un bus ou un retour peut sortir sur la carte son");
+    if (o.first < 3) throw new Error("les sorties 1 et 2 sont celles de la sortie principale : on prend les suivantes");
+    if (last > this.project.audio_outputs) throw new Error(`sortie ${last} inexistante : le pilote en a ouvert ${this.project.audio_outputs}`);
+    const taken = this.project.nodes.find((x) => x.id !== n.id && x.phys && o.first < x.phys.first + (x.phys.stereo ? 2 : 1) && x.phys.first < o.first + (o.stereo ? 2 : 1));
+    if (taken) throw new Error(`les sorties demandées sont déjà prises par « ${taken.name} »`);
+    return { first: o.first, stereo: !!o.stereo, mono: !!o.mono || !o.stereo };
+  }
+
   /** Les membres d'un groupe : des pistes ou des bus qui existent (pas la sortie principale, pas un retour). */
   #checkGroupNodes(ids, ret) {
     for (const id of ids) {
       const n = this.node(id);
-      if (!n || n.kind === "master" || (n.kind === "bus" && n.phys) || id === ret) throw new Error(`membre inexistant ou impossible : ${id}`);
+      if (!n || n.kind === "master" || (n.kind === "bus" && n.is_return) || id === ret) throw new Error(`membre inexistant ou impossible : ${id}`);
     }
   }
 
@@ -941,19 +952,12 @@ export class MockEngine extends EngineClient {
           this.emit("error", { command: msg.type, message: `nœud inconnu : ${msg.node}` });
           return false;
         }
-        return this.#edit(msg.output ? "Sortie d'un retour" : "Retirer la sortie d'un retour", msg, () => {
+        return this.#edit(`${msg.output ? "Sortie" : "Retirer la sortie"} d'un ${n.is_return ? "retour" : "bus"}`, msg, () => {
           if (!msg.output) {
-            if (n.phys) this.#clearOffsets(n.id); // un retour qui redevient un bus ordinaire rend les décalages de niveau de ses groupes
+            if (n.phys && n.is_return) this.#clearOffsets(n.id); // un retour qui perd sa sortie rend les décalages de niveau de ses groupes
             return void delete n.phys;
           }
-          const o = msg.output;
-          const last = o.first + (o.stereo ? 2 : 1) - 1;
-          if (n.kind !== "bus") throw new Error("seul un bus peut sortir sur la carte son");
-          if (o.first < 3) throw new Error("les sorties 1 et 2 sont celles de la sortie principale : un retour prend les suivantes");
-          if (last > this.project.audio_outputs) throw new Error(`sortie ${last} inexistante : le pilote en a ouvert ${this.project.audio_outputs}`);
-          const taken = this.project.nodes.find((x) => x.id !== n.id && x.phys && o.first < x.phys.first + (x.phys.stereo ? 2 : 1) && x.phys.first < o.first + (o.stereo ? 2 : 1));
-          if (taken) throw new Error(`les sorties demandées sont déjà prises par « ${taken.name} »`);
-          n.phys = { first: o.first, stereo: !!o.stereo, mono: !!o.mono || !o.stereo };
+          n.phys = this.#checkPhys(n, msg.output);
         });
       }
       case "get_chords":
@@ -974,7 +978,7 @@ export class MockEngine extends EngineClient {
       }
       case "renew_monitor_address": {
         const n = this.node(msg.node);
-        if (!n?.phys) {
+        if (!n?.is_return) {
           this.emit("error", { command: msg.type, message: "seul un retour de monitoring a une adresse" });
           return false;
         }
@@ -985,7 +989,7 @@ export class MockEngine extends EngineClient {
       }
       case "set_monitor_role": {
         const n = this.node(msg.node);
-        if (!n?.phys) {
+        if (!n?.is_return) {
           this.emit("error", { command: msg.type, message: "seul un retour de monitoring a un rôle de télécommande" });
           return false;
         }
@@ -1166,11 +1170,14 @@ export class MockEngine extends EngineClient {
       }
       case "add_track": {
         this.#endPreview(true, false);
-        return this.#edit("Ajouter une piste", msg, () => {
+        return this.#edit(msg.kind === "return" ? "Ajouter un retour" : msg.kind === "bus" ? "Ajouter un bus" : "Ajouter une piste", msg, () => {
           const id = Math.max(...this.project.nodes.map((n) => n.id)) + 1;
-          const name = msg.name?.trim() || this.#freeName(msg.kind === "bus" ? "Bus" : "Piste");
+          const name = msg.name?.trim() || this.#freeName(msg.kind === "bus" ? "Bus" : msg.kind === "return" ? "Retour" : "Piste");
           const color = TRACK_COLORS[(this.project.nodes.length - 1) % TRACK_COLORS.length];
-          this.project.nodes.push({ id, name, kind: msg.kind, color, gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] });
+          const isReturn = msg.kind === "return";
+          const node = { id, name, kind: isReturn ? "bus" : msg.kind, is_return: isReturn, color, gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] };
+          if (msg.output) node.phys = this.#checkPhys(node, msg.output); // refus avant d'ajouter quoi que ce soit
+          this.project.nodes.push(node);
         });
       }
       case "delete_track": {
@@ -1316,7 +1323,7 @@ export class MockEngine extends EngineClient {
       case "customize_return_groups":
         return this.#edit("Groupes propres au retour", msg, () => {
           const ret = this.node(msg.ret);
-          if (!ret || !ret.phys) throw new Error("seul un retour de monitoring peut avoir ses propres groupes");
+          if (!ret || !ret.is_return) throw new Error("seul un retour de monitoring peut avoir ses propres groupes");
           if (ret.return_groups) throw new Error("ce retour a déjà ses propres groupes");
           this.#clearOffsets(msg.ret);
           const groups = [];
@@ -1324,7 +1331,24 @@ export class MockEngine extends EngineClient {
           for (const g of this.project.groups ?? []) {
             const id = this.#newGroupId();
             groups.push({ ...g, id });
-            for (const n of this.project.nodes) if (n.group === g.id && !n.phys) members.push([n.id, id]);
+            for (const n of this.project.nodes) if (n.group === g.id && !n.is_return) members.push([n.id, id]);
+          }
+          ret.return_groups = { groups, members };
+        });
+      case "copy_return_groups":
+        return this.#edit("Copier les groupes d'un retour", msg, () => {
+          const ret = this.node(msg.ret);
+          const from = this.node(msg.from);
+          if (!ret?.is_return || !from?.is_return) throw new Error("les deux nœuds doivent être des retours de monitoring");
+          if (ret === from) throw new Error("choisis un autre retour que celui-ci");
+          this.#clearOffsets(msg.ret);
+          const src = this.#effective(msg.from);
+          const groups = [];
+          const members = [];
+          for (const g of src.groups) {
+            const id = this.#newGroupId();
+            groups.push({ id, name: g.name, color: g.color });
+            for (const n of this.project.nodes) if (n.id !== msg.ret && !n.is_return && n.kind !== "master" && src.groupOf(n.id) === g.id) members.push([n.id, id]);
           }
           ret.return_groups = { groups, members };
         });
@@ -2040,6 +2064,7 @@ export class MockEngine extends EngineClient {
       nodes: nodes.map(({ ...n }) => ({
         ...n,
         phys: n.phys ? { ...n.phys } : null,
+        is_return: !!n.is_return,
         group: n.group ?? 0,
         midi_filter: structuredClone(n.midi_filter ?? []),
         velocity_curve: { enabled: false, bend: 0, smooth: 0, min: 1, max: 127, fixed: 0, ...(n.velocity_curve ?? {}) },

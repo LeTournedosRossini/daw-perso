@@ -438,5 +438,5 @@ export class PluginsPanel {
 
 /** Les nœuds qu'on peut prendre pour chaîne latérale d'un plugin du nœud `node` : pistes et bus (pas la sortie principale, ni le nœud lui-même, ni un retour). */
 export function sidechainSources(project, node) {
-  return project.nodes.filter((n) => n.kind !== "master" && n.id !== node && !(n.kind === "bus" && n.phys));
+  return project.nodes.filter((n) => n.kind !== "master" && n.id !== node && !(n.kind === "bus" && n.is_return));
 }

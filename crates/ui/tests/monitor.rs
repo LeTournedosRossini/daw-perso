@@ -52,7 +52,7 @@ fn host() -> Host {
 /// Un hôte avec un retour « Retour Marie » (sorties 3-4) ; rend aussi les identifiants du retour, de la guitare et de la batterie.
 fn with_return() -> (Host, u32, u32, u32) {
     let mut h = host();
-    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Retour Marie"}"#);
+    let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Marie"}"#);
     let (bus, guitar, drums) = (node(&ev, "Retour Marie").id, node(&ev, "Guitare").id, node(&ev, "Batterie").id);
     h.command_json(&format!(r#"{{"type":"set_return_output","node":{bus},"output":{{"first":3,"stereo":true,"mono":false}}}}"#));
     (h, bus, guitar, drums)
@@ -168,7 +168,7 @@ fn a_new_return_gets_its_own_secret_and_a_new_project_forgets_the_old_ones() {
     let (_, port, returns, _) = monitor(&ev).unwrap();
     let first = path_of(&returns[0].2);
 
-    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Retour Paul"}"#);
+    let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Paul"}"#);
     let paul = node(&ev, "Retour Paul").id;
     let ev = h.command_json(&format!(r#"{{"type":"set_return_output","node":{paul},"output":{{"first":5,"stereo":true,"mono":false}}}}"#));
     assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
@@ -237,7 +237,7 @@ fn a_tablet_gets_a_signal_indicator_for_what_arrives_in_its_return() {
     let (session, meta) = demo_session(SR);
     let mut h = Host::new(handle, session, meta).unwrap();
     h.set_audio_outputs(8);
-    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Retour Marie"}"#);
+    let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Marie"}"#);
     let (bus, drums, bass) = (node(&ev, "Retour Marie").id, node(&ev, "Batterie").id, node(&ev, "Basse").id);
     h.command_json(&format!(r#"{{"type":"set_return_output","node":{bus},"output":{{"first":3,"stereo":true,"mono":false}}}}"#));
     for n in [drums, bass] {

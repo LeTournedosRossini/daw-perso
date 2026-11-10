@@ -587,6 +587,7 @@ impl NodeC {
             solo_excluded: false,
             output: 0,
             phys: None,
+            is_return: false,
             out_delay: super::DelayLine::new(0),
             sends: Vec::new(),
             pre_l: Vec::new(),

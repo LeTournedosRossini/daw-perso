@@ -62,7 +62,7 @@ fn save_then_load_gives_the_same_sound_and_the_same_file() {
     let (s, mem) = build();
     let (json1, warnings) = s.to_json(SR).unwrap();
     assert!(warnings.is_empty());
-    assert!(json1.contains("\"version\": 20"));
+    assert!(json1.contains("\"version\": 21"));
     let (s2, rate) = Session::from_json(&json1, &mem).unwrap();
     assert_eq!(rate, SR);
     assert_eq!(hash(&s2), hash(&s));
@@ -112,7 +112,7 @@ fn damaged_or_foreign_files_are_refused_cleanly() {
     let load = |j: &str| Session::from_json(j, &mem).err();
     assert!(matches!(load("pas du json"), Some(ProjectError::Parse(_))));
     assert_eq!(load("{}"), Some(ProjectError::MissingVersion));
-    assert_eq!(load(&json.replace("\"version\": 20", "\"version\": 99")), Some(ProjectError::TooNew { found: 99, supported: CURRENT_VERSION }));
+    assert_eq!(load(&json.replace("\"version\": 21", "\"version\": 99")), Some(ProjectError::TooNew { found: 99, supported: CURRENT_VERSION }));
     assert!(matches!(load(&json.replace("audio/voix.wav", "audio/absent.wav")), Some(ProjectError::Audio { .. })));
     assert!(matches!(load(&json.replace("\"equal_power\"", "\"zigzag\"")), Some(ProjectError::Parse(_))));
     // Un envoi vers un nœud qui n'existe pas.
@@ -267,9 +267,9 @@ fn external_files_are_kept_by_absolute_path_and_a_missing_one_plays_silence_with
 fn a_version_9_file_without_the_new_fields_still_loads() {
     let (s, mem) = build();
     let (json, _) = s.to_json(SR).unwrap();
-    let v9 = json.replace("\"version\": 20", "\"version\": 9").replace(",\n      \"frames\":", ",\n      \"x_frames\":");
+    let v9 = json.replace("\"version\": 21", "\"version\": 9").replace(",\n      \"frames\":", ",\n      \"x_frames\":");
     // Les champs `frames` / `channels` sont facultatifs : un fichier qui ne les connaît pas se relit à l'identique.
     let (back, _) = Session::from_json(&v9, &mem).unwrap();
     assert_eq!(hash(&back), hash(&s));
-    assert_eq!(CURRENT_VERSION, 20);
+    assert_eq!(CURRENT_VERSION, 21);
 }

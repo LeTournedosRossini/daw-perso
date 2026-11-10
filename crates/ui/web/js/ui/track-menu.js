@@ -116,10 +116,11 @@ function appendInput(m, node, project, client) {
   m.append(item("Écoute directe de l'entrée", () => client.send({ type: "set_node", node: node.id, monitor: !node.monitor }), { checked: !!node.monitor }));
 }
 
-/** Menu « + » : ajouter une piste ou un bus. */
-export function openAddMenu(anchor, client) {
+/** Menu « + » : ajouter une piste, un bus ou un retour de monitoring (celui-ci demande d'abord sa sortie : `onReturn`). */
+export function openAddMenu(anchor, client, onReturn) {
   const m = menuEl();
   m.append(item("Piste stéréo", () => client.send({ type: "add_track", kind: "stereo" })), item("Piste mono", () => client.send({ type: "add_track", kind: "mono" })), item("Bus", () => client.send({ type: "add_track", kind: "bus" })));
+  m.append(item("Retour…", () => (onReturn ? onReturn() : client.send({ type: "add_track", kind: "return" }))));
   showMenu(m, anchor);
 }
 
@@ -163,10 +164,13 @@ export function openTrackMenu(anchor, { node, project, client, rename, plugins }
 
   if (node.kind !== "bus") appendInput(m, node, project, client);
 
-  m.append(heading("Sortie"));
-  m.append(item("Sortie principale", () => client.send({ type: "set_track_output", node: node.id, output: 0 }), { checked: !node.output }));
-  for (const bus of list.filter((n) => n.kind === "bus" && n.id !== node.id)) {
-    m.append(item(bus.name, () => client.send({ type: "set_track_output", node: node.id, output: bus.id }), { checked: node.output === bus.id }));
+  // Un retour n'envoie jamais rien à la sortie principale : sa sortie se règle sur la carte son (mixeur), pas ici.
+  if (!node.is_return) {
+    m.append(heading("Sortie"));
+    m.append(item("Sortie principale", () => client.send({ type: "set_track_output", node: node.id, output: 0 }), { checked: !node.output }));
+    for (const bus of list.filter((n) => n.kind === "bus" && n.id !== node.id && !n.is_return)) {
+      m.append(item(bus.name, () => client.send({ type: "set_track_output", node: node.id, output: bus.id }), { checked: node.output === bus.id }));
+    }
   }
 
   m.append(heading("Ordre"));

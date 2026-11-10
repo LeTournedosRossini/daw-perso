@@ -16,7 +16,7 @@ test("a group's colour is its own, else a palette colour by position", () => {
 });
 
 test("only tracks and buses can be members, never the master or a monitoring return", () => {
-  const p = project([node(1), node(2, { kind: "bus" }), node(3, { kind: "bus", phys: { first: 3 } })]);
+  const p = project([node(1), node(2, { kind: "bus" }), node(3, { kind: "bus", is_return: true, phys: { first: 3 } })]);
   assert.deepEqual(groupable(p).map((n) => n.id), [1, 2]);
 });
 
@@ -111,7 +111,7 @@ test("the mock engine creates, edits and deletes a group, and undo walks it back
 
 test("the mock engine acts on a whole group and on its sends to a return only", () => {
   const { e, p, err } = engine();
-  e.send({ type: "add_track", kind: "bus", name: "Retour" });
+  e.send({ type: "add_track", kind: "return", name: "Retour" });
   const ret = p().nodes.find((n) => n.name === "Retour").id;
   const [a, b] = p().nodes.filter((n) => n.kind !== "master" && n.kind !== "bus").map((n) => n.id);
   e.send({ type: "create_group", name: "G", nodes: [a, b] });
@@ -161,7 +161,7 @@ test("the mock engine moves a track in the shared display order", () => {
 });
 
 test("effectiveGroups gives a return its own groups when it has some, else the project ones", () => {
-  const p = project([node(1, { group: 1 }), node(2), node(9, { kind: "bus", phys: { first: 3 }, return_groups: { groups: [{ id: 5, name: "Perso" }], members: [[2, 5]] } }), node(8, { kind: "bus", phys: { first: 5 } })], [{ id: 1, name: "Projet" }]);
+  const p = project([node(1, { group: 1 }), node(2), node(9, { kind: "bus", is_return: true, phys: { first: 3 }, return_groups: { groups: [{ id: 5, name: "Perso" }], members: [[2, 5]] } }), node(8, { kind: "bus", is_return: true, phys: { first: 5 } })], [{ id: 1, name: "Projet" }]);
   const own = effectiveGroups(p, 9);
   assert.equal(own.custom, true);
   assert.deepEqual(own.groups.map((g) => g.name), ["Perso"]);
@@ -185,7 +185,7 @@ test("return group commands are validated", () => {
 
 test("the mock engine gives a return its own groups that replace the project ones in its mix only", () => {
   const { e, p, err } = engine();
-  e.send({ type: "add_track", kind: "bus", name: "Retour" });
+  e.send({ type: "add_track", kind: "return", name: "Retour" });
   const ret = p().nodes.find((n) => n.name === "Retour").id;
   e.send({ type: "set_return_output", node: ret, output: { first: 3, stereo: true, mono: false } });
   const [a, b, c] = p().nodes.filter((n) => n.kind !== "master" && !n.phys && n.kind !== "bus").map((n) => n.id);
@@ -272,7 +272,7 @@ test("the mock engine keeps a track's input dynamics", () => {
 import { sidechainSources } from "../js/ui/plugins-panel.js";
 
 test("side chain: sources exclude the master, the node itself and monitoring returns; commands are validated", () => {
-  const p = { nodes: [{ id: 0, kind: "master" }, { id: 1, kind: "stereo" }, { id: 2, kind: "mono" }, { id: 3, kind: "bus" }, { id: 4, kind: "bus", phys: { first: 3 } }] };
+  const p = { nodes: [{ id: 0, kind: "master" }, { id: 1, kind: "stereo" }, { id: 2, kind: "mono" }, { id: 3, kind: "bus" }, { id: 4, kind: "bus", is_return: true, phys: { first: 3 } }] };
   assert.deepEqual(sidechainSources(p, 2).map((n) => n.id), [1, 3]);
   assert.equal(validateCommand({ type: "set_insert_sidechain", insert: 3, source: 1 }), null);
   assert.equal(validateCommand({ type: "set_insert_sidechain", insert: 3, source: null }), null);

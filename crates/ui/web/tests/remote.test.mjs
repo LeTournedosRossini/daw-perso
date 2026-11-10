@@ -46,7 +46,7 @@ test("le faux moteur donne un rôle à un retour, le refuse à une piste, et l'a
   e.on("error", (x) => (error = x));
   e.on("project", (p) => (project = p));
   e.send({ type: "get_project" });
-  e.send({ type: "add_track", kind: "bus", name: "Retour Marie" });
+  e.send({ type: "add_track", kind: "return", name: "Retour Marie" });
   const bus = project.nodes.find((n) => n.name === "Retour Marie").id;
   e.send({ type: "set_return_output", node: bus, output: { first: 3, stereo: true, mono: false } });
   e.send({ type: "start_monitor" });

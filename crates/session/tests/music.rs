@@ -206,7 +206,7 @@ fn version_2_project_round_trips_with_tempo_notes_and_automation() {
     s.set_lane(t, MLane { target: AutoTarget::Pan, points: vec![MPoint { pos: Frac::ZERO, value: -1.0, curve: AutoCurve::Step }, MPoint { pos: f(7, 4), value: 0.25, curve: AutoCurve::Linear }], mode: daw_engine::AutoMode::Read }).unwrap();
     let (json, warnings) = s.to_json(SR).unwrap();
     assert!(warnings.is_empty());
-    assert!(json.contains("\"version\": 20") && CURRENT_VERSION == 20);
+    assert!(json.contains("\"version\": 21") && CURRENT_VERSION == 21);
     let (s2, rate) = Session::from_json(&json, &Mem(HashMap::new())).unwrap();
     assert_eq!(rate, SR);
     assert_eq!(s2.tempo_map(), s.tempo_map());
@@ -249,7 +249,7 @@ fn version_1_project_is_migrated_to_musical_time() {
     assert_eq!((m.notes[0].len, m.notes[1].start, m.notes[1].len), (12_000, 24_000, 8_000));
     assert_eq!(s.tempo_map().changes().len(), 1);
     // Une réécriture sort dans la dernière version.
-    assert!(s.to_json(rate).unwrap().0.contains("\"version\": 20"));
+    assert!(s.to_json(rate).unwrap().0.contains("\"version\": 21"));
     // Un v1 abîmé échoue proprement à la migration.
     let broken = V1_PROJECT.replace("\"midi_clips\": [{\"start\"", "\"midi_clips\": [{\"startX\"");
     assert!(matches!(Session::from_json(&broken, &Mem(HashMap::new())).err(), Some(ProjectError::Migration { from: 1, .. }) | Some(ProjectError::Parse(_))));
@@ -447,7 +447,7 @@ fn version_2_project_is_migrated_to_version_3_and_keeps_its_tempo() {
     assert_eq!((c.start, c.len, c.notes.len(), c.events.len()), (f(1, 4), f(1, 2), 1, 0));
     assert_eq!(s.tempo_map().changes()[0].1, Tempo::bpm(90).unwrap());
     assert_eq!(s.meter_map().changes()[0].1, Meter::new(3, 4).unwrap());
-    assert!(s.to_json(rate).unwrap().0.contains("\"version\": 20"));
+    assert!(s.to_json(rate).unwrap().0.contains("\"version\": 21"));
 }
 
 // ---- clips entre pistes, fenêtre visible, découpe et fondus de vélocité des clips de notes ----------------------------
@@ -610,7 +610,7 @@ fn version_5_fade_shapes_become_curve_settings_in_version_6() {
     c.fade_out = daw_engine::Fade::curved(900, daw_engine::FadeShape::Linear, 1000, 0);
     s.set_clip(id, c).unwrap();
     let (json, _) = s.to_json(SR).unwrap();
-    assert!(json.contains("\"bend\": -250") && json.contains("\"smooth\": 400") && json.contains("\"version\": 20"));
+    assert!(json.contains("\"bend\": -250") && json.contains("\"smooth\": 400") && json.contains("\"version\": 21"));
     let loader = |_: &str| -> Result<Arc<AudioData>, String> { Ok(AudioData::new(SR, vec![vec![0.5; 4_000]]).unwrap()) };
     struct One<F>(F);
     impl<F: Fn(&str) -> Result<Arc<AudioData>, String>> AudioLoader for One<F> {

@@ -78,7 +78,7 @@ impl Session {
             if i == 0 || i >= of.len() {
                 return Err(bad("membre inexistant"));
             }
-            if ret.is_some() && (Some(node) == ret || self.graph.nodes[i].phys.is_some()) {
+            if ret.is_some() && (Some(node) == ret || self.graph.nodes[i].monitor) {
                 return Err(bad("un retour n'est pas une source : il ne peut pas être membre d'un groupe de retour"));
             }
             if of[i] != 0 {
@@ -136,7 +136,7 @@ impl Session {
     /// si le nœud n'est pas un retour de monitoring ou si les groupes sont invalides.
     pub fn set_return_groups(&mut self, label: &str, ret: NodeId, state: Option<(Vec<Group>, Vec<(NodeId, u32)>)>) -> Result<(), SessionError> {
         let node = self.graph.nodes.get(ret.0 as usize).ok_or(SessionError::UnknownNode(ret))?;
-        if ret.0 == 0 || node.phys.is_none() {
+        if ret.0 == 0 || !node.monitor {
             return Err(SessionError::BadGroups("seul un retour de monitoring peut avoir ses propres groupes".into()));
         }
         let new = match state {

@@ -657,6 +657,11 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .mx-strip.drop-end { box-shadow: 4px 0 0 0 var(--accent); }
 @media (pointer: coarse) { .mx-reorder { line-height: 20px; font-size: 16px; } }
 .mx-strip.gbar { width: 150px; justify-content: flex-start; border-top-color: var(--accent); }
+.mx-strip.gbar .gb-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.mx-strip.gbar .gb-choice button { height: 24px; font-size: 11px; border: 1px solid var(--line); background: var(--panel); color: inherit; cursor: pointer; border-radius: 6px; }
+.mx-strip.gbar .gb-choice button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; cursor: default; }
+@media (pointer: coarse) { .mx-strip.gbar .gb-choice button { height: 32px; } }
+.mx-ret.silent { border-color: var(--warn, #e0a030); box-shadow: 0 0 0 1px var(--warn, #e0a030) inset; }
 .mx-strip.gbar .gb-state { margin: 0; font-size: 11px; line-height: 1.3; color: var(--muted); }
 .mx-strip.gbar .gb-buttons { display: grid; gap: 4px; margin-top: auto; }
 .mx-strip.gbar .gb-buttons button { height: 26px; }

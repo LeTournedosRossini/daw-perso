@@ -320,6 +320,9 @@ export function validateCommand(m) {
       return groupFieldsError(m.name, m.color, m.nodes, false) ?? retError(m);
     case "delete_group":
       return Number.isInteger(m.group) && m.group > 0 ? retError(m) : "delete_group : groupe inconnu";
+    case "copy_return_groups":
+      if (!Number.isInteger(m.from) || m.from <= 0) return "copy_return_groups : from (le retour dont on copie les groupes)";
+      return Number.isInteger(m.ret) && m.ret > 0 ? null : "copy_return_groups : ret (un retour de monitoring)";
     case "customize_return_groups":
     case "reset_return_groups":
       return Number.isInteger(m.ret) && m.ret > 0 ? null : `${m.type} : ret (un retour de monitoring)`;
@@ -401,7 +404,11 @@ export function validateCommand(m) {
       if (!isInt(m.insert) || !isInt(m.param)) return "set_plugin_param : insert et param (entiers)";
       return typeof m.value === "number" && Number.isFinite(m.value) ? null : "set_plugin_param : value doit être un nombre fini";
     case "add_track":
-      if (!["mono", "stereo", "bus"].includes(m.kind)) return `add_track : kind « ${m.kind} » inconnu (mono, stereo ou bus)`;
+      if (!["mono", "stereo", "bus", "return"].includes(m.kind)) return `add_track : kind « ${m.kind} » inconnu (mono, stereo, bus ou return)`;
+      if (m.output !== undefined && m.output !== null) {
+        if (m.kind !== "bus" && m.kind !== "return") return "add_track : une sortie physique ne se donne qu'à un bus ou à un retour";
+        if (!Number.isInteger(m.output.first) || m.output.first < 3) return "add_track : output.first (à partir de 3)";
+      }
       return m.name === undefined ? null : checkName(m.name, "add_track");
     case "delete_track":
     case "move_track":

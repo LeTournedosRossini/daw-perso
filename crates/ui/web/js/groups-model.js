@@ -25,7 +25,7 @@ export function groupColor(project, group, list = project.groups ?? []) {
 }
 
 /** Ce qui peut être membre d'un groupe : pistes et bus, pas la sortie principale ni un retour de monitoring. */
-export const groupable = (project) => project.nodes.filter((n) => n.kind !== "master" && !(n.kind === "bus" && n.phys));
+export const groupable = (project) => project.nodes.filter((n) => n.kind !== "master" && !(n.kind === "bus" && n.is_return));
 
 /** Membres d'un groupe dans une vue (`ret` : le mix d'un retour, sinon le projet). */
 export const groupMembers = (project, id, ret = null) => {

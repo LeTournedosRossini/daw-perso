@@ -8,6 +8,8 @@ import { shownValues } from "../automation-model.js";
 import { LANE_MODES, trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
 import { openTrackMenu, openAddMenu } from "./track-menu.js";
+import { openReturnDialog } from "./return-dialog.js";
+import { parseReturnChoice, returnChoices } from "./mixer.js";
 import { createWitness, paintWitness } from "./midi-witness.js";
 import { knobControl } from "./knob.js";
 
@@ -27,7 +29,10 @@ export class Headers {
     this.pianoRoll = null; // piano roll (donné par main.js) : son en-tête ancré s'insère dans la liste
     this.peakHold = new Map(); // id → [l, r] pour la retenue de crête
     this.drag = null; // déplacement d'une piste en cours : { id, ... }
-    document.getElementById("btn-add-track")?.addEventListener("click", (e) => openAddMenu(e.currentTarget, client));
+    document.getElementById("btn-add-track")?.addEventListener("click", (e) => openAddMenu(e.currentTarget, client, () => {
+      const project = this.state.project;
+      openReturnDialog({ client, project, choices: returnChoices(project, { id: -1, is_return: true }), parse: parseReturnChoice });
+    }));
   }
 
   /** En-têtes des voies d'accords : épinglés sous le coin de la règle (ils ne défilent pas avec les pistes). */
@@ -371,9 +376,9 @@ export class Headers {
     refs.name.textContent = n.name;
     const bus = n.output ? this.#node(n.output) : null;
     // Sur la ligne du titre : seulement ce qui change quelque chose (bus, sortie, routage) ; le format est dans l'info-bulle.
-    const shown = n.kind === "bus" || n.kind === "master" ? KIND_LABEL[n.kind] : "";
+    const shown = n.is_return ? "retour" : n.kind === "bus" || n.kind === "master" ? KIND_LABEL[n.kind] : "";
     refs.kind.textContent = [shown, bus ? `→ ${bus.name}` : ""].filter(Boolean).join(" ");
-    refs.name.title = `${n.name} — ${KIND_LABEL[n.kind] ?? n.kind}${bus ? ` → ${bus.name}` : ""}`;
+    refs.name.title = `${n.name} — ${n.is_return ? "retour de monitoring" : KIND_LABEL[n.kind] ?? n.kind}${bus ? ` → ${bus.name}` : ""}`;
     this.rows.get(n.id).root.style.setProperty("--c", n.color);
     // Pastille « fx N » quand la piste a des plugins ; grisée si tous sont contournés.
     const count = n.inserts?.length ?? 0;

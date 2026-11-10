@@ -108,6 +108,7 @@ fn two_sources() -> (GraphDesc, NodeId, NodeId) {
     let b = g.add_track("b", TrackFormat::Stereo);
     let bus = g.add_bus("retour");
     g.node_mut(bus).unwrap().phys = Some(daw_engine::PhysOut { first: 2, stereo: true, mono: false });
+    g.node_mut(bus).unwrap().monitor = true;
     let trash = g.add_bus("poubelle");
     g.set_params(trash, NodeParams { mute: true, ..NodeParams::default() });
     for t in [a, b] {
@@ -185,10 +186,11 @@ fn the_flags_in_the_graph_description_apply_from_the_start() {
 
 #[test]
 fn mute_and_solo_of_a_send_do_nothing_towards_a_bus_that_is_not_a_return() {
-    // Le retour qui devient un bus ordinaire (sa sortie physique retirée) : ses envois coupés ou en solo ne changent plus rien au mixage
+    // Le retour qui devient un bus ordinaire (redevenu un bus ordinaire) : ses envois coupés ou en solo ne changent plus rien au mixage
     // principal, mais les réglages sont conservés (ils reviennent si le bus redevient un retour).
     let (mut g, a, bus) = two_sources();
     g.node_mut(bus).unwrap().phys = None;
+    g.node_mut(bus).unwrap().monitor = false;
     g.set_output(bus, NodeId::MASTER);
     let plain = level(&g, |_| {});
     g.node_mut(a).unwrap().sends[0].mute = true;
@@ -199,5 +201,6 @@ fn mute_and_solo_of_a_send_do_nothing_towards_a_bus_that_is_not_a_return() {
     assert!(g.node_mut(a).unwrap().sends[0].solo, "le réglage est conservé");
     let mut ret = g.clone();
     ret.node_mut(bus).unwrap().phys = Some(daw_engine::PhysOut { first: 2, stereo: true, mono: false });
+    ret.node_mut(bus).unwrap().monitor = true;
     assert!((level_ret(&ret, |_| {}) - 0.25).abs() < 1e-6, "redevenu un retour : le solo agit de nouveau");
 }

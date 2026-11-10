@@ -92,6 +92,9 @@ pub struct NodeDesc {
     /// Sortie physique (bus seulement) : le bus sort sur la carte son et **n'alimente plus** sa destination principale (ses envois
     /// restent possibles). `None` : comme avant.
     pub phys: Option<PhysOut>,
+    /// **Retour de monitoring** (bus seulement) : type à part, indépendant de la sortie physique. Un retour n'alimente jamais la
+    /// sortie principale : sans `phys` il se tait complètement. Un bus ordinaire peut avoir une `phys` sans être un retour.
+    pub monitor: bool,
     pub sends: Vec<SendDesc>,
     /// Clips (pistes seulement).
     pub clips: Vec<Clip>,
@@ -166,9 +169,9 @@ impl Default for GraphDesc {
 }
 
 impl NodeDesc {
-    /// La destination principale **qui compte pour le routage** : aucune pour un bus qui sort sur la carte son.
+    /// La destination principale **qui compte pour le routage** : aucune pour un bus qui sort sur la carte son ni pour un retour.
     pub fn main_output(&self) -> Option<NodeId> {
-        if self.phys.is_some() { None } else { self.output }
+        if self.phys.is_some() || self.monitor { None } else { self.output }
     }
 }
 
@@ -183,6 +186,7 @@ impl GraphDesc {
                 params: NodeParams::default(),
                 output: None,
                 phys: None,
+                monitor: false,
                 sends: Vec::new(),
                 clips: Vec::new(),
                 midi_clips: Vec::new(),
@@ -207,6 +211,7 @@ impl GraphDesc {
             params: NodeParams::default(),
             output: Some(NodeId::MASTER),
             phys: None,
+            monitor: false,
             sends: Vec::new(),
             clips: Vec::new(),
             midi_clips: Vec::new(),
@@ -231,6 +236,14 @@ impl GraphDesc {
     /// Nouveau bus, dirigé vers la sortie principale.
     pub fn add_bus(&mut self, name: &str) -> NodeId {
         self.push(NodeKind::Bus, name)
+    }
+
+    /// Nouveau **retour de monitoring** : un bus qui n'alimente jamais la sortie principale (muet tant qu'aucune sortie physique
+    /// ne lui est donnée).
+    pub fn add_return(&mut self, name: &str) -> NodeId {
+        let id = self.push(NodeKind::Bus, name);
+        self.nodes[id.0 as usize].monitor = true;
+        id
     }
 
     pub fn node_mut(&mut self, id: NodeId) -> Option<&mut NodeDesc> {
@@ -340,6 +353,9 @@ impl GraphDesc {
                         NodeKind::Track(_) => return Err(GraphError::OutputNotBus { node: node.id, to }),
                     }
                 }
+            }
+            if node.monitor && node.kind != NodeKind::Bus {
+                return Err(GraphError::BadPhysOut(node.id));
             }
             if let Some(p) = node.phys {
                 let last = usize::from(p.first) + usize::from(p.channels());

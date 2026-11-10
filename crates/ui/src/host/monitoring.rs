@@ -26,7 +26,7 @@ fn gain_to_db(g: f32) -> f64 {
 impl Host {
     /// Les retours : bus qui sortent sur la carte son.
     fn monitor_returns(&self) -> Vec<(u32, String)> {
-        self.session.graph().nodes.iter().filter(|n| n.phys.is_some() && n.id.0 != 0).map(|n| (n.id.0, n.name.clone())).collect()
+        self.session.graph().nodes.iter().filter(|n| n.monitor && n.id.0 != 0).map(|n| (n.id.0, n.name.clone())).collect()
     }
 
     /// Ce que la page doit savoir : actif ou non, adresse et QR de chaque retour.
@@ -122,7 +122,7 @@ impl Host {
     /// Donne une adresse neuve à un retour (l'ancienne cesse de marcher : à refaire scanner). Pour la sécurité : un jeton est un secret,
     /// et il est maintenant enregistré dans le projet.
     pub(super) fn renew_monitor_address(&mut self, node: u32) -> Vec<Event> {
-        if !self.session.graph().nodes.get(node as usize).is_some_and(|n| n.phys.is_some()) {
+        if !self.session.graph().nodes.get(node as usize).is_some_and(|n| n.monitor) {
             return vec![Event::Error { command: "renew_monitor_address".into(), message: "seul un retour de monitoring a une adresse".into() }];
         }
         self.session.set_monitor_token_untracked(NodeId(node), "");
@@ -144,7 +144,7 @@ impl Host {
             let sources: Vec<serde_json::Value> = g
                 .nodes
                 .iter()
-                .filter(|n| n.id.0 != 0 && n.phys.is_none())
+                .filter(|n| n.id.0 != 0 && !n.monitor)
                 .map(|n| {
                     let send = n.sends.iter().find(|s| s.to.0 == *ret);
                     let db = send.map(|s| gain_to_db(s.gain)).unwrap_or(DB_MIN);
@@ -261,8 +261,8 @@ impl Host {
 
     fn monitor_valid(&self, ret: u32, node: Option<u32>) -> bool {
         let g = self.session.graph();
-        let ok_ret = g.nodes.get(ret as usize).map(|n| n.phys.is_some()).unwrap_or(false);
-        let ok_src = node.map_or(true, |n| g.nodes.get(n as usize).map(|x| n != 0 && x.phys.is_none()).unwrap_or(false));
+        let ok_ret = g.nodes.get(ret as usize).map(|n| n.monitor).unwrap_or(false);
+        let ok_src = node.map_or(true, |n| g.nodes.get(n as usize).map(|x| n != 0 && !x.monitor).unwrap_or(false));
         ok_ret && ok_src
     }
 
@@ -278,8 +278,8 @@ impl Host {
     /// ou la sortie principale sont refusés en silence : une tablette ne peut régler que des envois vers son propre retour.
     fn monitor_apply(&mut self, ret: u32, node: u32, db: f64) -> Vec<Event> {
         let g = self.session.graph();
-        let valid_ret = g.nodes.get(ret as usize).map(|n| n.phys.is_some()).unwrap_or(false);
-        let valid_src = g.nodes.get(node as usize).map(|n| node != 0 && n.phys.is_none()).unwrap_or(false);
+        let valid_ret = g.nodes.get(ret as usize).map(|n| n.monitor).unwrap_or(false);
+        let valid_src = g.nodes.get(node as usize).map(|n| node != 0 && !n.monitor).unwrap_or(false);
         if !valid_ret || !valid_src {
             return Vec::new();
         }

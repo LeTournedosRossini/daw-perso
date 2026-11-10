@@ -47,7 +47,7 @@ test("ajouter une piste ou un bus : nom libre, sortie principale, un pas d'annul
   const t = p.nodes.find((n) => n.name === "Piste 1");
   assert.deepEqual([t.kind, t.output, t.clips.length], ["mono", 0, 0]);
   assert.equal(p.nodes.at(-1).name, "Réverbe");
-  assert.equal(histories.at(-1).undo_label, "Ajouter une piste");
+  assert.equal(histories.at(-1).undo_label, "Ajouter un bus");
   e.send({ type: "undo" });
   e.send({ type: "undo" });
   assert.deepEqual(names(project()), before);

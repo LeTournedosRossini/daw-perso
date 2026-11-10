@@ -69,6 +69,8 @@ pub enum NewNode {
     Mono,
     Stereo,
     Bus,
+    /// Retour de monitoring : un bus d'un type à part (QR, onglet de mix, groupes propres), muet tant qu'il n'a pas de sortie physique.
+    Return,
 }
 
 const MAX_NAME_CHARS: usize = 60;
@@ -144,13 +146,16 @@ impl Session {
     pub fn add_node(&mut self, kind: NewNode, name: &str, color: &str) -> Result<NodeId, SessionError> {
         let name = Self::clean_name(name)?;
         let index = self.graph.nodes.len();
+        let new_kind = kind;
         let kind = match kind {
             NewNode::Mono => NodeKind::Track(TrackFormat::Mono),
             NewNode::Stereo => NodeKind::Track(TrackFormat::Stereo),
-            NewNode::Bus => NodeKind::Bus,
+            NewNode::Bus | NewNode::Return => NodeKind::Bus,
         };
+        let mut desc = GraphDesc::make_node(NodeId(index as u32), kind, &name);
+        desc.monitor = matches!(new_kind, NewNode::Return);
         let record = NodeRecord {
-            desc: GraphDesc::make_node(NodeId(index as u32), kind, &name),
+            desc,
             clip_ids: Vec::new(),
             midi: Vec::new(),
             lanes: Vec::new(),
@@ -613,6 +618,12 @@ impl Session {
         let valid = self.graph.validate();
         self.graph.nodes[node.0 as usize].phys = old;
         valid.map_err(|_| SessionError::BadPhysOut(node))?;
-        self.push(if phys.is_some() { "Sortie d'un retour" } else { "Retirer la sortie d'un retour" }, Edit::SetPhys { node, old, new: phys })
+        let label = match (self.graph.nodes[node.0 as usize].monitor, phys.is_some()) {
+            (true, true) => "Sortie d'un retour",
+            (true, false) => "Retirer la sortie d'un retour",
+            (false, true) => "Sortie d'un bus",
+            (false, false) => "Retirer la sortie d'un bus",
+        };
+        self.push(label, Edit::SetPhys { node, old, new: phys })
     }
 }

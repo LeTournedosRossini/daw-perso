@@ -18,7 +18,7 @@ test("faux moteur : démarrer le serveur donne une adresse et un code QR à chaq
   e.send({ type: "get_project" });
   const nodes = [];
   e.on("project", (p) => nodes.push(p));
-  e.send({ type: "add_track", kind: "bus", name: "Retour Marie" });
+  e.send({ type: "add_track", kind: "return", name: "Retour Marie" });
   const bus = nodes.at(-1).nodes.find((n) => n.name === "Retour Marie").id;
   e.send({ type: "set_return_output", node: bus, output: { first: 3, stereo: true, mono: false } });
   e.send({ type: "start_monitor" });
@@ -42,7 +42,7 @@ test("the mock engine keeps a return's address and renews it on demand", async (
   let p;
   e.on("project", (x) => (p = x));
   e.send({ type: "get_project" });
-  e.send({ type: "add_track", kind: "bus", name: "Retour" });
+  e.send({ type: "add_track", kind: "return", name: "Retour" });
   const ret = p.nodes.find((n) => n.name === "Retour").id;
   e.send({ type: "set_return_output", node: ret, output: { first: 3, stereo: true, mono: false } });
   e.send({ type: "start_monitor" });

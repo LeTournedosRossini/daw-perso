@@ -223,9 +223,11 @@ pub enum Command {
     SetPluginParam { insert: u32, param: u32, value: f64 },
     /// Texte que le plugin affiche pour `value` (sans rien changer) : pour montrer une valeur automatisée.
     GetPluginParamText { insert: u32, param: u32, value: f64 },
-    /// Ajoute une piste (`kind` : `mono` ou `stereo`) ou un bus (`bus`) à la fin, dirigé vers la sortie principale. Sans `name` :
-    /// « Piste N » ou « Bus N ». Un pas d'annulation.
-    AddTrack { kind: String, name: Option<String> },
+    /// Ajoute une piste (`kind` : `mono` ou `stereo`), un bus (`bus`) ou un **retour de monitoring** (`return`) à la fin. Une piste ou
+    /// un bus part vers la sortie principale ; un retour n'y va jamais (muet tant qu'il n'a pas de sortie physique). `output` (bus ou
+    /// retour seulement) donne tout de suite la sortie sur la carte son : le tout est **un seul** pas d'annulation. Sans `name` :
+    /// « Piste N », « Bus N » ou « Retour N ».
+    AddTrack { kind: String, name: Option<String>, #[serde(default)] output: Option<ReturnOutput> },
     /// Supprime une piste ou un bus avec ses clips, son automation et ses effets. Les nœuds qui y étaient dirigés repartent vers la
     /// sortie principale, ses envois sont supprimés. Annulable : tout revient, plugins avec leur état.
     DeleteTrack { node: u32 },
@@ -295,6 +297,9 @@ pub enum Command {
     CustomizeReturnGroups { ret: u32 },
     /// Ramène le retour aux groupes du projet (ses groupes propres sont oubliés ; décalages remis à 0 d'abord). Annulable.
     ResetReturnGroups { ret: u32 },
+    /// Donne au retour `ret` une **copie des groupes de l'autre retour** `from` (les siens, ou ceux du projet qu'il suit) comme groupes
+    /// propres, en remplaçant ceux qu'il avait. Décalages de niveau remis à 0. Annulable.
+    CopyReturnGroups { ret: u32, from: u32 },
     /// Agit sur tous les membres d'un groupe d'un coup (hors historique). Sans `to` : mute / solo / niveau des pistes ; avec `to` :
     /// sur leurs envois vers ce nœud (mix d'un retour). `delta_db` : décalage de niveau commun, écarts conservés.
     SetGroup { group: u32, mute: Option<bool>, solo: Option<bool>, delta_db: Option<f64>, to: Option<u32> },
@@ -493,6 +498,7 @@ impl Command {
             Command::DeleteGroup { .. } => "delete_group",
             Command::CustomizeReturnGroups { .. } => "customize_return_groups",
             Command::ResetReturnGroups { .. } => "reset_return_groups",
+            Command::CopyReturnGroups { .. } => "copy_return_groups",
             Command::SetGroup { .. } => "set_group",
             Command::SetGroupOffset { .. } => "set_group_offset",
             Command::GetNotes { .. } => "get_notes",
@@ -794,9 +800,12 @@ impl Command {
             Command::GetPluginParamText { value, .. } if !value.is_finite() => Err("get_plugin_param_text : value doit être un nombre fini".into()),
             Command::SetControlPage { plugin_id, name, params } => crate::control_pages::validate(&crate::control_pages::PageEntry { plugin_id: plugin_id.clone(), name: name.clone(), params: params.clone() }).map_err(|e| format!("set_control_page : {e}")),
             Command::SetPluginParam { value, .. } if !value.is_finite() => Err("set_plugin_param : value doit être un nombre fini".into()),
-            Command::AddTrack { kind, name } => {
-                if !matches!(kind.as_str(), "mono" | "stereo" | "bus") {
-                    return Err(format!("add_track : kind « {kind} » inconnu (mono, stereo ou bus)"));
+            Command::AddTrack { kind, name, output } => {
+                if !matches!(kind.as_str(), "mono" | "stereo" | "bus" | "return") {
+                    return Err(format!("add_track : kind « {kind} » inconnu (mono, stereo, bus ou return)"));
+                }
+                if output.is_some() && !matches!(kind.as_str(), "bus" | "return") {
+                    return Err("add_track : une sortie physique ne se donne qu'à un bus ou à un retour".into());
                 }
                 match name {
                     Some(n) => check_name(n, "add_track"),
@@ -1282,6 +1291,8 @@ pub struct NodeInfo {
     pub id: u32,
     pub name: String,
     pub kind: String,
+    /// Retour de monitoring (un bus d'un type à part : QR, onglet de mix, groupes propres) ; faux pour une piste et un bus ordinaire.
+    pub is_return: bool,
     pub color: String,
     pub gain: f32,
     pub pan: f32,

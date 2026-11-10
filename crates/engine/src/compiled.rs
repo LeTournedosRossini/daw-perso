@@ -181,6 +181,8 @@ struct NodeC {
     output: usize,
     /// Sortie physique du bus (voir `PhysOut`) : il n'alimente alors pas `output`.
     phys: Option<crate::graph::PhysOut>,
+    /// Retour de monitoring : n'alimente jamais la sortie principale (muet sans `phys`).
+    is_return: bool,
     out_delay: DelayLine,
     sends: Vec<SendC>,
     /// Signal avant le fader, copié seulement si un envoi « avant fader » existe (sinon vides : rien d'alloué).
@@ -983,7 +985,8 @@ impl CompiledGraph {
                 solo_excluded: false,
                 output,
                 phys: d.phys,
-                out_delay: DelayLine::new(if d.output.is_some() && d.phys.is_none() { edge_delay(i, output) } else { 0 }),
+                is_return: d.monitor,
+                out_delay: DelayLine::new(if d.output.is_some() && d.phys.is_none() && !d.monitor { edge_delay(i, output) } else { 0 }),
                 sends: d
                     .sends
                     .iter()
@@ -1296,7 +1299,7 @@ impl CompiledGraph {
     }
 
     /// Recalcule l'audibilité de chaque envoi : coupé, ou muet parce qu'un autre envoi vers la même destination est en solo.
-    /// **Seulement vers un retour de monitoring** (un bus qui sort sur la carte son) : vers un bus ordinaire ou la sortie principale, la
+    /// **Seulement vers un retour de monitoring** (un bus de type retour) : vers un bus ordinaire ou la sortie principale, la
     /// coupe et le solo des envois n'ont aucun effet (ils sont conservés : ils reviennent si le bus redevient un retour).
     /// Sans allocation (balayage des nœuds : rare, seulement sur commande).
     fn refresh_sends(&mut self, ramp: u32) {
@@ -1306,7 +1309,7 @@ impl CompiledGraph {
                     let x = &self.nodes[i].sends[s];
                     (x.to, x.mute, x.solo)
                 };
-                if !self.nodes.get(to).is_some_and(|d| d.phys.is_some()) {
+                if !self.nodes.get(to).is_some_and(|d| d.is_return) {
                     self.nodes[i].sends[s].aud.set_target(1.0, ramp);
                     continue;
                 }
@@ -1499,7 +1502,7 @@ impl CompiledGraph {
                             b[0][..n].copy_from_slice(&a[ch][..n]);
                         }
                     }
-                } else {
+                } else if !self.nodes[i].is_return {
                     let out = self.nodes[i].output;
                     route(&mut self.nodes, i, out, n, None, pos);
                 }

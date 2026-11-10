@@ -99,7 +99,7 @@ impl Host {
                 let st = self.nodes.get(id.0 as usize)?;
                 let kind = match n.kind {
                     daw_engine::NodeKind::Master => "master",
-                    daw_engine::NodeKind::Bus if n.phys.is_some() => "return",
+                    daw_engine::NodeKind::Bus if n.monitor => "return",
                     daw_engine::NodeKind::Bus => "bus",
                     daw_engine::NodeKind::Track(_) => "track",
                 };
@@ -297,7 +297,7 @@ impl Host {
 
     /// Change le rôle de la télécommande d'un retour (0 : son retour seulement ; 1 : aussi le transport). Sans historique, compte comme modification.
     pub(super) fn set_monitor_role(&mut self, node: u32, role: u8) -> Vec<Event> {
-        if !self.session.graph().nodes.get(node as usize).is_some_and(|n| n.phys.is_some()) {
+        if !self.session.graph().nodes.get(node as usize).is_some_and(|n| n.monitor) {
             return vec![Event::Error { command: "set_monitor_role".into(), message: "seul un retour de monitoring a un rôle de télécommande".into() }];
         }
         if !self.session.set_monitor_role_untracked(NodeId(node), role) {

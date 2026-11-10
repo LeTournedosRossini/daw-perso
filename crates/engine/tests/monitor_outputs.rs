@@ -201,3 +201,37 @@ fn a_musician_hears_himself_in_his_return_without_the_latency_of_other_tracks() 
     let peak = outs[2].iter().position(|&v| v > 0.5).expect("l'impulsion arrive dans le retour");
     assert_eq!(peak, 10, "l'écoute directe n'est pas retardée par la compensation (la piste lente a 100 échantillons)");
 }
+
+#[test]
+fn a_return_without_a_physical_output_is_completely_silent() {
+    let (mut g, bus) = graph(None);
+    g.nodes[bus.0 as usize].monitor = true;
+    let o = run(&g, 4, 2_000, 64);
+    // Il n'alimente pas la sortie principale (seule la piste y est) et rien ne sort sur la carte.
+    assert!((o[0][1_000] - 0.2).abs() < 1e-6 && (o[1][1_000] - 0.6).abs() < 1e-6, "principale : la piste seule");
+    assert!(o[2].iter().chain(&o[3]).all(|&v| v == 0.0), "canaux sans sortie donnée : silence");
+    // Dès qu'on lui donne une sortie, il joue sur la carte.
+    g.nodes[bus.0 as usize].phys = Some(PhysOut { first: 2, stereo: true, mono: false });
+    let o = run(&g, 4, 2_000, 64);
+    assert!((o[2][1_000] - 0.1).abs() < 1e-6 && (o[0][1_000] - 0.2).abs() < 1e-6);
+}
+
+#[test]
+fn a_plain_bus_with_a_physical_output_is_not_a_return() {
+    // Mêmes sorties qu'un retour, mais sans le type : la coupe d'un envoi vers lui n'a aucun effet (réservée aux retours).
+    let (mut g, bus) = graph(Some(PhysOut { first: 2, stereo: true, mono: false }));
+    let t = g.nodes.iter().position(|n| !n.sends.is_empty()).unwrap();
+    g.nodes[t].sends[0].mute = true;
+    let o = run(&g, 4, 2_000, 64);
+    assert!((o[2][1_000] - 0.1).abs() < 1e-6, "envoi coupé mais le bus n'est pas un retour : toujours entendu");
+    g.nodes[bus.0 as usize].monitor = true;
+    let o = run(&g, 4, 2_000, 64);
+    assert!(o[2][1_000].abs() < 1e-6, "vers un retour, la coupe agit");
+}
+
+#[test]
+fn only_a_bus_can_be_a_return() {
+    let (mut g, _) = graph(None);
+    g.nodes[1].monitor = true; // la piste
+    assert!(matches!(g.validate(), Err(GraphError::BadPhysOut(_))));
+}

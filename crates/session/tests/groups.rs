@@ -20,7 +20,7 @@ fn setup() -> (Session, NodeId, NodeId, NodeId, NodeId) {
     let kick = g.add_track("Grosse caisse", TrackFormat::Mono);
     let snare = g.add_track("Caisse claire", TrackFormat::Mono);
     let bass = g.add_track("Basse", TrackFormat::Mono);
-    let ret = g.add_bus("Retour");
+    let ret = g.add_return("Retour");
     (Session::new(g), kick, snare, bass, ret)
 }
 

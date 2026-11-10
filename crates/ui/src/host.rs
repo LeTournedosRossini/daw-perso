@@ -874,21 +874,14 @@ impl Host {
                 }
                 let phys = match output {
                     None => None,
-                    Some(o) => {
-                        let last = u32::from(o.first) + if o.stereo { 2 } else { 1 } - 1;
-                        if o.first < 3 {
-                            return error("les sorties 1 et 2 sont celles de la sortie principale : un retour prend les suivantes".into());
-                        }
-                        if self.audio_outputs > 0 && last > self.audio_outputs {
-                            return error(format!("sortie {last} inexistante : le pilote en a ouvert {}", self.audio_outputs));
-                        }
-                        Some(daw_engine::PhysOut { first: o.first - 1, stereo: o.stereo, mono: o.mono })
-                    }
+                    Some(o) => match self.phys_from(o) {
+                        Ok(p) => Some(p),
+                        Err(e) => return error(e),
+                    },
                 };
-                // Un retour qui redevient un bus ordinaire : les décalages de niveau de ses groupes sont rendus (les niveaux d'envoi
-                // reviennent à ce qu'ils étaient), sinon ils continueraient d'agir sur la sortie principale. La coupe et le solo des envois
-                // n'ont plus d'effet vers un bus ordinaire (le moteur les ignore) ; les groupes propres du retour sont conservés mais ignorés.
-                let mut events = if phys.is_none() && self.session.graph().nodes[node as usize].phys.is_some() { self.clear_return_offsets(node) } else { Vec::new() };
+                // Un retour qui perd sa sortie ne sort plus nulle part : ses décalages de groupes sont rendus (les niveaux d'envoi reviennent
+                // à ce qu'ils étaient), les groupes propres du retour sont conservés.
+                let mut events = if phys.is_none() && self.session.graph().nodes[node as usize].monitor && self.session.graph().nodes[node as usize].phys.is_some() { self.clear_return_offsets(node) } else { Vec::new() };
                 let r = self.session.set_node_phys(NodeId(node), phys);
                 events.extend(self.finish_edit(name, r));
                 events
@@ -1211,20 +1204,39 @@ impl Host {
                 events.push(Event::PluginParam { insert, param, value, text });
                 events
             }
-            Command::AddTrack { kind, name: given } => {
+            Command::AddTrack { kind, name: given, output } => {
                 if let Some(refused) = self.refuse_while_recording(name) {
                     return refused;
                 }
                 let new = match kind.as_str() {
                     "mono" => NewNode::Mono,
                     "stereo" => NewNode::Stereo,
+                    "return" => NewNode::Return,
                     _ => NewNode::Bus,
                 };
-                let label = if new == NewNode::Bus { "Bus" } else { "Piste" };
+                let phys = match output {
+                    None => None,
+                    Some(o) => match self.phys_from(o) {
+                        Ok(p) => Some(p),
+                        Err(e) => return error(e),
+                    },
+                };
+                let label = match new {
+                    NewNode::Bus => "Bus",
+                    NewNode::Return => "Retour",
+                    _ => "Piste",
+                };
                 let track_name = given.unwrap_or_else(|| self.free_name(label));
                 let color = TRACK_COLORS[(self.session.graph().nodes.len().saturating_sub(1)) % TRACK_COLORS.len()];
                 let mut events = self.end_preview(true, false);
-                let r = self.session.add_node(new, &track_name, color).map(|_| ());
+                // Création et sortie physique : un seul pas d'annulation.
+                let r = self.session.group(&format!("Ajouter {}", if new == NewNode::Return { "un retour" } else if new == NewNode::Bus { "un bus" } else { "une piste" }), |s| {
+                    let id = s.add_node(new, &track_name, color)?;
+                    if phys.is_some() {
+                        s.set_node_phys(id, phys)?;
+                    }
+                    Ok(())
+                });
                 events.extend(self.finish_edit(name, r));
                 events
             }
@@ -1302,6 +1314,7 @@ impl Host {
             Command::DeleteGroup { group, ret } => self.delete_group(group, ret),
             Command::CustomizeReturnGroups { ret } => self.customize_return_groups(ret),
             Command::ResetReturnGroups { ret } => self.reset_return_groups(ret),
+            Command::CopyReturnGroups { ret, from } => self.copy_return_groups(ret, from),
             Command::SetGroup { group, mute, solo, delta_db, to } => self.set_group(group, mute, solo, delta_db, to),
             Command::SetGroupOffset { group, db, to } => self.set_group_offset(group, db, to),
             Command::SetSend { node, to, gain, pre, mute, solo } => {
@@ -1342,6 +1355,13 @@ impl Host {
                 events
             }
             Command::SetTrackOutput { node, output } => {
+                let g = self.session.graph();
+                if g.nodes.get(output as usize).is_some_and(|n| n.monitor) {
+                    return error("un retour ne reçoit que des envois : choisis un bus ou la sortie principale".into());
+                }
+                if g.nodes.get(node as usize).is_some_and(|n| n.monitor) {
+                    return error("un retour n'a pas de destination : il sort sur la carte son".into());
+                }
                 let r = self.session.set_node_output(NodeId(node), NodeId(output));
                 self.finish_edit(name, r)
             }
@@ -2090,6 +2110,18 @@ impl Host {
     // ---- pistes et bus --------------------------------------------------------------------------------------------
 
     /// « Piste N » ou « Bus N » : le plus petit N qui ne porte pas encore ce nom.
+    /// Sortie de la carte son demandée par la page (canaux à partir de 1) → sortie physique du moteur, ou le message de refus.
+    fn phys_from(&self, o: ReturnOutput) -> Result<daw_engine::PhysOut, String> {
+        let last = u32::from(o.first) + if o.stereo { 2 } else { 1 } - 1;
+        if o.first < 3 {
+            return Err("les sorties 1 et 2 sont celles de la sortie principale : on prend les suivantes".into());
+        }
+        if self.audio_outputs > 0 && last > self.audio_outputs {
+            return Err(format!("sortie {last} inexistante : le pilote en a ouvert {}", self.audio_outputs));
+        }
+        Ok(daw_engine::PhysOut { first: o.first - 1, stereo: o.stereo, mono: o.mono })
+    }
+
     fn free_name(&self, label: &str) -> String {
         (1..).map(|n| format!("{label} {n}")).find(|c| !self.session.graph().nodes.iter().any(|n| &n.name == c)).expect("une suite infinie")
     }
@@ -2745,6 +2777,7 @@ impl Host {
                 NodeInfo {
                     id: i as u32,
                     name: n.name.clone(),
+                    is_return: n.monitor,
                     kind: match n.kind {
                         NodeKind::Master => "master",
                         NodeKind::Bus => "bus",

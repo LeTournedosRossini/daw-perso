@@ -27,7 +27,7 @@ pub type Migration = fn(&mut Value) -> Result<(), String>;
 /// Historique : v1 = premier format (clips de notes en échantillons) ; v2 = temps musical (cartes des tempos et des
 /// chiffrages, clips de notes et automation en fractions de ronde) ; v3 = événements de contrôle des clips de notes
 /// (contrôleurs, molette de hauteur, pressions) ; v4 = fenêtre visible (`offset`) et fondus de vélocité des clips de notes ; v5 = trois formes de fondu de plus (`s_curve`, `slow`, `fast`) ; v9 = mode des courbes d'automation (`read`, `trim`, `off`) et courbes de niveau d'envoi ; v8 = envois « avant le fader » (`pre`) et vers la sortie principale ; v6 = courbe de fondu continue (`bend`, `smooth`) : les formes de la v5 deviennent des réglages de la courbe de base.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20, v20_to_v21];
 pub const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32 + 1;
 
 /// Fournit les données d'un fichier audio à partir du chemin inscrit dans le projet.
@@ -249,6 +249,9 @@ struct NodeDto {
     /// Sortie physique du bus (retour de monitoring) ; absente : pas de sortie physique (format 13).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phys: Option<PhysDto>,
+    /// Retour de monitoring (format 21) : type à part, indépendant de `phys`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    monitor: bool,
     /// Groupe du nœud (format 15), 0 ou absent : aucun.
     #[serde(default, skip_serializing_if = "is_zero")]
     group: u32,
@@ -534,6 +537,19 @@ fn v11_to_v12(_: &mut Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Migration 20 → 21 : le retour de monitoring devient un type à part (`monitor` du nœud). Avant, un bus avec sortie physique **était**
+/// un retour : ces bus-là le restent.
+fn v20_to_v21(v: &mut Value) -> Result<(), String> {
+    if let Some(nodes) = v.get_mut("nodes").and_then(Value::as_array_mut) {
+        for n in nodes {
+            if n.get("phys").is_some_and(|p| !p.is_null()) {
+                n["monitor"] = Value::Bool(true);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Migration 19 → 20 : courbe de réponse de la vélocité d'une piste (`vel_curve`), facultative : absente = désactivée.
 fn v19_to_v20(_: &mut Value) -> Result<(), String> {
     Ok(())
@@ -653,6 +669,7 @@ impl Session {
                 solo: n.params.solo,
                 invert: n.params.invert,
                 phys: n.phys.map(|p| PhysDto { first: p.first, stereo: p.stereo, mono: p.mono }),
+                monitor: n.monitor,
                 group: self.node_group.get(n.id.0 as usize).copied().unwrap_or(0),
                 monitor_token: self.monitor_tokens.get(n.id.0 as usize).cloned().unwrap_or_default(),
                 monitor_role: self.monitor_roles.get(n.id.0 as usize).copied().unwrap_or(0),
@@ -795,6 +812,7 @@ impl Session {
             node.name = n.name.clone();
             node.params = NodeParams { gain: n.gain, pan: n.pan, mute: n.mute, solo: n.solo, invert: n.invert };
             node.output = n.output.map(NodeId);
+            node.monitor = n.monitor;
             node.phys = n.phys.as_ref().map(|p| daw_engine::PhysOut { first: p.first, stereo: p.stereo, mono: p.mono });
             node.sends = n.sends.iter().map(|s| daw_engine::SendDesc { to: NodeId(s.to), gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo }).collect();
             for c in &n.clips {

@@ -34,7 +34,7 @@ fn host() -> Host {
 
 fn with_return() -> (Host, u32) {
     let mut h = host();
-    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Retour Marie"}"#);
+    let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Marie"}"#);
     let bus = node(&ev, "Retour Marie").id;
     h.command_json(&format!(r#"{{"type":"set_return_output","node":{bus},"output":{{"first":3,"stereo":true,"mono":false}}}}"#));
     (h, bus)
@@ -500,4 +500,43 @@ fn a_track_velocity_curve_is_set_through_the_protocol_refused_when_invalid_and_s
     let c = node(&state(&mut h), "Claviers").velocity_curve;
     assert!(c.enabled && c.bend == 400 && c.smooth == 200 && c.min == 30 && c.max == 110, "{c:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_return_copies_the_groups_of_another_return_and_a_track_cannot_output_to_a_return() {
+    let (mut h, marie) = with_return();
+    let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Paul"}"#);
+    let paul = node(&ev, "Retour Paul").id;
+    // Marie a ses propres groupes (une copie de ceux du projet) et en crée un ; Paul en copie le contenu.
+    let p = state(&mut h);
+    let guitar = node(&p, "Guitare").id;
+    assert!(errors(&h.command_json(&format!(r#"{{"type":"customize_return_groups","ret":{marie}}}"#))).is_empty());
+    let ev = h.command_json(&format!(r##"{{"type":"create_group","name":"Cordes","color":"#ff8800","nodes":[{guitar}],"ret":{marie}}}"##));
+    assert!(errors(&ev).is_empty(), "{ev:?}");
+    let ev = h.command_json(&format!(r#"{{"type":"copy_return_groups","ret":{paul},"from":{marie}}}"#));
+    assert!(errors(&ev).is_empty(), "{ev:?}");
+    let own = |ev: &[Event], id: u32| ev.iter().rev().find_map(|e| if let Event::Project(p) = e { p.nodes.iter().find(|n| n.id == id).and_then(|n| n.return_groups.clone()) } else { None });
+    let (m, pa) = (own(&ev, marie).unwrap(), own(&ev, paul).unwrap());
+    assert_eq!(pa.groups.iter().map(|g| g.name.clone()).collect::<Vec<_>>(), m.groups.iter().map(|g| g.name.clone()).collect::<Vec<_>>());
+    assert!(pa.groups.iter().all(|g| !m.groups.iter().any(|o| o.id == g.id)), "identifiants neufs");
+    assert!(pa.members.iter().any(|[n, _]| *n == guitar), "les membres suivent");
+    // Un seul pas d'annulation : Paul suit de nouveau les groupes du projet.
+    let ev = h.command_json(r#"{"type":"undo"}"#);
+    assert!(own(&ev, paul).is_none() && own(&ev, marie).is_some());
+    // Refus : de soi-même, d'un bus ordinaire, d'un nœud inconnu.
+    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Sous-groupe"}"#);
+    let bus = node(&ev, "Sous-groupe").id;
+    for cmd in [
+        format!(r#"{{"type":"copy_return_groups","ret":{marie},"from":{marie}}}"#),
+        format!(r#"{{"type":"copy_return_groups","ret":{paul},"from":{bus}}}"#),
+        format!(r#"{{"type":"copy_return_groups","ret":{bus},"from":{marie}}}"#),
+        format!(r#"{{"type":"copy_return_groups","ret":{paul},"from":999}}"#),
+    ] {
+        assert_eq!(errors(&h.command_json(&cmd)).len(), 1, "{cmd}");
+    }
+    // Un retour ne reçoit que des envois et n'a pas de destination : sortie de piste vers un retour refusée, sortie d'un retour refusée.
+    for cmd in [format!(r#"{{"type":"set_track_output","node":{guitar},"output":{marie}}}"#), format!(r#"{{"type":"set_track_output","node":{marie},"output":{bus}}}"#)] {
+        assert_eq!(errors(&h.command_json(&cmd)).len(), 1, "{cmd}");
+    }
+    assert!(errors(&h.command_json(&format!(r#"{{"type":"set_track_output","node":{guitar},"output":{bus}}}"#))).is_empty(), "vers un bus ordinaire : accepté");
 }

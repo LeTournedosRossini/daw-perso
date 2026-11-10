@@ -12,6 +12,7 @@ import { trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
 import { LevelSheet, linearToDb } from "./level-sheet.js";
 import { menuEl, showMenu } from "./track-menu.js";
+import { openReturnDialog } from "./return-dialog.js";
 import { openGroupDialog } from "./group-dialog.js";
 import { OFFSET_RANGE, effectiveGroups, anySendSolo, formatOffset, groupColor, groupFlags, groupMembers, groupOffset } from "../groups-model.js";
 
@@ -54,22 +55,23 @@ export function sendTargets(project, node) {
   return project.nodes.filter((n) => (n.kind === "master" || n.kind === "bus") && n.id !== node.id && !used.has(n.id));
 }
 
-/** Destinations possibles pour la sortie d'un nœud : la sortie principale et les bus, sauf lui-même. */
+/** Destinations possibles pour la sortie d'un nœud : la sortie principale et les bus, sauf lui-même et les retours (ils ne reçoivent que des envois). */
 export function outputTargets(project, node) {
-  return project.nodes.filter((n) => (n.kind === "master" || n.kind === "bus") && n.id !== node.id);
+  return project.nodes.filter((n) => (n.kind === "master" || n.kind === "bus") && n.id !== node.id && !n.is_return);
 }
 
-/** Un retour de monitoring : un bus qui sort sur la carte son. */
-export const isReturn = (n) => n.kind === "bus" && !!n.phys;
+/** Un retour de monitoring : un bus d'un type à part (QR, onglet de mix, groupes propres). Un bus ordinaire peut sortir sur la carte son sans en être un. */
+export const isReturn = (n) => n.kind === "bus" && !!n.is_return;
 
 /**
- * Sorties que la carte son offre à un retour : `{ value, label, disabled }` ; la valeur est `"première:stéréo:mono"` (`""` : la sortie
- * principale). Les sorties 1 et 2 sont la sortie principale ; celles que prend déjà un autre retour sont grisées, avec son nom.
+ * Sorties que la carte son offre à un bus ou à un retour : `{ value, label, disabled }` ; la valeur est `"première:stéréo:mono"` (`""` :
+ * pour un retour « aucune » — il est muet —, pour un bus la sortie principale). Les sorties 1 et 2 sont la sortie principale ; celles que
+ * prend déjà un autre bus ou retour sont grisées, avec son nom.
  */
 export function returnChoices(project, node) {
   const outputs = project.audio_outputs || 0;
   const taken = (ch) => project.nodes.find((o) => o.id !== node.id && o.phys && ch >= o.phys.first && ch < o.phys.first + (o.phys.stereo ? 2 : 1));
-  const out = [{ value: "", label: "Sortie principale", disabled: false }];
+  const out = [{ value: "", label: node.is_return ? "Aucune (muet)" : "Sortie principale", disabled: false }];
   const push = (first, stereo, mono, label) => {
     const chans = stereo ? [first, first + 1] : [first];
     const owner = chans.map(taken).find(Boolean);
@@ -96,7 +98,7 @@ export function viewNodes(project, view) {
   const keep = {
     all: () => true,
     tracks: (n) => n.kind === "mono" || n.kind === "stereo",
-    buses: (n) => n.kind === "bus" && !n.phys,
+    buses: (n) => n.kind === "bus" && !n.is_return,
     returns: (n) => isReturn(n),
   }[view];
   return keep ? all.filter((n) => n.kind === "master" || keep(n)) : all;
@@ -111,7 +113,7 @@ export function mixSources(project, retour) {
 
 /** Signature de ce qui change la structure des tranches (pas les valeurs : celles-ci se mettent à jour sans tout reconstruire). */
 export function structureKey(project) {
-  return JSON.stringify(project.nodes.map((n) => [n.id, n.name, n.kind, n.color, n.output, n.group ?? 0, n.return_groups ? JSON.stringify([n.return_groups.groups.map((g) => [g.id, g.name, g.color]), n.return_groups.members]) : null, n.sends.map((s) => s.to), n.inserts.map((i) => i.name), n.phys ? [n.phys.first, n.phys.stereo, n.phys.mono] : null]).concat([project.audio_outputs, (project.groups ?? []).map((g) => [g.id, g.name, g.color])]));
+  return JSON.stringify(project.nodes.map((n) => [n.id, n.name, n.kind, n.color, n.output, n.group ?? 0, n.return_groups ? JSON.stringify([n.return_groups.groups.map((g) => [g.id, g.name, g.color]), n.return_groups.members]) : null, n.sends.map((s) => s.to), n.inserts.map((i) => i.name), !!n.is_return, n.phys ? [n.phys.first, n.phys.stereo, n.phys.mono] : null]).concat([project.audio_outputs, (project.groups ?? []).map((g) => [g.id, g.name, g.color])]));
 }
 
 function closeMenuSafe() {
@@ -147,6 +149,10 @@ export class Mixer {
     this.root.querySelector(".close").addEventListener("click", () => this.close());
     document.getElementById("btn-mixer")?.addEventListener("click", () => this.toggle());
     document.getElementById("mx-add-bus")?.addEventListener("click", () => this.client.send({ type: "add_track", kind: "bus" }));
+    document.getElementById("mx-add-return")?.addEventListener("click", () => {
+      const project = this.state.project;
+      openReturnDialog({ client: this.client, project, choices: returnChoices(project, { id: -1, is_return: true }), parse: parseReturnChoice });
+    });
     document.getElementById("mx-add-group")?.addEventListener("click", () => openGroupDialog({ client: this.client, project: this.state.project }));
     document.getElementById("mx-add-track")?.addEventListener("click", (e) => {
       const m = menuEl();
@@ -327,28 +333,47 @@ export class Mixer {
   }
 
   /**
-   * Petite carte en tête de la vue « Mix · X » : de quels groupes ce mix dépend. Par défaut ceux du projet ; « Personnaliser » en fait
-   * une copie propre au retour (modifiable à volonté) qui **les remplace** dans ce mix seulement ; « Revenir… » l'abandonne.
+   * Petite carte en tête de la vue « Mix · X » : de quels groupes ce mix dépend, au choix et de façon visible. « Groupes du projet » (les
+   * mêmes pour tous les retours) ou « Propres à ce retour » (une copie qu'on change à volonté, qui **remplace** ceux du projet dans ce mix
+   * seulement). Avec des groupes propres : « ＋ Groupe » et « Copier d'un autre retour… ».
    */
   #groupBar(retour) {
     const root = document.createElement("div");
     root.className = "mx-strip gbar";
     const custom = !!retour.return_groups;
-    root.innerHTML = `<div class="mx-name">Groupes</div><p class="gb-state"></p><div class="gb-buttons"></div>`;
-    root.querySelector(".gb-state").textContent = custom ? `Propres à « ${retour.name} » : ils remplacent ceux du projet dans ce mix.` : "Ceux du projet. Tu peux donner à ce retour ses propres groupes.";
-    const box = root.querySelector(".gb-buttons");
-    const btn = (label, title, fn) => {
+    root.innerHTML = `<div class="mx-name">Groupes</div><div class="gb-choice" role="group" aria-label="Groupes de ce retour"></div><p class="gb-state"></p><div class="gb-buttons"></div>`;
+    root.querySelector(".gb-state").textContent = custom ? `Propres à « ${retour.name} » : ils remplacent ceux du projet dans ce mix.` : "Ceux du projet : les mêmes pour tous les retours.";
+    const choice = root.querySelector(".gb-choice");
+    const seg = (label, title, pressed, fn) => {
       const b = document.createElement("button");
       b.textContent = label;
       b.title = title;
-      b.addEventListener("click", fn);
-      box.append(b);
+      b.setAttribute("aria-pressed", String(pressed));
+      if (!pressed) b.addEventListener("click", fn);
+      choice.append(b);
     };
-    if (!custom) {
-      btn("Personnaliser", "Copie les groupes du projet en groupes propres à ce retour : tu peux les changer sans toucher aux autres retours", () => this.client.send({ type: "customize_return_groups", ret: retour.id }));
-    } else {
-      btn("＋ Groupe", "Créer un groupe propre à ce retour", () => openGroupDialog({ client: this.client, project: this.state.project, ret: retour.id }));
-      btn("Groupes du projet", "Abandonner les groupes propres de ce retour et revenir à ceux du projet", () => this.client.send({ type: "reset_return_groups", ret: retour.id }));
+    seg("Projet", "Ce retour suit les groupes du projet", !custom, () => this.client.send({ type: "reset_return_groups", ret: retour.id }));
+    seg("Propres", "Copie les groupes du projet en groupes propres à ce retour : tu peux les changer sans toucher aux autres retours", custom, () => this.client.send({ type: "customize_return_groups", ret: retour.id }));
+    const box = root.querySelector(".gb-buttons");
+    if (custom) {
+      const add = document.createElement("button");
+      add.textContent = "＋ Groupe";
+      add.title = "Créer un groupe propre à ce retour";
+      add.addEventListener("click", () => openGroupDialog({ client: this.client, project: this.state.project, ret: retour.id }));
+      box.append(add);
+      const others = this.state.project.nodes.filter((n) => isReturn(n) && n.id !== retour.id);
+      if (others.length) {
+        const sel = document.createElement("select");
+        sel.setAttribute("aria-label", "Copier les groupes d'un autre retour");
+        sel.title = "Remplace les groupes propres de ce retour par une copie de ceux d'un autre retour";
+        sel.append(new Option("Copier d'un retour…", ""));
+        for (const o of others) sel.append(new Option(o.name, String(o.id)));
+        sel.addEventListener("change", () => {
+          if (sel.value !== "") this.client.send({ type: "copy_return_groups", ret: retour.id, from: Number(sel.value) });
+          sel.value = "";
+        });
+        box.append(sel);
+      }
     }
     return root;
   }
@@ -499,11 +524,11 @@ export class Mixer {
     root.className = `mx-strip${n.kind === "master" ? " master" : ""}`;
     root.style.setProperty("--c", n.color || "var(--muted)");
     const isTrack = n.kind === "mono" || n.kind === "stereo";
-    const label = { stereo: "stéréo", mono: "mono", bus: "bus", master: "" }[n.kind];
+    const label = n.is_return ? "retour" : { stereo: "stéréo", mono: "mono", bus: "bus", master: "" }[n.kind];
     root.innerHTML = `
       <div class="mx-name"></div>
       <select class="mx-out" aria-label="Sortie" ${n.kind === "master" || isReturn(n) ? "hidden" : ""}></select>
-      <select class="mx-ret" aria-label="Sortie sur la carte son (retour de monitoring)" title="Retour de monitoring : sortir ce bus sur la carte son (sorties 3 et suivantes) au lieu de la sortie principale" ${n.kind === "bus" ? "" : "hidden"}></select>
+      <select class="mx-ret" aria-label="Sortie sur la carte son" title="${n.is_return ? "Sortie de ce retour sur la carte son (sorties 3 et suivantes) : muet tant qu'aucune n'est choisie" : "Sortir ce bus sur la carte son (sorties 3 et suivantes) au lieu de la sortie principale"}" ${n.kind === "bus" ? "" : "hidden"}></select>
       <button class="mx-qr" title="Adresse et code QR de ce retour : la tablette du musicien règle son mix" aria-label="Code QR du retour" ${isReturn(n) ? "" : "hidden"}>QR</button>
       <div class="mx-top"><div class="mx-fx"></div><div class="mx-sends"></div></div>
       <div class="mx-pan"><input type="range" min="-1" max="1" step="0.01" aria-label="Panoramique"><span class="pan-out"></span></div>
@@ -560,7 +585,11 @@ export class Mixer {
       const cur = n.phys ? `${n.phys.first}:${n.phys.stereo ? 1 : 0}:${n.phys.mono ? 1 : 0}` : "";
       refs.ret.value = [...refs.ret.options].some((o) => o.value === cur) ? cur : "";
       refs.ret.disabled = (project.audio_outputs || 0) <= 2 && !n.phys;
-      if (refs.ret.disabled) refs.ret.title = "Le pilote n'a ouvert que la sortie principale : pas de retour possible";
+      if (refs.ret.disabled) refs.ret.title = "Le pilote n'a ouvert que la sortie principale : pas de sortie sur la carte son possible";
+      if (n.is_return && !n.phys) {
+        refs.ret.classList.add("silent");
+        refs.ret.title = "Ce retour est muet : choisis sa sortie sur la carte son";
+      }
       refs.ret.addEventListener("change", () => this.client.send({ type: "set_return_output", node: n.id, output: parseReturnChoice(refs.ret.value) }));
     }
     // Plugins : un bouton par plugin (grisé s'il est contourné), « ＋ » pour en ajouter ; tous ouvrent la fenêtre des plugins.

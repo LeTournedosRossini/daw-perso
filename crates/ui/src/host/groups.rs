@@ -101,7 +101,7 @@ impl Host {
         if self.session.return_groups(NodeId(ret)).is_some() {
             return Self::group_error("customize_return_groups", "ce retour a déjà ses propres groupes");
         }
-        if !self.session.graph().nodes.get(ret as usize).is_some_and(|n| n.phys.is_some()) {
+        if !self.session.graph().nodes.get(ret as usize).is_some_and(|n| n.monitor) {
             return Self::group_error("customize_return_groups", "seul un retour de monitoring peut avoir ses propres groupes");
         }
         let mut events = self.clear_return_offsets(ret);
@@ -111,13 +111,43 @@ impl Host {
         for g in project {
             let id = self.session.alloc_group_id();
             for m in self.session.group_members(g.id) {
-                if self.session.graph().nodes[m.0 as usize].phys.is_none() {
+                if !self.session.graph().nodes[m.0 as usize].monitor {
                     members.push((m, id));
                 }
             }
             copy.push(Group { id, name: g.name, color: g.color });
         }
         events.extend(self.finish_return_groups("customize_return_groups", "Groupes propres au retour", ret, Some((copy, members))));
+        events
+    }
+
+    /// Copie les groupes d'un autre retour (les siens ou ceux du projet qu'il suit) en groupes propres de `ret`, avec de nouveaux
+    /// identifiants ; remplace ceux que `ret` avait.
+    pub(super) fn copy_return_groups(&mut self, ret: u32, from: u32) -> Vec<Event> {
+        const CMD: &str = "copy_return_groups";
+        let is_return = |n: u32| self.session.graph().nodes.get(n as usize).is_some_and(|x| x.monitor);
+        if ret == from {
+            return Self::group_error(CMD, "choisis un autre retour que celui-ci");
+        }
+        if !is_return(ret) || !is_return(from) {
+            return Self::group_error(CMD, "les deux nœuds doivent être des retours de monitoring");
+        }
+        let mut events = self.clear_return_offsets(ret);
+        let old: Vec<u32> = self.session.return_groups(NodeId(ret)).map(|g| g.groups.iter().map(|x| x.id).collect()).unwrap_or_default();
+        let source: Vec<Group> = self.session.effective_group_list(Some(NodeId(from))).to_vec();
+        let mut copy = Vec::new();
+        let mut members = Vec::new();
+        for g in source {
+            let id = self.session.alloc_group_id();
+            for m in self.session.effective_members(g.id, Some(NodeId(from))) {
+                if m.0 != ret && !self.session.graph().nodes[m.0 as usize].monitor {
+                    members.push((m, id));
+                }
+            }
+            copy.push(Group { id, name: g.name, color: g.color });
+        }
+        events.extend(self.finish_return_groups(CMD, "Copier les groupes d'un retour", ret, Some((copy, members))));
+        self.group_offsets.retain(|(g, _), _| !old.contains(g));
         events
     }
 
@@ -203,7 +233,7 @@ impl Host {
                 }
                 Some(t) => {
                     let missing = !self.session.graph().nodes[n as usize].sends.iter().any(|s| s.to.0 == t);
-                    if missing && (mute == Some(true) || solo == Some(true)) && n != 0 && self.session.graph().nodes[n as usize].phys.is_none() {
+                    if missing && (mute == Some(true) || solo == Some(true)) && n != 0 && !self.session.graph().nodes[n as usize].monitor {
                         events.extend(self.command(Command::AddSend { node: n, to: t }));
                         events.extend(self.command(Command::SetSend { node: n, to: t, gain: Some(0.0), pre: None, mute: None, solo: None }));
                     }
