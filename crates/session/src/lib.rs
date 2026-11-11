@@ -202,6 +202,8 @@ pub struct Session {
     redo: Vec<Transaction>,
     /// Transaction en cours de construction (groupe ouvert).
     open: Option<Transaction>,
+    /// Fusion en cours (scripts) : indice de la pile d'annulation au début et libellé de l'action finale.
+    merge: Option<(usize, String)>,
     /// Fichiers audio du projet : les données en mémoire et le chemin sous lequel elles sont enregistrées.
     assets: Vec<(Arc<AudioData>, String)>,
     /// Chemins (référencés en place) des fichiers introuvables à l'ouverture : leurs données sont du silence.
@@ -291,7 +293,7 @@ impl Session {
         let inputs = vec![nodes::NodeInput::default(); graph.nodes.len()];
         let node_group = vec![0u32; graph.nodes.len()];
         let node_group_len = graph.nodes.len();
-        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
+        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
         let _ = s.sync_all(); // identique à l'entrée (conversion exacte) ; sinon le graphe reste tel quel
         s
     }
@@ -686,6 +688,49 @@ impl Session {
                 Err(e)
             }
         }
+    }
+
+    /// Début d'une fusion : tout ce qui s'inscrit ensuite dans l'historique devient, à `merge_end`, une seule action
+    /// annulable (un script lancé = un pas d'annulation). Refusé si une fusion est déjà ouverte.
+    pub fn merge_begin(&mut self, label: &str) -> bool {
+        if self.merge.is_some() {
+            return false;
+        }
+        self.merge = Some((self.undo.len(), label.to_owned()));
+        true
+    }
+
+    /// Une fusion est-elle ouverte ?
+    pub fn merge_open(&self) -> bool {
+        self.merge.is_some()
+    }
+
+    /// Fin de la fusion : les actions faites depuis `merge_begin` n'en forment plus qu'une. Rend leur nombre (0 : rien à fusionner).
+    pub fn merge_end(&mut self) -> usize {
+        let Some((start, label)) = self.merge.take() else { return 0 };
+        let start = start.min(self.undo.len());
+        let count = self.undo.len() - start;
+        if count > 0 {
+            let edits: Vec<Edit> = self.undo.drain(start..).flat_map(|t| t.edits).collect();
+            self.undo.push(Transaction { label, edits });
+        }
+        count
+    }
+
+    /// Abandon de la fusion : tout ce qui a été fait depuis `merge_begin` est défait et oublié (ni annulation ni rétablissement).
+    pub fn merge_abort(&mut self) -> usize {
+        let Some((start, _)) = self.merge.take() else { return 0 };
+        let start = start.min(self.undo.len());
+        let mut n = 0;
+        while self.undo.len() > start {
+            let t = self.undo.pop().unwrap_or_default();
+            for e in t.edits.iter().rev() {
+                let _ = self.apply(&e.flip());
+            }
+            n += 1;
+        }
+        self.redo.clear();
+        n
     }
 
     pub fn undo(&mut self) -> bool {

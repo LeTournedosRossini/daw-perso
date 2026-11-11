@@ -35,6 +35,65 @@ fn log(msg: &str) {
     }
 }
 
+/// Dossier des scripts de l'utilisateur (`…/DAW/scripts`).
+fn scripts_dir() -> Result<std::path::PathBuf, String> {
+    data_dir().map(|d| d.join("scripts")).ok_or_else(|| "dossier de données introuvable".to_string())
+}
+
+/// Taille maximale d'un script (en octets) : un script est un petit texte.
+const SCRIPT_MAX_BYTES: usize = 256 * 1024;
+
+/// Liste les scripts `*.js` du dossier de l'utilisateur (200 au plus, triés par nom).
+#[tauri::command]
+fn scripts_list() -> Result<serde_json::Value, String> {
+    let dir = scripts_dir()?;
+    let existed = dir.is_dir();
+    let mut scripts = Vec::new();
+    if existed {
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .map_err(|e| format!("lecture du dossier des scripts : {e}"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "js"))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        names.sort();
+        for file in names.into_iter().take(200) {
+            if let Ok(source) = std::fs::read_to_string(dir.join(&file)) {
+                if source.len() <= SCRIPT_MAX_BYTES {
+                    scripts.push(serde_json::json!({ "file": file, "source": source }));
+                }
+            }
+        }
+    }
+    // `existed` : le dossier existait-il déjà ? (Sinon la page y dépose les exemples.)
+    Ok(serde_json::json!({ "dir": dir.to_string_lossy(), "existed": existed, "scripts": scripts }))
+}
+
+/// Écrit un script dans le dossier des scripts. Le nom est un simple nom de fichier `.js` (lettres, chiffres, espace, `_`, `-`, `.`) :
+/// jamais de chemin, donc rien ne s'écrit hors du dossier. Écrasement seulement si `overwrite`.
+#[tauri::command]
+fn script_save(file: String, source: String, overwrite: bool) -> Result<(), String> {
+    let ok_name = !file.is_empty()
+        && file.len() <= 80
+        && file.ends_with(".js")
+        && !file.starts_with('.')
+        && file.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '_' | '-' | '.'))
+        && !file.contains("..");
+    if !ok_name {
+        return Err("nom de script invalide (lettres, chiffres, espace, _ - . ; extension .js)".into());
+    }
+    if source.len() > SCRIPT_MAX_BYTES {
+        return Err("script trop long (256 Ko au plus)".into());
+    }
+    let dir = scripts_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("création du dossier des scripts : {e}"))?;
+    let path = dir.join(&file);
+    if path.exists() && !overwrite {
+        return Err("ce script existe déjà".into());
+    }
+    std::fs::write(&path, source).map_err(|e| format!("écriture du script : {e}"))
+}
+
 struct CommandSender(Mutex<Sender<String>>);
 
 /// La page a-t-elle pris en charge la fermeture de la fenêtre (confirmation si le projet a des modifications non
@@ -421,7 +480,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(CommandSender(Mutex::new(tx)))
         .manage(CloseGuard(AtomicBool::new(false)))
-        .invoke_handler(tauri::generate_handler![send_command, close_guard, quit, restart_app])
+        .invoke_handler(tauri::generate_handler![send_command, close_guard, quit, restart_app, scripts_list, script_save])
         .on_window_event(|window, event| {
             // Seule la fenêtre principale demande confirmation : une fenêtre de plugin se ferme par l'hôte (voir `win32_window`).
             if window.label() != "main" {

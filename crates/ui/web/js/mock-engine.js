@@ -69,6 +69,7 @@ export class MockEngine extends EngineClient {
     this.preview = null; // aperçu sonore d'un fondu en cours (voir `#startPreview`)
     this.timer = null;
     this.autoCrossfade = true;
+    this.group = null; // script en cours : { start (taille de la pile d'annulation), label }
     this.undoStack = []; // { label, before, after } : copies des clips avant et après chaque édition
     this.redoStack = [];
     // Fichiers : le faux moteur n'écrit rien sur le disque, il garde en mémoire ce qu'il « enregistre » (chemin → projet).
@@ -1710,8 +1711,40 @@ export class MockEngine extends EngineClient {
           a.fade_out = msg.length;
           b.fade_in = msg.length;
         });
+      case "begin_group":
+        if (this.group) {
+          this.emit("error", { command: msg.type, message: "un script est déjà en cours : termine-le d'abord" });
+          return false;
+        }
+        this.group = { start: this.undoStack.length, label: msg.label };
+        break;
+      case "end_group":
+      case "abort_group": {
+        if (!this.group) {
+          this.emit("error", { command: msg.type, message: "aucun script en cours" });
+          return false;
+        }
+        const { start, label } = this.group;
+        this.group = null;
+        const steps = this.undoStack.splice(Math.min(start, this.undoStack.length));
+        if (msg.type === "end_group") {
+          if (steps.length) this.undoStack.push({ label, before: steps[0].before, after: steps[steps.length - 1].after });
+          this.#emitHistory();
+        } else {
+          if (steps.length) this.#restore(steps[0].before);
+          this.redoStack.length = 0;
+          this.#markDirty();
+          this.#emitProject();
+          this.#emitHistory();
+        }
+        break;
+      }
       case "undo":
       case "redo": {
+        if (this.group) {
+          this.emit("error", { command: msg.type, message: "un script est en cours : attends sa fin pour annuler ou rétablir" });
+          return false;
+        }
         const from = msg.type === "undo" ? this.undoStack : this.redoStack;
         const to = msg.type === "undo" ? this.redoStack : this.undoStack;
         const step = from.pop();

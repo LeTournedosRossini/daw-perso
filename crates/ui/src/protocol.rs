@@ -467,6 +467,12 @@ pub enum Command {
     MergeAlignSettings { dst: String, src: String },
     /// Annule l'export en cours (les fichiers déjà terminés sont conservés ; aucun fichier partiel ne reste).
     CancelExport,
+    /// Début d'un script : toutes les actions annulables qui suivent n'en feront qu'une (« label »), jusqu'à `end_group`.
+    BeginGroup { label: String },
+    /// Fin d'un script : les actions faites depuis `begin_group` n'en forment plus qu'une seule dans l'historique.
+    EndGroup,
+    /// Abandon d'un script : tout ce qu'il a fait depuis `begin_group` est défait et oublié.
+    AbortGroup,
     Undo,
     Redo,
 }
@@ -577,6 +583,9 @@ impl Command {
             Command::MergeAlignSettings { .. } => "merge_align_settings",
             Command::Export { .. } => "export",
             Command::CancelExport => "cancel_export",
+            Command::BeginGroup { .. } => "begin_group",
+            Command::EndGroup => "end_group",
+            Command::AbortGroup => "abort_group",
             Command::Undo => "undo",
             Command::Redo => "redo",
             Command::Transport { .. } => "transport",
@@ -608,6 +617,12 @@ impl Command {
             Command::MoveClips { clips, .. } | Command::SplitClips { clips, .. } | Command::DeleteClips { clips } | Command::CopyClips { clips } | Command::DuplicateClips { clips, .. } => {
                 if clips.is_empty() || clips.len() > 10_000 {
                     return Err(format!("{} : de 1 à 10 000 clips", self.name()));
+                }
+                Ok(())
+            }
+            Command::BeginGroup { label } => {
+                if label.trim().is_empty() || label.chars().count() > 80 {
+                    return Err("begin_group : libellé de 1 à 80 caractères".into());
                 }
                 Ok(())
             }

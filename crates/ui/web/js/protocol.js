@@ -462,6 +462,10 @@ export function validateCommand(m) {
       if (!isInt(m.length) || m.length < 1) return "set_crossfade_length : length ≥ 1 échantillon";
       if (!ANCHORS.includes(m.anchor)) return `set_crossfade_length : anchor inconnu « ${m.anchor} » (center, start ou end)`;
       return null;
+    case "begin_group":
+      return typeof m.label === "string" && m.label.trim() !== "" && [...m.label].length <= 80 ? null : "begin_group : libellé de 1 à 80 caractères";
+    case "end_group":
+    case "abort_group":
     case "undo":
     case "redo":
       return null;

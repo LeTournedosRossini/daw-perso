@@ -1420,6 +1420,7 @@ impl Host {
             Command::MergeAlignSettings { dst, src } => self.merge_align_settings(&dst, &src),
             Command::Export { .. } => self.start_export(cmd),
             Command::CancelExport => self.cancel_export(),
+            Command::NewProject | Command::OpenProject { .. } if self.session.merge_open() => error("un script est en cours : attends sa fin".into()),
             Command::NewProject => match self.refuse_while_recording(name).or_else(|| self.refuse_while_exporting(name)).or_else(|| self.refuse_while_importing(name)).or_else(|| self.refuse_while_aligning(name)).or_else(|| self.refuse_while_stretching(name)).or_else(|| self.refuse_while_converting(name)) {
                 Some(refused) => refused,
                 None => self.new_project(),
@@ -1454,6 +1455,27 @@ impl Host {
                 }
                 self.end_preview(true, true)
             }
+            Command::BeginGroup { label } => {
+                if !self.session.merge_begin(&label) {
+                    return error("un script est déjà en cours : termine-le d'abord".into());
+                }
+                Vec::new()
+            }
+            Command::EndGroup => {
+                if !self.session.merge_open() {
+                    return error("aucun script en cours".into());
+                }
+                self.session.merge_end();
+                vec![self.history_event()]
+            }
+            Command::AbortGroup => {
+                if !self.session.merge_open() {
+                    return error("aucun script en cours".into());
+                }
+                self.session.merge_abort();
+                self.finish_edit(name, Ok(()))
+            }
+            Command::Undo | Command::Redo if self.session.merge_open() => error("un script est en cours : attends sa fin pour annuler ou rétablir".into()),
             Command::Undo => {
                 if let Some(refused) = self.refuse_while_recording(name) {
                     return refused;

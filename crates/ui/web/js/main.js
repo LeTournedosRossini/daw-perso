@@ -17,6 +17,7 @@ import { PluginsPanel } from "./ui/plugins-panel.js";
 import { Markers } from "./ui/markers.js";
 import { PianoRoll } from "./ui/piano-roll.js";
 import { ScoreWindow } from "./ui/score-window.js";
+import { ScriptsUI } from "./ui/scripts-ui.js";
 import { Mixer } from "./ui/mixer.js";
 import { AutomationEditor } from "./ui/automation.js";
 import { ProjectFiles, makeDialogs } from "./project-files.js";
@@ -28,7 +29,7 @@ if (theme === "light" || theme === "dark") document.documentElement.dataset.them
 
 initScale(); // taille de l'interface mémorisée, avant de mesurer quoi que ce soit
 const { engine, label, start } = await createEngine();
-if (new URLSearchParams(location.search).has("debug")) window.__daw = { engine, get pianoRoll() { return pianoRoll; }, get timeline() { return timeline; }, get scoreWindow() { return scoreWindow; } }; // accès pour la vérification dans le navigateur
+if (new URLSearchParams(location.search).has("debug")) window.__daw = { engine, get scripts() { return scripts; }, get pianoRoll() { return pianoRoll; }, get timeline() { return timeline; }, get scoreWindow() { return scoreWindow; } }; // accès pour la vérification dans le navigateur
 document.getElementById("status-engine").textContent = label;
 
 const state = {
@@ -206,6 +207,7 @@ timeline.onDraw = () => markers.refresh();
 const fadeEditor = new FadeEditor(state, engine);
 const exportDialog = new ExportDialog(state, engine, files, makeDialogs());
 const settingsDialog = new SettingsDialog(state, engine, files, makeDialogs());
+const scripts = new ScriptsUI(engine, state, (m) => flash(m));
 const aligner = new AlignController(state, engine, (lines) => fileHooks.onWarnings?.(lines), peaks);
 const importer = new ImportController(state, engine, files, makeDialogs(), timeline, (lines) => fileHooks.onWarnings?.(lines));
 const mixer = new Mixer(state, engine);
@@ -304,6 +306,7 @@ window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
     if (e.key !== " " || e.target.type !== "range") return;
   }
+  if (scripts.handleKey(e)) return; // raccourci d'un script (Ctrl+Alt+lettre ou chiffre 1-9, Alt+Maj+…)
   if ((e.ctrlKey || e.metaKey) && e.altKey) {
     // Taille de l'interface : Ctrl+Alt+ + / − / 0 (sans conflit avec le zoom du navigateur).
     if (e.key === "+" || e.key === "=") stepScale(1);

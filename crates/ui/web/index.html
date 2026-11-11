@@ -17,6 +17,7 @@
         <button id="btn-import" class="text" title="Importer des fichiers audio (WAV, FLAC, MP3) — ou les glisser sur la timeline">Importer…</button>
         <button id="btn-align" class="text" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)">Caler…</button>
         <button id="btn-export" class="text" title="Exporter le mixage ou les stems en WAV / FLAC (Ctrl+E)">Exporter…</button>
+        <button id="btn-scripts" class="text" title="Scripts : lancer un script enregistré, ouvrir la console">Scripts ▾</button>
         <button id="btn-settings" class="text" title="Réglages : pilote audio, tampon, calcul parallèle, calcul en avance, métronome (Ctrl+,)">Réglages…</button>
       </div>
       <div id="project-name" class="project-name" aria-live="polite"></div>
@@ -25,6 +26,7 @@
       <button id="stretch-status" class="rec-status export-status" title="Étirement en cours : cliquer pour l'annuler (Échap)" hidden></button>
       <button id="import-status" class="rec-status export-status" title="Import en cours : cliquer pour l'annuler" hidden></button>
       <button id="listen-status" class="rec-status export-status" title="Écoute de contrôle : un bus est seul dans la sortie principale. Cliquer pour l'arrêter." hidden></button>
+      <button id="script-status" class="rec-status export-status" title="Script en cours : cliquer pour l'arrêter (ce qu'il a fait est défait)" hidden></button>
       <button id="export-status" class="rec-status export-status" title="Export en cours : cliquer pour l'afficher" hidden></button>
       <div id="rec-status" class="rec-status" aria-live="polite" hidden></div>
       <div id="write-status" class="rec-status" aria-live="polite" hidden>● Écriture auto</div>
