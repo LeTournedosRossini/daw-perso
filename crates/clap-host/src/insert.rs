@@ -23,6 +23,8 @@ pub struct ClapInsert {
     sc_l: Vec<f32>,
     sc_r: Vec<f32>,
     sc_len: usize,
+    /// Ports de sortie au-delà du premier : ce que le plugin y a écrit pendant le dernier traitement, `(gauche, droite)` par port.
+    aux: Vec<(Vec<f32>, Vec<f32>)>,
 }
 
 impl ClapInsert {
@@ -38,7 +40,8 @@ impl ClapInsert {
         let latency = plugin.latency();
         let accepts_notes = plugin.accepts_notes();
         let sc_size = if plugin.has_sidechain() { max_frames } else { 0 };
-        Ok(ClapInsert { plugin, latency, max_frames, failed: false, accepts_notes, transport: None, chords: 0, sc_l: vec![0.0; sc_size], sc_r: vec![0.0; sc_size], sc_len: 0 })
+        let aux = (0..plugin.aux_port_count()).map(|_| (vec![0.0; max_frames], vec![0.0; max_frames])).collect();
+        Ok(ClapInsert { plugin, latency, max_frames, failed: false, accepts_notes, transport: None, chords: 0, sc_l: vec![0.0; sc_size], sc_r: vec![0.0; sc_size], sc_len: 0, aux })
     }
 }
 
@@ -57,6 +60,18 @@ impl ClapInsert {
                 Ok(s) if s != ProcessStatus::Error
             );
         self.plugin.set_chords(std::ptr::null()); // l'instantané n'existe plus pour le plugin dès que `process` a rendu la main
+        for (k, (al, ar)) in self.aux.iter_mut().enumerate() {
+            match self.plugin.aux_output(k, len).filter(|_| ok) {
+                Some((l, r)) => {
+                    al[range.clone()].copy_from_slice(l);
+                    ar[range.clone()].copy_from_slice(r);
+                }
+                None => {
+                    al[range.clone()].fill(0.0);
+                    ar[range.clone()].fill(0.0);
+                }
+            }
+        }
         if !ok {
             // Plugin en échec : le signal passe tel quel plutôt que du bruit ou du silence brutal.
             self.failed = true;
@@ -104,6 +119,16 @@ impl Insert for ClapInsert {
 
     fn has_sidechain(&self) -> bool {
         !self.sc_l.is_empty()
+    }
+
+    fn aux_ports(&self) -> usize {
+        self.aux.len()
+    }
+
+    fn aux_output(&self, port: usize, n: usize) -> Option<(&[f32], &[f32])> {
+        let (l, r) = self.aux.get(port)?;
+        let n = n.min(l.len());
+        Some((&l[..n], &r[..n]))
     }
 
     fn set_sidechain(&mut self, l: &[f32], r: &[f32]) {

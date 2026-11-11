@@ -64,6 +64,8 @@ pub struct PortsInfo {
     /// Nombre de canaux de chaque port d'entrée / de sortie.
     pub inputs: Vec<u32>,
     pub outputs: Vec<u32>,
+    /// Nom de chaque port de sortie (même ordre que `outputs`).
+    pub output_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -566,6 +568,17 @@ impl Drop for Core {
     }
 }
 
+/// Un port de sortie auxiliaire (le deuxième et les suivants) : ses canaux et ses tampons gauche / droit.
+struct AuxOut {
+    channels: u32,
+    l: Vec<f32>,
+    r: Vec<f32>,
+    ptrs: [*mut f32; 2],
+}
+
+/// Nombre maximal de ports de sortie auxiliaires pris en charge (Neptune en a 31 en plus de la sortie principale).
+pub const MAX_AUX_PORTS: usize = 31;
+
 pub struct Plugin {
     life: Life,
     max_frames: u32,
@@ -573,6 +586,10 @@ pub struct Plugin {
     /// Canaux du second port d'entrée audio (chaîne latérale) ; 0 : le plugin n'en a pas.
     sc_channels: u32,
     out_channels: u32,
+    /// Ports de sortie au-delà du premier : leurs tampons (alloués à l'activation, jamais redimensionnés ensuite) reçoivent le son du plugin.
+    aux: Vec<AuxOut>,
+    /// Descripteurs de tous les ports de sortie, refaits à chaque `process` sans allocation (capacité réservée à l'activation).
+    out_descs: Vec<clap_audio_buffer>,
     /// Dialecte utilisé pour les notes : `CLAP_NOTE_DIALECT_CLAP` ou `CLAP_NOTE_DIALECT_MIDI` (0 : pas d'entrée de notes).
     note_dialect: u32,
     /// Le port de notes accepte aussi le dialecte MIDI (contrôleurs, molette, pressions).
@@ -877,17 +894,23 @@ impl Core {    fn ext<T>(&self, id: &CStr) -> Option<&T> {
         let mut out = PortsInfo::default();
         let Some(ports) = self.ext::<clap_plugin_audio_ports>(CLAP_EXT_AUDIO_PORTS) else { return out };
         let (Some(count), Some(get)) = (ports.count, ports.get) else { return out };
+        let mut names = Vec::new();
         for (is_input, list) in [(true, &mut out.inputs), (false, &mut out.outputs)] {
             // SAFETY: appels aux fonctions du plugin avec des arguments valides ; `info` est entièrement remplie si `get` renvoie vrai.
             unsafe {
                 for i in 0..count(self.raw, is_input) {
                     let mut info = std::mem::MaybeUninit::<clap_audio_port_info>::zeroed();
                     if get(self.raw, i, is_input, info.as_mut_ptr()) {
-                        list.push(info.assume_init().channel_count);
+                        let info = info.assume_init();
+                        list.push(info.channel_count);
+                        if !is_input {
+                            names.push(CStr::from_ptr(info.name.as_ptr()).to_string_lossy().into_owned());
+                        }
                     }
                 }
             }
         }
+        out.output_names = names;
         out
     }
 
@@ -1056,6 +1079,8 @@ impl Plugin {
             in_channels: 0,
             sc_channels: 0,
             out_channels: 0,
+            aux: Vec::new(),
+            out_descs: Vec::new(),
             note_dialect: 0,
             midi_supported: false,
             events,
@@ -1142,6 +1167,10 @@ impl Plugin {
             return Err(PluginError::ActivateFailed);
         }
         self.max_frames = max_frames.max(1);
+        // Tampons des ports de sortie auxiliaires (au plus 31 en plus du premier) : alloués ici, jamais dans `process`.
+        let ports = self.audio_ports();
+        self.aux = ports.outputs.iter().skip(1).take(MAX_AUX_PORTS).map(|&c| AuxOut { channels: c, l: vec![0.0; self.max_frames as usize], r: vec![0.0; self.max_frames as usize], ptrs: [std::ptr::null_mut(); 2] }).collect();
+        self.out_descs = Vec::with_capacity(self.aux.len() + 1);
         self.set_life(Life::Activated);
         Ok(())
     }
@@ -1358,6 +1387,18 @@ impl Plugin {
         self.process_with_sidechain(in_l, in_r, None, out_l, out_r)
     }
 
+    /// Nombre de ports de sortie audio au-delà du premier (sorties multiples), tels qu'ils ont été activés.
+    pub fn aux_port_count(&self) -> usize {
+        self.aux.len()
+    }
+
+    /// Ce que le port auxiliaire `k` (0 = le deuxième port de sortie) a écrit au dernier `process` : `(gauche, droite)`, au moins le dernier bloc.
+    pub fn aux_output(&self, k: usize, n: usize) -> Option<(&[f32], &[f32])> {
+        let a = self.aux.get(k)?;
+        let n = n.min(a.l.len());
+        Some((&a.l[..n], &a.r[..n]))
+    }
+
     /// Le plugin a-t-il un second port d'entrée audio (la chaîne latérale d'un compresseur, d'un gate...) ?
     pub fn has_sidechain(&self) -> bool {
         self.sc_channels > 0
@@ -1382,15 +1423,23 @@ impl Plugin {
         let mut sc_ptrs = sc.map_or([std::ptr::null_mut(), std::ptr::null_mut()], |(l, r)| [l.as_ptr() as *mut f32, r.as_ptr() as *mut f32]);
         let audio_sc = clap_audio_buffer { data32: sc_ptrs.as_mut_ptr(), data64: std::ptr::null_mut(), channel_count: self.sc_channels.min(2), latency: 0, constant_mask: 0 };
         let audio_ins = [audio_in, audio_sc];
-        let mut audio_out = clap_audio_buffer { data32: out_ptrs.as_mut_ptr(), data64: std::ptr::null_mut(), channel_count: self.out_channels.min(2), latency: 0, constant_mask: 0 };
+        // Tous les ports de sortie : le premier écrit dans `out_l` / `out_r`, les autres dans leurs tampons auxiliaires (remis à zéro avant).
+        self.out_descs.clear();
+        self.out_descs.push(clap_audio_buffer { data32: out_ptrs.as_mut_ptr(), data64: std::ptr::null_mut(), channel_count: self.out_channels.min(2), latency: 0, constant_mask: 0 });
+        for a in &mut self.aux {
+            a.l[..n].fill(0.0);
+            a.r[..n].fill(0.0);
+            a.ptrs = [a.l.as_mut_ptr(), a.r.as_mut_ptr()];
+            self.out_descs.push(clap_audio_buffer { data32: a.ptrs.as_mut_ptr(), data64: std::ptr::null_mut(), channel_count: a.channels.min(2), latency: 0, constant_mask: 0 });
+        }
         let process = clap_process {
             steady_time: -1,
             frames_count: n as u32,
             transport: self.transport.as_deref().map_or(std::ptr::null(), |t| t as *const clap_event_transport),
             audio_inputs: audio_ins.as_ptr(),
-            audio_outputs: &mut audio_out,
+            audio_outputs: self.out_descs.as_mut_ptr(),
             audio_inputs_count: if sc.is_some() { 2 } else { u32::from(self.in_channels > 0) },
-            audio_outputs_count: u32::from(self.out_channels > 0),
+            audio_outputs_count: if self.out_channels > 0 { self.out_descs.len() as u32 } else { 0 },
             in_events: &*self.in_events,
             out_events: &*self.out_events,
         };
@@ -1398,6 +1447,13 @@ impl Plugin {
         // moins `n` échantillons ; `in_events` lit `self.events`, que rien ne modifie pendant l'appel.
         let status = unsafe { (*self.core.raw).process.map_or(CLAP_PROCESS_ERROR, |f| f(self.core.raw, &process)) };
         self.events.len = 0;
+        // Un port auxiliaire mono n'écrit que sa voie gauche : on la double à droite.
+        for a in &mut self.aux {
+            if a.channels == 1 {
+                let (l, r) = (&a.l[..n], &mut a.r[..n]);
+                r.copy_from_slice(l);
+            }
+        }
         Ok(match status {
             1 => ProcessStatus::Continue,
             2 => ProcessStatus::ContinueIfNotQuiet,

@@ -87,6 +87,21 @@ struct SendC {
     solo: bool,
     /// Audibilité lissée (1 ou 0) : muet, et solo d'un autre envoi vers la même destination.
     aud: Smoother,
+    /// Envoi issu d'un port de sortie auxiliaire d'un plugin : indice dans `NodeC::aux` du tampon qui sert de source.
+    aux: Option<usize>,
+}
+
+/// Ce qu'un port de sortie auxiliaire d'un effet a produit pendant le bloc en cours (rempli juste après l'effet, lu au routage).
+struct AuxBuf {
+    insert: usize,
+    port: usize,
+    l: Vec<f32>,
+    r: Vec<f32>,
+}
+
+/// Les sorties auxiliaires branchées d'un nœud : `(indice de l'effet, indice du port auxiliaire, nœud destinataire)`.
+fn aux_dests(d: &crate::graph::NodeDesc) -> Vec<(usize, usize, usize)> {
+    d.inserts.iter().enumerate().flat_map(|(k, ins)| ins.aux.iter().enumerate().filter_map(move |(p, t)| t.map(|t| (k, p, t.0 as usize)))).collect()
 }
 
 struct InsertC {
@@ -185,6 +200,7 @@ struct NodeC {
     is_return: bool,
     out_delay: DelayLine,
     sends: Vec<SendC>,
+    aux: Vec<AuxBuf>,
     /// Signal avant le fader, copié seulement si un envoi « avant fader » existe (sinon vides : rien d'alloué).
     pre_l: Vec<f32>,
     pre_r: Vec<f32>,
@@ -533,6 +549,18 @@ impl NodeC {
                 } else {
                     effect.process(&self.l[..n], &self.r[..n], &mut self.scratch_l[..n], &mut self.scratch_r[..n]);
                 }
+                for buf in self.aux.iter_mut().filter(|x| x.insert == k) {
+                    match effect.aux_output(buf.port, n) {
+                        Some((l, r)) => {
+                            buf.l[..n].copy_from_slice(l);
+                            buf.r[..n].copy_from_slice(r);
+                        }
+                        None => {
+                            buf.l[..n].fill(0.0);
+                            buf.r[..n].fill(0.0);
+                        }
+                    }
+                }
                 self.inserts[k].apply_bypass(&self.l[..n], &self.r[..n], &mut self.scratch_l[..n], &mut self.scratch_r[..n]);
                 std::mem::swap(&mut self.l, &mut self.scratch_l);
                 std::mem::swap(&mut self.r, &mut self.scratch_r);
@@ -576,6 +604,18 @@ impl NodeC {
                     effect.process_with_notes(&self.l[a..b], &self.r[a..b], &mut self.scratch_l[a..b], &mut self.scratch_r[a..b], &self.chunk_events);
                 } else {
                     effect.process(&self.l[a..b], &self.r[a..b], &mut self.scratch_l[a..b], &mut self.scratch_r[a..b]);
+                }
+                for buf in self.aux.iter_mut().filter(|x| x.insert == k) {
+                    match effect.aux_output(buf.port, b - a) {
+                        Some((l, r)) => {
+                            buf.l[a..b].copy_from_slice(l);
+                            buf.r[a..b].copy_from_slice(r);
+                        }
+                        None => {
+                            buf.l[a..b].fill(0.0);
+                            buf.r[a..b].fill(0.0);
+                        }
+                    }
                 }
                 self.inserts[k].apply_bypass(&self.l[a..b], &self.r[a..b], &mut self.scratch_l[a..b], &mut self.scratch_r[a..b]);
                 self.l[a..b].copy_from_slice(&self.scratch_l[a..b]);
@@ -749,7 +789,7 @@ fn two_mut<T>(s: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
 fn route(nodes: &mut [NodeC], src: usize, dst: usize, n: usize, send: Option<usize>, pos: u64) {
     let (s, d) = two_mut(nodes, src, dst);
     let live_monitor = s.armed && s.monitor;
-    let NodeC { l, r, pre_l, pre_r, sends, out_delay, .. } = s;
+    let NodeC { l, r, pre_l, pre_r, sends, out_delay, aux, .. } = s;
     match send {
         None if live_monitor => {
             // Piste écoutée en direct : pas de compensation de latence, pour garder l'écoute aussi courte que possible (y compris vers les
@@ -767,19 +807,27 @@ fn route(nodes: &mut [NodeC], src: usize, dst: usize, n: usize, send: Option<usi
             }
         }
         Some(k) => {
-            let SendC { gain, delay, pre, auto, aud, .. } = &mut sends[k];
+            let SendC { gain, delay, pre, auto, aud, aux: aux_idx, .. } = &mut sends[k];
+            let aux_k: Option<usize> = *aux_idx;
+            let source = |pre: bool| -> (&[f32], &[f32]) {
+                match aux_k {
+                    Some(a) => (&aux[a].l, &aux[a].r),
+                    None if pre => (pre_l, pre_r),
+                    None => (l, r),
+                }
+            };
             // Audibilité : 1 ou 0, lissée ; hors rampe c'est une constante (cas courant : aucun surcoût par échantillon).
             if aud.is_settled() && aud.target() == 0.0 {
                 // Envoi coupé : on fait quand même avancer la ligne à retard pour rester aligné au rétablissement.
                 if !live_monitor {
-                    let (sl, sr): (&[f32], &[f32]) = if *pre { (pre_l, pre_r) } else { (l, r) };
+                    let (sl, sr) = source(*pre);
                     for j in 0..n {
                         delay.tap(sl[j], sr[j]);
                     }
                 }
                 return;
             }
-            let (sl, sr): (&[f32], &[f32]) = if *pre { (pre_l, pre_r) } else { (l, r) };
+            let (sl, sr) = source(*pre);
             if let Some(lane) = auto {
                 // Niveau automatisé : lu à l'échantillon près ; en mode Trim le réglage manuel (lissé) multiplie la courbe.
                 let trim = lane.mode == AutoMode::Trim;
@@ -928,7 +976,7 @@ impl CompiledGraph {
         for &i in &order {
             lat_out[i] = lat_in[i] + own[i];
             let node = &desc.nodes[i];
-            for t in node.main_output().into_iter().chain(node.sends.iter().map(|s| s.to)) {
+            for t in node.main_output().into_iter().chain(node.sends.iter().map(|s| s.to)).chain(node.inserts.iter().flat_map(|x| x.aux.iter().flatten().copied())) {
                 lat_in[t.0 as usize] = lat_in[t.0 as usize].max(lat_out[i]);
             }
         }
@@ -990,8 +1038,10 @@ impl CompiledGraph {
                 sends: d
                     .sends
                     .iter()
-                    .map(|s| SendC { to: s.to.0 as usize, gain: Smoother::new(s.gain), auto: d.automation.iter().find(|l| l.target == (AutoTarget::SendGain { to: s.to }) && l.mode != AutoMode::Off).cloned(), delay: DelayLine::new(edge_delay(i, s.to.0 as usize)), pre: s.pre, mute: s.mute, solo: s.solo, aud: Smoother::new(1.0) })
+                    .map(|s| SendC { to: s.to.0 as usize, gain: Smoother::new(s.gain), auto: d.automation.iter().find(|l| l.target == (AutoTarget::SendGain { to: s.to }) && l.mode != AutoMode::Off).cloned(), delay: DelayLine::new(edge_delay(i, s.to.0 as usize)), pre: s.pre, mute: s.mute, solo: s.solo, aud: Smoother::new(1.0), aux: None })
+                    .chain(aux_dests(d).into_iter().enumerate().map(|(a, (_, _, to))| SendC { to, gain: Smoother::new(1.0), auto: None, delay: DelayLine::new(edge_delay(i, to)), pre: true, mute: false, solo: false, aud: Smoother::new(1.0), aux: Some(a) }))
                     .collect(),
+                aux: aux_dests(d).into_iter().map(|(insert, port, _)| AuxBuf { insert, port, l: vec![0.0; max_block], r: vec![0.0; max_block] }).collect(),
                 pre_l: vec![0.0; if d.sends.iter().any(|s| s.pre) || is_sc_source[i] { max_block } else { 0 }],
                 pre_r: vec![0.0; if d.sends.iter().any(|s| s.pre) || is_sc_source[i] { max_block } else { 0 }],
                 clips: d.clips.iter().filter(|c| !c.muted).cloned().collect(),

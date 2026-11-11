@@ -125,6 +125,8 @@ pub enum GraphError {
     DuplicateSend { node: NodeId, to: NodeId },
     /// La chaîne latérale d'un effet vise la sortie principale ou son propre nœud.
     BadSidechain { node: NodeId, insert: InsertId },
+    /// Un port de sortie auxiliaire d'un effet vise autre chose qu'un bus ou la sortie principale, ou son propre nœud.
+    BadAuxRoute { node: NodeId, insert: InsertId },
     /// Les nœuds listés forment (ou dépendent de) une boucle.
     Cycle(Vec<NodeId>),
     SampleRateMismatch { node: NodeId, clip_rate: u32, graph_rate: u32 },
@@ -278,7 +280,7 @@ impl GraphDesc {
     pub fn add_insert(&mut self, node: NodeId, name: &str, factory: InsertFactory) -> Option<InsertId> {
         let id = self.next_insert;
         let n = self.nodes.get_mut(node.0 as usize)?;
-        n.inserts.push(InsertDesc { id, name: name.to_owned(), factory, bypass: false, sidechain: None });
+        n.inserts.push(InsertDesc { id, name: name.to_owned(), factory, bypass: false, sidechain: None, aux: Vec::new() });
         self.next_insert += 1;
         Some(id)
     }
@@ -287,7 +289,7 @@ impl GraphDesc {
     pub fn alloc_insert(&mut self, name: &str, factory: InsertFactory) -> InsertDesc {
         let id = self.next_insert;
         self.next_insert += 1;
-        InsertDesc { id, name: name.to_owned(), factory, bypass: false, sidechain: None }
+        InsertDesc { id, name: name.to_owned(), factory, bypass: false, sidechain: None, aux: Vec::new() }
     }
 
     /// Pose une courbe d'automation sur le nœud (remplace celle qui vise la même cible).
@@ -322,6 +324,12 @@ impl GraphDesc {
                 if let Some(list) = out.get_mut(src.0 as usize) {
                     list.push(d);
                 }
+            }
+        }
+        // Les ports de sortie auxiliaires des plugins alimentent leur destination comme un envoi.
+        for (i, node) in self.nodes.iter().enumerate() {
+            for t in node.inserts.iter().flat_map(|x| x.aux.iter().flatten()) {
+                out[i].push(t.0 as usize);
             }
         }
         out
@@ -382,6 +390,11 @@ impl GraphDesc {
                 return Err(GraphError::ClipOnNonTrack(node.id));
             }
             for ins in &node.inserts {
+                for t in ins.aux.iter().flatten() {
+                    if *t == node.id || !matches!(self.kind_of(*t)?, NodeKind::Bus | NodeKind::Master) {
+                        return Err(GraphError::BadAuxRoute { node: node.id, insert: ins.id });
+                    }
+                }
                 if let Some(src) = ins.sidechain {
                     // La source d'une chaîne latérale est une piste ou un bus, pas la sortie principale ni le nœud lui-même.
                     if src == node.id || matches!(self.kind_of(src)?, NodeKind::Master) {

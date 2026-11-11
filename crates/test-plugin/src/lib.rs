@@ -139,6 +139,9 @@ pub const PLUGIN_ID: &CStr = c"com.daw-perso.test-gain";
 /// Variante à **chaîne latérale** : un second port d'entrée audio ; quand il reçoit un signal, la sortie est coupée à tout échantillon où ce
 /// signal dépasse 0,5 en valeur absolue (un « ducker » parfait), sinon elle se comporte comme le gain de test.
 pub const SIDECHAIN_ID: &CStr = c"com.daw-perso.test-sidechain";
+/// Variante à **trois ports de sortie** stéréo : le port 0 est le signal normal, le port 1 vaut la moitié, le port 2 le quart (de quoi vérifier
+/// que l'hôte lit et route chaque port séparément).
+pub const MULTIOUT_ID: &CStr = c"com.daw-perso.test-multiout";
 pub const LATENCY: u32 = 64;
 pub const PARAM_GAIN: clap_id = 0;
 pub const PARAM_EXTRA_LATENCY: clap_id = 1;
@@ -227,13 +230,27 @@ static DESCRIPTOR_SC: clap_plugin_descriptor = clap_plugin_descriptor {
     features: FEATURES.0.as_ptr(),
 };
 
+static DESCRIPTOR_MO: clap_plugin_descriptor = clap_plugin_descriptor {
+    clap_version: CLAP_VERSION,
+    id: MULTIOUT_ID.as_ptr(),
+    name: c"Multi-sorties de test".as_ptr(),
+    vendor: c"DAW perso (tests)".as_ptr(),
+    url: c"".as_ptr(),
+    manual_url: c"".as_ptr(),
+    support_url: c"".as_ptr(),
+    version: c"1.0.0".as_ptr(),
+    description: c"Trois ports de sortie (1, 1/2, 1/4) pour tester le routage des sorties multiples".as_ptr(),
+    features: FEATURES.0.as_ptr(),
+};
+
 unsafe extern "C" fn factory_count(_: *const clap_plugin_factory) -> u32 {
-    2
+    3
 }
 unsafe extern "C" fn factory_descriptor(_: *const clap_plugin_factory, index: u32) -> *const clap_plugin_descriptor {
     match index {
         0 => &DESCRIPTOR,
         1 => &DESCRIPTOR_SC,
+        2 => &DESCRIPTOR_MO,
         _ => std::ptr::null(),
     }
 }
@@ -256,6 +273,8 @@ struct Instance {
     dc: f32,
     /// Variante à chaîne latérale (second port d'entrée).
     sidechain: bool,
+    /// Variante à trois ports de sortie.
+    multiout: bool,
 }
 
 unsafe fn inst<'a>(p: *const clap_plugin) -> &'a mut Instance {
@@ -267,13 +286,14 @@ unsafe extern "C" fn factory_create(_: *const clap_plugin_factory, host: *const 
         return std::ptr::null();
     }
     let sidechain = CStr::from_ptr(id) == SIDECHAIN_ID;
-    if !sidechain && CStr::from_ptr(id) != PLUGIN_ID {
+    let multiout = CStr::from_ptr(id) == MULTIOUT_ID;
+    if !sidechain && !multiout && CStr::from_ptr(id) != PLUGIN_ID {
         return std::ptr::null();
     }
     gui::remember_host(host);
     let raw = Box::into_raw(Box::new(Instance {
         clap: clap_plugin {
-            desc: if sidechain { &DESCRIPTOR_SC } else { &DESCRIPTOR },
+            desc: if sidechain { &DESCRIPTOR_SC } else if multiout { &DESCRIPTOR_MO } else { &DESCRIPTOR },
             plugin_data: std::ptr::null_mut(),
             init: Some(plugin_init),
             destroy: Some(plugin_destroy),
@@ -296,6 +316,7 @@ unsafe extern "C" fn factory_create(_: *const clap_plugin_factory, host: *const 
         held: [0.0; 128],
         dc: 0.0,
         sidechain,
+        multiout,
     }));
     (*raw).clap.plugin_data = raw as *mut c_void;
     &(*raw).clap
@@ -498,6 +519,16 @@ unsafe extern "C" fn plugin_process(p: *const clap_plugin, process: *const clap_
         }
         *out_l.add(n as usize) = dl * g + i.dc;
         *out_r.add(n as usize) = dr * g + i.dc;
+        if i.multiout {
+            for k in 1..(pr.audio_outputs_count as usize).min(3) {
+                let port = &*pr.audio_outputs.add(k);
+                if port.channel_count >= 2 && !port.data32.is_null() {
+                    let scale = if k == 1 { 0.5 } else { 0.25 };
+                    *(*port.data32).add(n as usize) = dl * g * scale + i.dc;
+                    *(*port.data32.add(1)).add(n as usize) = dr * g * scale + i.dc;
+                }
+            }
+        }
     }
     // Événements restants (instants au-delà du bloc : ne devrait pas arriver) appliqués quand même.
     while next < count {
@@ -590,17 +621,25 @@ fn copy_str<const N: usize>(dst: &mut [c_char; N], s: &str) {
 }
 
 unsafe extern "C" fn ports_count(p: *const clap_plugin, is_input: bool) -> u32 {
-    if is_input && inst(p).sidechain { 2 } else { 1 }
+    if is_input && inst(p).sidechain {
+        2
+    } else if !is_input && inst(p).multiout {
+        3
+    } else {
+        1
+    }
 }
 unsafe extern "C" fn ports_get(p: *const clap_plugin, index: u32, is_input: bool, info: *mut clap_audio_port_info) -> bool {
     let extra = is_input && inst(p).sidechain && index == 1;
-    if index != 0 && !extra {
+    let more_out = !is_input && inst(p).multiout && index < 3;
+    if index != 0 && !extra && !more_out {
         return false;
     }
     let info = &mut *info;
     info.id = index;
-    copy_str(&mut info.name, if extra { "Chaîne latérale" } else { "Principal" });
-    info.flags = if extra { 0 } else { CLAP_AUDIO_PORT_IS_MAIN };
+    let out_name = ["Principal", "Sortie 2", "Sortie 3"][(index as usize).min(2)];
+    copy_str(&mut info.name, if extra { "Chaîne latérale" } else if more_out { out_name } else { "Principal" });
+    info.flags = if extra || index > 0 { 0 } else { CLAP_AUDIO_PORT_IS_MAIN };
     info.channel_count = 2;
     info.port_type = CLAP_PORT_STEREO.as_ptr();
     info.in_place_pair = CLAP_INVALID_ID;

@@ -590,6 +590,7 @@ impl NodeC {
             is_return: false,
             out_delay: super::DelayLine::new(0),
             sends: Vec::new(),
+            aux: Vec::new(),
             pre_l: Vec::new(),
             pre_r: Vec::new(),
             clips: Vec::new(),
@@ -726,7 +727,7 @@ impl CompiledGraph {
     pub(super) fn make_twins(&mut self, params: AheadParams) {
         for node in &mut self.nodes {
             // Une piste dont un effet reçoit une chaîne latérale se calcule dans le callback : le signal de sa source n'existe que là.
-            if !node.is_track() || (node.inserts.is_empty() && node.midi.is_empty()) || node.inserts.iter().any(|i| i.sc.is_some()) {
+            if !node.is_track() || (node.inserts.is_empty() && node.midi.is_empty()) || node.inserts.iter().any(|i| i.sc.is_some()) || !node.aux.is_empty() {
                 continue;
             }
             let size = node.l.len().max(params.block);

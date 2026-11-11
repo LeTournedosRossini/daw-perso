@@ -33,6 +33,15 @@ pub trait Insert: Send + 'static {
     fn has_sidechain(&self) -> bool {
         false
     }
+    /// Nombre de ports de sortie audio **au-delà du premier** (sorties multiples d'un instrument comme Neptune) ; 0 par défaut.
+    fn aux_ports(&self) -> usize {
+        0
+    }
+    /// Ce que le port auxiliaire `port` (0 = le deuxième port de sortie) a produit pendant le dernier `process`, sur `n` échantillons
+    /// (gauche, droite) ; `None` si le port n'existe pas.
+    fn aux_output(&self, _port: usize, _n: usize) -> Option<(&[f32], &[f32])> {
+        None
+    }
     /// Signal de chaîne latérale du prochain `process` (même longueur que le bloc, aligné sur l'entrée de l'effet) ; l'effet le copie :
     /// les tampons appartiennent au moteur. Appelée avant `process`, seulement si `has_sidechain()`.
     fn set_sidechain(&mut self, _l: &[f32], _r: &[f32]) {}
@@ -78,6 +87,11 @@ pub struct InsertDesc {
     /// Source de la chaîne latérale : la piste ou le bus dont le signal (avant son fader) alimente le second port d'entrée de l'effet.
     /// `None` : pas de chaîne latérale (le port est omis).
     pub sidechain: Option<daw_core_types::NodeId>,
+    /// Destination de chaque **port de sortie auxiliaire** du plugin (`aux[k]` : le deuxième port pour k = 0…) : un bus (ou la sortie
+    /// principale). Le signal y arrive comme celui d'un envoi « avant fader » de niveau 1, que ni le fader ni le muet de la piste ne touchent.
+    /// `None` ou liste plus courte : port non branché (son signal est perdu). Alignement : retard de la piste (celui de sa sortie), approché
+    /// si des effets à latence suivent ce plugin dans la chaîne.
+    pub aux: Vec<Option<daw_core_types::NodeId>>,
 }
 
 impl std::fmt::Debug for InsertDesc {
