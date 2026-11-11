@@ -106,21 +106,25 @@ const SCRIPT_FS_MAX: u64 = 1024 * 1024;
 /// Extensions qu'un script ne peut pas écrire (programmes, scripts, plugins).
 const SCRIPT_FS_DENIED_EXT: &[&str] = &["exe", "dll", "bat", "cmd", "com", "msi", "scr", "ps1", "vbs", "lnk", "sh", "app", "so", "dylib", "clap", "js"];
 
-/// Chemin réel de `path` s'il est dans l'une des `roots` (elles-mêmes prises au réel). `must_exist` faux : le fichier peut ne pas exister
-/// encore, c'est alors son dossier qui est vérifié.
+/// Chemin réel de `p` : `canonicalize` s'il existe (ou si `must_exist`), sinon le chemin réel de son dossier suivi de son nom (un fichier
+/// que « Enregistrer sous » vient de désigner n'existe pas encore).
+fn script_fs_real(p: &std::path::Path, must_exist: bool) -> Result<std::path::PathBuf, String> {
+    if must_exist || p.exists() {
+        return p.canonicalize().map_err(|e| format!("chemin introuvable : {e}"));
+    }
+    let parent = p.parent().ok_or_else(|| "chemin invalide".to_string())?;
+    let name = p.file_name().ok_or_else(|| "nom de fichier invalide".to_string())?;
+    Ok(parent.canonicalize().map_err(|e| format!("dossier introuvable : {e}"))?.join(name))
+}
+
+/// Chemin réel de `path` s'il est dans l'une des `roots` (elles-mêmes prises au réel, même si le fichier désigné n'existe pas encore).
+/// `must_exist` faux : le fichier peut ne pas exister encore, c'est alors son dossier qui est vérifié.
 fn script_fs_resolve(path: &str, roots: &[String], must_exist: bool) -> Result<std::path::PathBuf, String> {
     if roots.is_empty() {
         return Err("aucun dossier autorisé pour ce script".into());
     }
-    let p = std::path::Path::new(path);
-    let real = if must_exist || p.exists() {
-        p.canonicalize().map_err(|e| format!("chemin introuvable : {e}"))?
-    } else {
-        let parent = p.parent().ok_or_else(|| "chemin invalide".to_string())?;
-        let name = p.file_name().ok_or_else(|| "nom de fichier invalide".to_string())?;
-        parent.canonicalize().map_err(|e| format!("dossier introuvable : {e}"))?.join(name)
-    };
-    let allowed = roots.iter().filter_map(|r| std::path::Path::new(r).canonicalize().ok()).any(|r| real.starts_with(&r));
+    let real = script_fs_real(std::path::Path::new(path), must_exist)?;
+    let allowed = roots.iter().filter_map(|r| script_fs_real(std::path::Path::new(r), false).ok()).any(|r| real.starts_with(&r));
     if allowed {
         Ok(real)
     } else {
@@ -690,5 +694,23 @@ mod script_fs_tests {
         assert_eq!((a["is_dir"].as_bool(), a["size"].as_u64()), (Some(false), Some(5)));
         assert!(script_fs_list(s(&root.join("a.txt")), roots.clone()).is_err(), "pas un dossier");
         assert!(script_fs_list(s(&std::env::temp_dir()), roots).is_err(), "hors des racines");
+    }
+}
+
+#[cfg(test)]
+mod script_fs_new_file_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_chosen_in_a_save_dialog_is_writable_before_it_exists() {
+        let dir = std::env::temp_dir().join(format!("daw-script-fs-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let chosen = dir.join("notes.csv"); // « Enregistrer sous » rend ce chemin : le fichier n'existe pas encore
+        let roots = vec![chosen.to_string_lossy().into_owned()];
+        script_fs_write(chosen.to_string_lossy().into_owned(), "a;b\n".into(), roots.clone(), false).unwrap();
+        assert_eq!(std::fs::read_to_string(&chosen).unwrap(), "a;b\n");
+        // Le voisin n'est pas accessible pour autant.
+        assert!(script_fs_write(dir.join("autre.csv").to_string_lossy().into_owned(), "x".into(), roots, false).is_err());
     }
 }

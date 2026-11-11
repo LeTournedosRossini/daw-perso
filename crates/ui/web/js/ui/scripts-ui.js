@@ -30,6 +30,7 @@ export class ScriptsUI {
   #scripts = []; // { file, source, meta, shortcut }
   #menu = null;
   #console = null;
+  #lines = []; // sortie gardée même console fermée : elle s'affiche à l'ouverture
   #status = document.getElementById("script-status");
 
   constructor(engine, state, notify, store = createScriptStore(), runner = new ScriptRunner(engine, state), { dialogs = makeDialogs(), fsBackend = createFsBackend() } = {}) {
@@ -121,6 +122,7 @@ export class ScriptsUI {
       this.#notify(`Script « ${name} » terminé`);
     } else {
       this.#out(`✗ ${r.error} — ce que le script avait fait est défait`);
+      this.openConsole(); // l'erreur doit se voir : le bandeau du bas ne reste que quelques secondes
       this.#notify(`Script « ${name} » : ${r.error}`);
     }
     return r;
@@ -267,10 +269,14 @@ export class ScriptsUI {
     document.body.append(root);
     makeFloatable(root, { key: "daw-script-console", minW: 360, minH: 260 });
     this.#console = { root, code, out };
+    out.textContent = this.#lines.map((l) => `${l}\n`).join("");
+    out.scrollTop = out.scrollHeight;
     code.focus();
   }
 
   #out(line) {
+    this.#lines.push(line);
+    if (this.#lines.length > 300) this.#lines.shift();
     const c = this.#console;
     if (!c) return;
     c.out.textContent += `${line}\n`;

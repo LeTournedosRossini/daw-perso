@@ -2,7 +2,7 @@
 // (voir `notes-model.js`) ; chaque geste est une seule commande (un pas d'annulation), envoyée au relâchement.
 //
 // Souris : clic dans le vide = ajouter une note (durée de la grille) ; clic sur une note = la sélectionner (Maj : ajouter à la
-// sélection) ; glisser = déplacer (temps et touche) ; bord droit = durée ; Maj + glisser dans le vide = rectangle de sélection ;
+// sélection) ; glisser = déplacer (temps et touche) ; bord droit = durée ; Maj + glisser dans le vide = rectangle de sélection (au doigt : glisser dans le vide) ;
 // bande du bas = vélocité. Alt pendant un geste : sans magnétisme. Clavier : Suppr, Ctrl+A, flèches (Maj = octave), Échap.
 
 import { NoteProps } from "./note-props.js";
@@ -1037,7 +1037,14 @@ export class PianoRoll {
     roll.addEventListener("pointermove", (e) => {
       if (this.#touch(e, roll, "move")) return;
       const { x, y } = canvasPoint(roll, e);
-      if (this.pendingAdd && Math.hypot(x - this.pendingAdd.x, y - this.pendingAdd.y) > 10) this.pendingAdd = null; // le doigt glisse : ce n'est plus un tap
+      if (this.pendingAdd && Math.hypot(x - this.pendingAdd.x, y - this.pendingAdd.y) > 10) {
+        // Le doigt glisse dans le vide : ce n'est plus un tap (pas de note posée) mais un rectangle de sélection, comme Maj + glisser à la souris.
+        const { x: x0, y: y0 } = this.pendingAdd;
+        this.pendingAdd = null;
+        this.drag = { type: "rubber", rubber: { x0, y0, x1: x, y1: y }, base: new Set() };
+        this.dirty = true;
+        return;
+      }
       if (!this.drag) {
         const hit = this.#hitNote(x, y);
         roll.style.cursor = hit ? (hit.zone === "resize" ? "ew-resize" : "grab") : "crosshair";
