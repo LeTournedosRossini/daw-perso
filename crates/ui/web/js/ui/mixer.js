@@ -11,7 +11,7 @@ import { shownValues } from "../automation-model.js";
 import { trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
 import { LevelSheet, linearToDb } from "./level-sheet.js";
-import { menuEl, showMenu } from "./track-menu.js";
+import { menuEl, showMenu, bindInputMenu } from "./track-menu.js";
 import { openReturnDialog } from "./return-dialog.js";
 import { isListenable, setupListenButton, toggleListen } from "./listen.js";
 import { openGroupDialog } from "./group-dialog.js";
@@ -700,6 +700,7 @@ export class Mixer {
       refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
     }
     if (n.kind === "master") refs.s.hidden = true; // le solo n'a pas de sens pour la sortie principale
+    if (refs.r) bindInputMenu(refs.r, () => ({ node: this.#node(n.id), project: this.state.project, client: this.client }));
     refs.r?.addEventListener("click", () => send({ arm: !this.#node(n.id).arm }));
     refs.p.addEventListener("click", () => send({ invert: !this.#node(n.id).invert }));
     return root;

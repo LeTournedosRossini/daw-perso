@@ -1,5 +1,6 @@
-// Menus des pistes : le menu ⋮ d'une piste (renommer, couleur, sortie, monter / descendre, supprimer) et le menu « + » (ajouter
-// une piste mono, stéréo ou un bus). Chaque choix est une commande du protocole ; l'affichage suit la réponse du moteur.
+// Menus des pistes : le menu ⋮ d'une piste (couleur, phase, entrée, sortie, supprimer — le reste a un accès direct : fx, nom par double-clic,
+// ordre par glisser), la fenêtre des réglages d'entrée (appui long sur ● ou clic droit), le choix de la sortie (clic sur le routage) et le menu « + »
+// (ajouter une piste mono, stéréo ou un bus). Chaque choix est une commande du protocole ; l'affichage suit la réponse du moteur.
 
 import { describeFilter, openMidiFilterDialog } from "./midi-filter-dialog.js";
 import { describeCurve } from "../velocity-model.js";
@@ -124,14 +125,81 @@ export function openAddMenu(anchor, client, onReturn) {
   showMenu(m, anchor);
 }
 
-/** Menu d'une piste ou d'un bus. `rename` : lance le renommage sur place. */
-export function openTrackMenu(anchor, { node, project, client, rename, plugins }) {
+/** Choix de la sortie d'une piste ou d'un bus : la sortie principale ou un bus (un retour sort sur la carte son : mixeur). */
+function appendOutput(m, node, project, client) {
   const list = orderedNodes(project).filter((n) => n.kind !== "master");
-  const at = list.findIndex((n) => n.id === node.id);
+  m.append(heading("Sortie"));
+  m.append(item("Sortie principale", () => client.send({ type: "set_track_output", node: node.id, output: 0 }), { checked: !node.output }));
+  for (const bus of list.filter((n) => n.kind === "bus" && n.id !== node.id && !n.is_return)) {
+    m.append(item(bus.name, () => client.send({ type: "set_track_output", node: node.id, output: bus.id }), { checked: node.output === bus.id }));
+  }
+}
+
+/** Réglages d'entrée d'une piste (canal ou paire, MIDI et son filtre, vélocité, dynamique, écoute directe). Un bus n'a pas d'entrée. */
+export function openInputMenu(anchor, { node, project, client }) {
+  if (!node || node.kind === "bus" || node.kind === "master") return;
   const m = menuEl();
-  m.append(item("Renommer", rename));
+  appendInput(m, node, project, client);
+  showMenu(m, anchor);
+}
+
+/** Choix de la sortie (clic sur le routage « → Bus 1 » de l'en-tête). Un retour n'envoie rien à la sortie principale : rien à choisir ici. */
+export function openOutputMenu(anchor, { node, project, client }) {
+  if (!node || node.is_return || node.kind === "master") return;
+  const m = menuEl();
+  appendOutput(m, node, project, client);
+  showMenu(m, anchor);
+}
+
+/**
+ * Appui long (0,5 s), clic droit ou, au clavier, Maj+F10 sur le bouton d'armement : ouvre les réglages d'entrée de la piste. L'appui long ne
+ * bascule pas l'armement. `ctx()` rend `{ node, project, client }` au moment de l'appel.
+ */
+export function bindInputMenu(btn, ctx) {
+  let timer = null;
+  let fired = false;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  const open = () => {
+    const c = ctx();
+    if (c) openInputMenu(btn, c);
+  };
+  btn.addEventListener("pointerdown", (e) => {
+    if (e.button > 0) return;
+    fired = false;
+    timer = setTimeout(() => {
+      timer = null;
+      fired = true;
+      open();
+    }, 500);
+  });
+  for (const t of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(t, cancel);
+  // Phase de capture : avant le gestionnaire qui arme la piste.
+  btn.addEventListener(
+    "click",
+    (e) => {
+      if (fired) {
+        fired = false;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    },
+    true,
+  );
+  btn.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    open();
+  });
+}
+
+/** Menu ⋮ d'une piste ou d'un bus : seulement ce qui n'a pas d'accès direct. */
+export function openTrackMenu(anchor, { node, project, client }) {
+  const m = menuEl();
+  if (node.kind !== "bus") m.append(item("Entrée d'enregistrement…", () => setTimeout(() => openInputMenu(anchor, { node, project, client }), 0)));
+  if (!node.is_return) m.append(item("Sortie…", () => setTimeout(() => openOutputMenu(anchor, { node, project, client }), 0)));
   m.append(item("Inverser la phase (Ø)", () => client.send({ type: "set_node", node: node.id, invert: !node.invert }), { checked: !!node.invert }));
-  if (plugins) m.append(item(`Plugins…${node.inserts?.length ? ` (${node.inserts.length})` : ""}`, plugins));
 
   m.append(heading("Couleur"));
   const sw = document.createElement("div");
@@ -162,22 +230,6 @@ export function openTrackMenu(anchor, { node, project, client, rename, plugins }
   sw.append(custom);
   m.append(sw);
 
-  if (node.kind !== "bus") appendInput(m, node, project, client);
-
-  // Un retour n'envoie jamais rien à la sortie principale : sa sortie se règle sur la carte son (mixeur), pas ici.
-  if (!node.is_return) {
-    m.append(heading("Sortie"));
-    m.append(item("Sortie principale", () => client.send({ type: "set_track_output", node: node.id, output: 0 }), { checked: !node.output }));
-    for (const bus of list.filter((n) => n.kind === "bus" && n.id !== node.id && !n.is_return)) {
-      m.append(item(bus.name, () => client.send({ type: "set_track_output", node: node.id, output: bus.id }), { checked: node.output === bus.id }));
-    }
-  }
-
-  m.append(heading("Ordre"));
-  m.append(
-    item("Monter", () => client.send({ type: "move_track", node: node.id, before: list[at - 1].id }), { disabled: at <= 0 }),
-    item("Descendre", () => client.send(list[at + 2] ? { type: "move_track", node: node.id, before: list[at + 2].id } : { type: "move_track", node: node.id }), { disabled: at < 0 || at >= list.length - 1 }),
-  );
-  m.append(item("Supprimer", () => client.send({ type: "delete_track", node: node.id }), { danger: true }));
+  m.append(item("Supprimer la piste", () => client.send({ type: "delete_track", node: node.id }), { danger: true }));
   showMenu(m, anchor);
 }

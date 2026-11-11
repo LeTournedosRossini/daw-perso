@@ -7,7 +7,7 @@ import { orderedRows } from "./order.js";
 import { shownValues } from "../automation-model.js";
 import { LANE_MODES, trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
-import { openTrackMenu, openAddMenu } from "./track-menu.js";
+import { openTrackMenu, openAddMenu, openInputMenu, openOutputMenu, bindInputMenu } from "./track-menu.js";
 import { openReturnDialog } from "./return-dialog.js";
 import { isListenable, setupListenButton, toggleListen } from "./listen.js";
 import { parseReturnChoice, returnChoices } from "./mixer.js";
@@ -188,11 +188,11 @@ export class Headers {
     root.innerHTML = `
       <div class="stripe"></div>
       <div class="body">
-        <div class="title"><span class="grip" title="Glisser pour déplacer la piste" aria-hidden="true">⠿</span><span class="name"></span><span class="kind"></span><span class="midiw-slot"></span><button class="fx" title="Plugins de la piste" aria-label="Plugins de la piste" hidden>fx</button><button class="phase" title="Phase inversée (cliquer pour rétablir)" aria-label="Phase inversée" hidden>Ø</button>
+        <div class="title"><span class="grip" title="Glisser pour déplacer la piste" aria-hidden="true">⠿</span><span class="name"></span><span class="kind"></span><span class="midiw-slot"></span><button class="fx" title="Plugins de la piste" aria-label="Plugins de la piste">fx</button><button class="phase" title="Phase inversée (cliquer pour rétablir)" aria-label="Phase inversée" hidden>Ø</button>
           <span class="btns">
             <button class="m" title="Muet" aria-label="Muet">M</button>
             <button class="s" title="Solo" aria-label="Solo">S</button>
-            <button class="r" title="Armer pour l'enregistrement" aria-label="Armer">●</button>
+            <button class="r" title="Armer pour l'enregistrement" aria-label="Armer">●</button><button class="rin" title="Entrée d'enregistrement : canal, MIDI, dynamique…" aria-label="Entrée d'enregistrement" aria-haspopup="menu">▾</button>
             <button class="t" title="Prises : afficher ou replier les prises inactives de la piste" aria-label="Prises" hidden>▤</button>
             <button class="a" title="Voie d'automation (volume, panoramique, envois, plugins)" aria-label="Voie d'automation">A</button>
             <button class="more" title="Menu de la piste" aria-label="Menu de la piste" aria-haspopup="menu">⋮</button>
@@ -200,7 +200,7 @@ export class Headers {
         <div class="knobs"></div>
       </div>`;
     const q = (s) => root.querySelector(s);
-    const refs = { witness: createWitness(), t: q(".t"), a: q(".a"), grip: q(".grip"), fx: q(".fx"), phase: q(".phase"), more: q(".more"), name: q(".name"), kind: q(".kind"), m: q(".m"), s: q(".s"), r: q(".r"), };
+    const refs = { witness: createWitness(), t: q(".t"), a: q(".a"), grip: q(".grip"), fx: q(".fx"), rin: q(".rin"), phase: q(".phase"), more: q(".more"), name: q(".name"), kind: q(".kind"), m: q(".m"), s: q(".s"), r: q(".r"), };
     // Volume et panoramique : deux potentiomètres (plus compacts que des curseurs, utilisables au toucher) ; les faders linéaires sont dans le mixeur.
     const send = (patch) => this.client.send({ type: "set_node", node: n.id, ...patch });
     const vol = knobControl("Vol", {
@@ -258,6 +258,8 @@ export class Headers {
     } else {
       refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
     }
+    bindInputMenu(refs.r, () => ({ node: this.#node(n.id), project: this.state.project, client: this.client }));
+    refs.rin.addEventListener("click", () => openInputMenu(refs.rin, { node: this.#node(n.id), project: this.state.project, client: this.client }));
     refs.r.addEventListener("click", () => send({ arm: !this.#node(n.id).arm }));
     refs.a.addEventListener("click", () => this.automation.toggle(n.id));
     refs.t.addEventListener("click", () => {
@@ -270,17 +272,24 @@ export class Headers {
     trackGesture(refs.pan, this.client, () => ({ node: n.id, target: { kind: "pan" } }));
     if (n.kind === "master") {
       refs.r.hidden = true;
+      refs.rin.hidden = true;
+      refs.fx.hidden = true;
       refs.s.hidden = true;
       refs.more.hidden = true;
       refs.grip.hidden = true;
     } else {
-      refs.more.addEventListener("click", () => openTrackMenu(refs.more, { node: this.#node(n.id), project: this.state.project, client: this.client, rename: () => this.#rename(n.id), plugins: () => this.onPlugins?.(n.id) }));
+      refs.more.addEventListener("click", () => openTrackMenu(refs.more, { node: this.#node(n.id), project: this.state.project, client: this.client }));
+      // Le routage de l'en-tête (« → Bus 1 ») ouvre directement le choix de la sortie.
+      refs.kind.addEventListener("click", () => openOutputMenu(refs.kind, { node: this.#node(n.id), project: this.state.project, client: this.client }));
       refs.fx.addEventListener("click", () => this.onPlugins?.(n.id));
       refs.phase.addEventListener("click", () => send({ invert: false }));
       refs.name.addEventListener("dblclick", () => this.#rename(n.id));
       refs.grip.addEventListener("pointerdown", (e) => this.#startDrag(e, n.id));
     }
-    if (n.kind === "bus") refs.r.hidden = true;
+    if (n.kind === "bus") {
+      refs.r.hidden = true;
+      refs.rin.hidden = true;
+    }
     this.el.append(root);
     this.rows.set(n.id, { root, refs });
   }
@@ -383,14 +392,20 @@ export class Headers {
     const bus = n.output ? this.#node(n.output) : null;
     // Sur la ligne du titre : seulement ce qui change quelque chose (bus, sortie, routage) ; le format est dans l'info-bulle.
     const shown = n.is_return ? "retour" : n.kind === "bus" || n.kind === "master" ? KIND_LABEL[n.kind] : "";
-    refs.kind.textContent = [shown, bus ? `→ ${bus.name}` : ""].filter(Boolean).join(" ");
+    // Une piste routée sur la sortie principale montre une simple flèche « → » (cliquable : choix de la sortie).
+    const plain = !bus && !n.is_return && n.kind !== "master" && n.kind !== "bus";
+    refs.kind.textContent = [shown, bus ? `→ ${bus.name}` : plain ? "→" : ""].filter(Boolean).join(" ");
     refs.name.title = `${n.name} — ${n.is_return ? "retour de monitoring" : KIND_LABEL[n.kind] ?? n.kind}${bus ? ` → ${bus.name}` : ""}`;
     this.rows.get(n.id).root.style.setProperty("--c", n.color);
     // Pastille « fx N » quand la piste a des plugins ; grisée si tous sont contournés.
     const count = n.inserts?.length ?? 0;
-    refs.fx.hidden = count === 0;
-    refs.fx.textContent = `fx ${count}`;
+    // Toujours visible (sauf la sortie principale) : un clic ouvre les plugins de la piste, ou le sélecteur si elle n'en a pas encore.
+    refs.fx.textContent = count ? `fx ${count}` : "fx";
+    refs.fx.classList.toggle("empty", count === 0);
     refs.fx.classList.toggle("off", count > 0 && n.inserts.every((i) => i.bypass));
+    refs.fx.title = count ? `Plugins de la piste (${count}) : ouvrir leur fenêtre` : "Aucun plugin : choisir un plugin";
+    refs.kind.classList.toggle("clickable", n.kind !== "master" && !n.is_return);
+    refs.kind.title = refs.kind.classList.contains("clickable") ? `Sortie : ${bus ? bus.name : "sortie principale"} — cliquer pour la changer` : "";
     refs.phase.hidden = !n.invert;
     paintWitness(refs.witness, n, this.state.midiAct?.[n.id] ?? 0);
     refs.a.setAttribute("aria-pressed", String(this.state.autoOpen.has(n.id)));

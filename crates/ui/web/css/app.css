@@ -921,3 +921,13 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .pv-outputs .aux-rows, .pv-outputs .aux-list { max-height: none; }
 .pv-outputs { overflow: auto; }
 .pv-outputs .aux-list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 18px; overflow: visible; }
+
+/* En-têtes de pistes : fx toujours visible (pointillé quand la piste n'a pas de plugin), chevron des réglages d'entrée près de ●, routage cliquable. */
+.track-head .fx.empty { border-style: dashed; border-color: var(--line); color: var(--muted); font-weight: 600; }
+.track-head .fx.empty:hover { border-color: var(--accent); color: var(--accent); }
+.track-head .btns .rin { width: 12px; padding: 0; margin-left: -3px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; display: none; }
+.track-head:hover .btns .rin, .track-head .btns .r[aria-pressed="true"] + .rin { display: inline-block; }
+.track-head .btns .rin:hover { color: var(--accent); }
+.track-head .btns .rin[hidden] { display: none !important; }
+.track-head .kind.clickable { cursor: pointer; }
+.track-head .kind.clickable:hover { color: var(--accent); text-decoration: underline dotted; }
