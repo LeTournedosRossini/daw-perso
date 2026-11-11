@@ -916,3 +916,8 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .plugins-panel .slot .byp[aria-pressed="true"], .plugin-window .pw-row .pw-byp[aria-pressed="true"] { background: var(--solo) !important; color: #2a1a00 !important; }
 .plugins-panel .slot .byp:hover:not(:disabled) { background: var(--play) !important; }
 .plugins-panel .slot .byp[aria-pressed="true"]:hover:not(:disabled) { background: var(--solo) !important; }
+
+/* Vue des sorties multiples : toute la hauteur disponible (le défilement est celui de la vue), sur plusieurs colonnes si la place le permet. */
+.pv-outputs .aux-rows, .pv-outputs .aux-list { max-height: none; }
+.pv-outputs { overflow: auto; }
+.pv-outputs .aux-list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 18px; overflow: visible; }
