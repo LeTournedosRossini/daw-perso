@@ -3,6 +3,8 @@
 // protocole ordinaire ; tout ce qu'un script fait forme UNE action annulable (begin_group / end_group, ou abort_group en cas d'échec).
 // Voir docs/protocole-ui.md et CLAUDE.md (cadrage des scripts).
 
+import { scriptLib } from "./script-api.js";
+
 /** Commandes qu'un script ne peut pas envoyer : cycle de vie du projet, historique (géré par l'exécuteur) et tout ce qui ouvre le réseau. */
 export const FORBIDDEN_COMMANDS = new Set([
   "begin_group", "end_group", "abort_group", "undo", "redo",
@@ -73,12 +75,14 @@ const call = (op, arg) => new Promise((resolve, reject) => {
   pending.set(id, { resolve, reject });
   postMessage({ id, op, arg });
 });
-const daw = Object.freeze({
+const base = {
   state: () => call("state"),
   send: (command) => call("send", command),
   log: (...args) => postMessage({ log: args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" ") }),
   sleep: (ms) => new Promise((r) => setTimeout(r, Math.max(0, Math.min(5000, +ms || 0)))),
-});
+};
+const lib = (${scriptLib.toString()})(base, call);
+const daw = Object.freeze({ ...base, ...lib });
 const post = postMessage;
 onmessage = async (e) => {
   const m = e.data;
@@ -180,6 +184,14 @@ export class ScriptRunner {
         const r = await this.#request(cmd);
         return reply(r.error ? { error: r.error } : { result: snapshotOf(this.#state) });
       }
+      if (m.op === "notes") {
+        const clip = m.arg;
+        if (!Number.isInteger(clip) || clip < 0) return reply({ error: "daw.notes : l'identifiant d'un clip de notes est attendu" });
+        if (++commands > maxCommands) return stop(`trop de commandes (${maxCommands})`);
+        const r = await this.#request({ type: "get_notes", clip }, { type: "notes", match: (e) => e.clip === clip });
+        if (r.error) return reply({ error: r.error });
+        return reply(r.captured ? { result: clone(r.captured) } : { error: "pas un clip de notes" });
+      }
       reply({ error: `opération inconnue : ${m.op}` });
     };
     worker.onerror = (e) => finish({ ok: false, error: String(e?.message ?? e) });
@@ -196,11 +208,12 @@ export class ScriptRunner {
   /**
    * Envoie une commande et attend sa fin : les événements arrivent dans l'ordre des commandes, donc l'événement `prefs` d'une commande
    * sentinelle (`get_prefs`, sans effet) marque le moment où tout ce que la commande a produit a été reçu. Rend `{ error }` si le
-   * moteur a refusé la commande.
+   * moteur a refusé la commande. `capture` : `{ type, match }` garde le dernier événement de ce type qui convient (`captured`).
    */
-  #request(cmd) {
+  #request(cmd, capture = null) {
     return new Promise((resolve) => {
       let error = null;
+      let captured = null;
       const offs = [];
       const done = (r) => {
         for (const off of offs) off();
@@ -209,7 +222,8 @@ export class ScriptRunner {
       };
       const timer = setTimeout(() => done({ error: `pas de réponse du moteur (${cmd.type})` }), LIMITS.callTimeoutMs);
       offs.push(this.#engine.on("error", (e) => { if (e.command === cmd.type && error === null) error = e.message; }));
-      offs.push(this.#engine.on("prefs", () => done({ error })));
+      if (capture) offs.push(this.#engine.on(capture.type, (e) => { if (capture.match(e)) captured = e; }));
+      offs.push(this.#engine.on("prefs", () => done({ error, captured })));
       if (this.#engine.send(cmd) === false) return done({ error: error ?? `commande refusée : ${cmd.type}` });
       this.#engine.send({ type: "get_prefs" });
     });
