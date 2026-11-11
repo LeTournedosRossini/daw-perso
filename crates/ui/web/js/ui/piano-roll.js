@@ -41,6 +41,7 @@ export class PianoRoll {
     this.laneId = laneById(localStorageGet("daw-pr-lane") ?? "vel").id;
     this.laneSel = new Set(); // points sélectionnés (pointId)
     this.laneWork = null; // copie de la voie pendant un geste (aperçu) puis jusqu'à la réponse de l'hôte
+    this.laneSelectMode = false; // voies de contrôle au doigt : glisser dans le vide sélectionne (au lieu de dessiner) ; Maj + glisser à la souris
     this.laneCtls = [];
     this.body = this.root.querySelector(".pr-body");
     this.state.rollRows = clampRows(Number(localStorageGet("daw-pr-rows")) || ROLL_ROWS_DEFAULT);
@@ -377,6 +378,7 @@ export class PianoRoll {
   #cancelGesture() {
     this.pendingAdd = null;
     this.drag = null;
+    if (this.laneWork?.mode === "rubber") this.laneWork = null;
     this.#releasePreview();
     this.dirty = true;
   }
@@ -688,12 +690,24 @@ export class PianoRoll {
     thin.textContent = "Amincir";
     thin.title = "Retire les points inutiles de la courbe (la sélection, ou toute la voie) sans changer son allure ; Ctrl+C / X / V copient, coupent et collent des points";
     thin.addEventListener("click", () => this.#laneThin());
+    const pick = document.createElement("button");
+    pick.className = "pr-lane-pick";
+    pick.type = "button";
+    pick.textContent = "▭ Sélection";
+    pick.setAttribute("aria-pressed", "false");
+    pick.title = "Glisser dans le vide sélectionne des points au lieu d'en dessiner (au doigt ; à la souris : Maj + glisser). Allumé : le dessin se fait en éteignant le bouton.";
+    pick.addEventListener("click", () => {
+      this.laneSelectMode = !this.laneSelectMode;
+      for (const c of this.laneCtls) c.syncMode?.(this.laneSelectMode);
+    });
+    ctl.syncMode = (on) => pick.setAttribute("aria-pressed", String(on));
     const oldSync = ctl.sync;
     ctl.sync = (id) => {
       oldSync(id);
       thin.hidden = id === "vel";
+      pick.hidden = id === "vel";
     };
-    wrap.append(sel, num, thin);
+    wrap.append(sel, num, pick, thin);
     this.laneCtls.push(ctl);
     ctl.sync(this.laneId);
     return wrap;
@@ -748,6 +762,9 @@ export class PianoRoll {
       if (e.shiftKey) this.laneSel.has(id) ? this.laneSel.delete(id) : this.laneSel.add(id);
       else if (!this.laneSel.has(id)) this.laneSel = new Set([id]);
       this.laneWork = { mode: "move", list: list.map((p) => ({ ...p })), orig: list.map((p) => ({ ...p })), grab: { x, y }, ids: new Set(this.laneSel), moved: false };
+    } else if (e.shiftKey || (e.pointerType === "touch" && this.laneSelectMode)) {
+      // Rectangle de sélection (Maj + glisser à la souris ; au doigt quand « Sélection » est allumé).
+      this.laneWork = { mode: "rubber", rect: { x0: x, y0: y, x1: x, y1: y }, base: e.shiftKey ? new Set(this.laneSel) : new Set(), list, orig: list, moved: false };
     } else {
       this.laneSel = new Set();
       this.laneWork = { mode: "paint", list: list.map((p) => ({ ...p })), orig: list.map((p) => ({ ...p })), last: null, moved: false };
@@ -790,6 +807,13 @@ export class PianoRoll {
     if (!w) return;
     const { x, y } = canvasPoint(this.vel, e);
     if (w.mode === "paint") return this.#lanePaint(x, y, e.altKey, lane);
+    if (w.mode === "rubber") {
+      w.rect.x1 = x;
+      w.rect.y1 = y;
+      w.moved = Math.hypot(x - w.rect.x0, y - w.rect.y0) > 4;
+      this.dirty = true;
+      return;
+    }
     const H = this.#h(this.vel);
     const dv = valueOfY(lane, y, H) - valueOfY(lane, w.grab.y, H);
     const dm = this.#xm(x) - this.#xm(w.grab.x);
@@ -811,6 +835,26 @@ export class PianoRoll {
   #laneUp(commit, lane) {
     const w = this.laneWork;
     if (!w) return;
+    if (w.mode === "rubber") {
+      this.laneWork = null;
+      if (commit) {
+        const r = w.rect;
+        const [xa, xb] = [Math.min(r.x0, r.x1), Math.max(r.x0, r.x1)];
+        const [ya, yb] = [Math.min(r.y0, r.y1), Math.max(r.y0, r.y1)];
+        const H = this.#h(this.vel);
+        const inside = new Set(w.base);
+        if (w.moved) {
+          for (const p of w.list) {
+            const px = this.#mx(fnum(p.start));
+            const py = yOfValue(lane, p.value, H);
+            if (px >= xa - 3 && px <= xb + 3 && py >= ya - 3 && py <= yb + 3) inside.add(pointId(p));
+          }
+        }
+        this.laneSel = inside; // un simple clic dans le vide efface la sélection (sans Maj)
+      }
+      this.dirty = true;
+      return;
+    }
     if (commit && w.moved) {
       this.client.send(laneCommand(this.clipId, lane, w.list.filter((p) => fcmp(p.start, this.#cm().offset) >= 0), w.mode === "paint" ? "Dessiner une courbe" : "Déplacer des points"));
       w.moved = false; // la copie reste affichée jusqu'à la réponse de l'hôte (pas de clignotement)
@@ -918,11 +962,22 @@ export class PianoRoll {
       g.arc(q.x, q.y, q.sel ? 5 : 4, 0, Math.PI * 2);
       g.fill();
     }
+    if (this.laneWork?.mode === "rubber" && this.laneWork.moved) this.#drawRubber(g, this.laneWork.rect);
     g.fillStyle = css("--muted") || "#888";
     g.font = "10px system-ui, sans-serif";
     g.textBaseline = "top";
     const sel = pts.filter((q) => q.sel);
-    g.fillText(sel.length ? `${lane.label} — ${sel.length} point${sel.length > 1 ? "s" : ""} : ${valueText(lane, sel[0].p.value)}` : `${lane.label} — clic ou glisser pour dessiner · Suppr`, 6, 4);
+    g.fillText(sel.length ? `${lane.label} — ${sel.length} point${sel.length > 1 ? "s" : ""} : ${valueText(lane, sel[0].p.value)}` : `${lane.label} — ${this.laneSelectMode ? "glisser pour sélectionner" : "clic ou glisser pour dessiner"} · Suppr`, 6, 4);
+  }
+
+  /** Rectangle de sélection translucide dans une bande du bas. */
+  #drawRubber(g, r) {
+    const [x, y] = [Math.min(r.x0, r.x1), Math.min(r.y0, r.y1)];
+    g.fillStyle = "rgba(255, 209, 102, 0.18)";
+    g.fillRect(x, y, Math.abs(r.x1 - r.x0), Math.abs(r.y1 - r.y0));
+    g.strokeStyle = "#ffd166";
+    g.lineWidth = 1;
+    g.strokeRect(x + 0.5, y + 0.5, Math.abs(r.x1 - r.x0), Math.abs(r.y1 - r.y0));
   }
 
   #drawVel() {
@@ -944,6 +999,7 @@ export class PianoRoll {
       g.fillRect(x, H - h, 3, h);
       g.fillRect(x - 2, H - h, 7, 3);
     }
+    if (this.drag?.type === "vrubber" && this.drag.moved) this.#drawRubber(g, { x0: this.drag.x0, x1: this.drag.x1, y0: 2, y1: H - 2 });
   }
 
   // ---- souris ---------------------------------------------------------------------------------------------------
@@ -1140,7 +1196,11 @@ export class PianoRoll {
         const dx = Math.abs(this.#mx(fnum(n.start)) + 1 - x);
         if (dx <= 6 && (best === null || dx <= best.dx)) best = { n, dx };
       }
-      if (!best) return;
+      if (!best) {
+        // Glisser dans le vide : sélectionne les notes dont le début est sous la bande (doigt ou souris ; Maj ajoute à la sélection).
+        this.drag = { type: "vrubber", x0: x, x1: x, base: e.shiftKey ? new Set(this.sel) : new Set(), moved: false };
+        return;
+      }
       const id = noteId(best.n);
       if (e.shiftKey) this.sel.add(id);
       else if (!this.sel.has(id)) this.sel = new Set([id]);
@@ -1152,16 +1212,40 @@ export class PianoRoll {
     vel.addEventListener("pointermove", (e) => {
       if (this.#touch(e, vel, "move")) return;
       if (this.laneWork?.mode) return this.#laneMove(e, laneById(this.laneId));
+      if (this.drag?.type === "vrubber") {
+        this.drag.x1 = canvasPoint(vel, e).x;
+        this.drag.moved = Math.abs(this.drag.x1 - this.drag.x0) > 4;
+        this.dirty = true;
+        return;
+      }
       if (this.drag?.type === "velocity") this.#velocityMove(canvasPoint(vel, e).y);
     });
+    const endVRubber = (commit) => {
+      const d = this.drag;
+      if (d?.type !== "vrubber") return false;
+      this.drag = null;
+      if (commit) {
+        const [xa, xb] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)];
+        const inside = new Set(d.base);
+        if (d.moved) for (const n of this.#shown()) {
+          const nx = this.#mx(fnum(n.start));
+          if (nx >= xa - 3 && nx <= xb + 3) inside.add(noteId(n));
+        }
+        this.sel = inside; // un simple clic dans le vide efface la sélection (sans Maj)
+      }
+      this.dirty = true;
+      return true;
+    };
     vel.addEventListener("pointerup", (e) => {
       if (this.#touch(e, vel, "up")) return;
       if (this.laneWork?.mode) return this.#laneUp(true, laneById(this.laneId));
+      if (endVRubber(true)) return;
       this.#endVelocity(true);
     });
     vel.addEventListener("pointercancel", (e) => {
       if (this.#touch(e, vel, "up")) return;
       if (this.laneWork?.mode) return this.#laneUp(false, laneById(this.laneId));
+      if (endVRubber(false)) return;
       this.#endVelocity(false);
     });
 

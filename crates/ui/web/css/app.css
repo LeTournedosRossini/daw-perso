@@ -839,6 +839,10 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .pr-lane { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .pr-lane select { max-width: 100%; min-width: 0; height: 22px; font-size: 10px; }
 .pr-lane input { width: 52px; height: 22px; font-size: 10px; }
+.pr-lane button { height: 22px; font-size: 10px; padding: 0 6px; }
+.pr-lane button[hidden] { display: none; }
+.pr-lane .pr-lane-pick[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+@media (pointer: coarse) { .pr-lane button, .pr-lane select, .pr-lane input { height: 32px; } }
 .piano-roll .pr-corner { flex-direction: column; padding: 2px; }
 .roll-head .pr-lane.rh-row { margin-top: 2px; }
 .score-window .sc-keyx { width: 24px; padding: 0; }
