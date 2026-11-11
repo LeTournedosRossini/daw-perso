@@ -19,7 +19,7 @@ use daw_session::{ClipId, MEvent, MKind, MLane, MNote, MPoint, MidiClipId, MidiT
 
 use crate::prefs::{self, Prefs, Runtime};
 use crate::project_io::{self, PluginEntry, UiInput, UiMeta};
-use crate::protocol::{AuxPortInfo, DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
+use crate::protocol::{AudioStatus, AuxPortInfo, DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
 
 /// Dossier (sous la racine de la sauvegarde automatique) du projet qui n'a pas encore de dossier à lui.
 const UNTITLED_DIR: &str = "sans-titre.daw";
@@ -349,6 +349,10 @@ pub struct Host {
     audio_inputs: u32,
     /// Canaux de sortie ouverts par le pilote (0 : inconnu, ce qui permet jusqu'à `MAX_OUT_CHANNELS` ; 2 : la sortie principale seule).
     audio_outputs: u32,
+    /// Pilote qui tourne : nom, fréquence, tampon (donnés par l'application) et latences annoncées (connues plus tard).
+    audio_status: Option<(String, u32, u32)>,
+    driver_latency: Option<(u32, u32)>,
+    audio_status_dirty: bool,
     record_compensation: u64,
     recording: Option<RecordingState>,
     midi_in: Option<MidiInputTx>,
@@ -412,7 +416,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, audio_status: None, driver_latency: None, audio_status_dirty: false, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -1552,6 +1556,9 @@ impl Host {
             }
         }
         let mut events = vec![self.position_event(), Event::Meters { levels }];
+        if std::mem::take(&mut self.audio_status_dirty) {
+            events.push(self.project_event()); // le pilote vient d'annoncer ses latences : le bandeau les affiche
+        }
         events.extend(self.midi_activity_tick());
         events.extend(self.monitor_tick());
         // Le balayage des plugins installés est fini : on envoie l'inventaire.
@@ -1750,6 +1757,18 @@ impl Host {
             !prefs::same_driver(&want.driver, &have.driver) || (want.buffer, want.threads, want.ahead_ms, want.ahead_threads) != (have.buffer, have.threads, have.ahead_ms, have.ahead_threads)
         });
         Event::Prefs { prefs: self.prefs.clone(), running: self.runtime.clone(), restart_needed, path: self.prefs_path.as_ref().map(|p| p.to_string_lossy().into_owned()) }
+    }
+
+    /// Le pilote qui tourne (nom, fréquence d'échantillonnage, tampon : 0 si inconnu), montré dans le bandeau.
+    pub fn set_audio_status(&mut self, driver: String, sample_rate: u32, buffer: u32) {
+        self.audio_status = Some((driver, sample_rate, buffer));
+        self.audio_status_dirty = true;
+    }
+
+    /// Les latences d'entrée et de sortie que le pilote annonce (échantillons), connues une fois le flux démarré.
+    pub fn set_driver_latency(&mut self, input: u32, output: u32) {
+        self.driver_latency = Some((input, output));
+        self.audio_status_dirty = true;
     }
 
     /// Nombre de canaux d'entrée audio que le pilote a ouverts (0 : aucun).
@@ -2951,7 +2970,7 @@ impl Host {
                 }
             })
             .collect();
-        Event::Project(ProjectInfo { plugin_windows: self.plugin_windows_docked(), listen: self.bus_listen, audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
+        Event::Project(ProjectInfo { plugin_windows: self.plugin_windows_docked(), listen: self.bus_listen, audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, audio: self.audio_status.as_ref().map(|(driver, rate, buffer)| AudioStatus { driver: driver.clone(), sample_rate: *rate, buffer: *buffer, in_latency: self.driver_latency.map(|l| l.0), out_latency: self.driver_latency.map(|l| l.1) }), sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
     }
 
     /// Crêtes `[min, max]` de `columns` colonnes de la ligne de temps `[from, to[` pour un clip audio.

@@ -294,6 +294,7 @@ impl Pump {
             if let Some((input, output)) = self.latency.as_ref().and_then(|l| l.get()) {
                 let comp = daw_audio_io::playback::record_compensation(input, output);
                 self.host.set_record_compensation(comp);
+                self.host.set_driver_latency(input, output);
                 log(&format!("latence du pilote : {input} en entrée + {output} en sortie ; compensation des prises : {comp} échantillons"));
                 self.latency_done = true;
             }
@@ -472,6 +473,7 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             log(&format!("pilote ouvert : {} Hz, tampon {}, {} entrée(s) audio, {} sortie(s) audio", info.sample_rate, info.buffer_size, info.inputs, info.outputs));
             let (engine, mut host) = build_host(info.sample_rate, buffer as usize, info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
+            host.set_audio_status(driver.clone(), info.sample_rate, info.buffer_size as u32);
             let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
@@ -503,6 +505,7 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         // Taille maximale d'un bloc du moteur : un appel plus grand est découpé en blocs internes, sans allocation.
         let (engine, mut host) = build_host(rate, 1024, 2, &route2, &eff, true).expect("projet de démonstration valide");
         host.set_audio_outputs(2);
+        host.set_audio_status("JACK".into(), rate, 0);
         let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true };
         let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
         (EngineProc(engine), control)

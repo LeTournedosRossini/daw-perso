@@ -6,7 +6,8 @@ export class Popover {
   #button;
   #panel;
 
-  constructor(button, panel) {
+  /** `closeOnItem` : sélecteur des éléments dont un appui referme le panneau (aucun par défaut : on appuie souvent plusieurs fois). */
+  constructor(button, panel, { closeOnItem = null } = {}) {
     this.#button = button;
     this.#panel = panel;
     if (!button || !panel) return;
@@ -21,6 +22,7 @@ export class Popover {
       },
       true,
     );
+    if (closeOnItem) panel.addEventListener("click", (e) => e.target.closest?.(closeOnItem) && this.close());
     panel.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();

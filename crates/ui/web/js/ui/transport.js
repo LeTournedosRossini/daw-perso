@@ -1,5 +1,6 @@
 // Barre de transport : boutons et affichage de la position (mesures et temps), tempo, mesure, latence.
 
+import { audioInfo } from "../audio-status.js";
 import { listenedName } from "./listen.js";
 import { formatBBT, formatTime } from "../time.js";
 import { SNAP_MODES, getSnapMode, setSnapMode, onSnapChange } from "../snap.js";
@@ -180,7 +181,9 @@ export class Transport {
     const bar = s.meters_.locate(Math.max(0, s.tempo.wholeAt(s.pos))).bar;
     const m = s.meters_.meterAtBar(bar);
     this.$("disp-meter").textContent = `${m.num}/${m.den}`;
-    const ms = (s.project.latency_samples / s.project.sample_rate) * 1000;
-    this.$("disp-latency").textContent = `${ms.toFixed(1)} ms`;
+    const a = audioInfo(s.project.audio, s.project);
+    this.$("disp-audio-main").textContent = a.main;
+    this.$("disp-audio-sub").textContent = a.sub;
+    this.$("disp-latency").title = a.title;
   }
 }

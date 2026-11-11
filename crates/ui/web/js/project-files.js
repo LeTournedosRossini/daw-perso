@@ -98,11 +98,11 @@ export class ProjectFiles {
     const f = this.state.file;
     const title = windowTitle(f);
     document.title = title;
-    const label = document.getElementById("project-name");
-    if (label) {
-      label.textContent = `${f.dirty ? "● " : ""}${f.name}`;
-      label.title = f.path ? `${f.path}${f.dirty ? " — modifications non enregistrées" : ""}` : "Projet non enregistré";
-      label.classList.toggle("dirty", f.dirty);
+    // Le nom du projet est dans le titre de la fenêtre ; le bouton Enregistrer porte un point tant qu'il y a des modifications.
+    const save = document.getElementById("btn-save");
+    if (save) {
+      save.dataset.dirty = String(!!f.dirty);
+      save.title = `Enregistrer (Ctrl+S) — ${f.name}${f.dirty ? " : modifications non enregistrées" : ""}`;
     }
     this.tauri?.window?.getCurrentWindow?.().setTitle(title).catch?.(() => {});
   }

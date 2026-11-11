@@ -1422,6 +1422,18 @@ pub struct NodeInfo {
     pub clips: Vec<ClipInfo>,
 }
 
+/// Ce que le pilote audio annonce (affiché en petit dans le bandeau) : les latences sont celles que le pilote rapporte, en échantillons,
+/// connues seulement une fois le flux démarré (`None` avant, et sous JACK).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AudioStatus {
+    pub driver: String,
+    pub sample_rate: u32,
+    /// Taille du tampon en échantillons (0 : inconnue).
+    pub buffer: u32,
+    pub in_latency: Option<u32>,
+    pub out_latency: Option<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProjectInfo {
     /// L'application ouvre une fenêtre de plugin par plugin (bande + interface native + paramètres) : le panneau des plugins de la page
@@ -1433,6 +1445,8 @@ pub struct ProjectInfo {
     pub audio_outputs: u32,
     /// Nombre de canaux d'entrée audio que le pilote a ouverts (0 : pas d'entrée, on ne peut pas enregistrer l'audio).
     pub audio_inputs: u32,
+    /// Le pilote audio qui tourne (nom, fréquence, tampon et latences qu'il annonce), pour l'affichage du bandeau ; absent sans pilote.
+    pub audio: Option<AudioStatus>,
     pub sample_rate: u32,
     pub tempo_map: Vec<TempoChange>,
     pub meters: Vec<MeterChange>,

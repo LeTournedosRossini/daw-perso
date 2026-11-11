@@ -32,6 +32,7 @@ function demoProject() {
     tempo_map: [{ pos: [0, 1], num: 120, den: 1 }],
     meters: [{ bar: 0, num: 4, den: 4 }],
     latency_samples: 356,
+    audio: { driver: "Faux moteur", sample_rate: 44100, buffer: 64, in_latency: 130, out_latency: 66 }, // ce qu'annonce le pilote (affiché en petit dans le bandeau)
     nodes: [
       { id: 0, name: "Sortie", kind: "master", color: "#9aa3b2", gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: null, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] },
       { id: 1, name: "Batterie", kind: "stereo", color: "#e5484d", gain: 0.8, pan: 0, mute: false, solo: false, invert: false, arm: false, output: 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [audio(10, "Beat A", 0, 8, "drums"), audio(11, "Beat B", 8, 8, "drums", { fade_out: 24_000 })] },

@@ -216,6 +216,15 @@ const fileMenu = new FileMenu();
 const scalePanel = new Popover(document.getElementById("btn-ui-scale"), document.getElementById("ui-scale-panel"));
 mirrorText(document.getElementById("ui-scale-value"), document.getElementById("ui-scale-mirror"));
 const tasks = new TasksIndicator();
+// Mode d'enregistrement : le chevron à côté de ● ouvre Punch et Boucle ; la lettre du mode actif se voit sur le chevron.
+const recChevron = document.getElementById("btn-rec-opts");
+new Popover(recChevron, document.getElementById("rec-options"), { closeOnItem: ".rec-item" });
+const recModes = ["btn-punch", "btn-looprec"].map((id) => document.getElementById(id));
+const showRecMode = () => {
+  recChevron.dataset.mode = recModes[0].getAttribute("aria-pressed") === "true" ? "punch" : recModes[1].getAttribute("aria-pressed") === "true" ? "loop" : "";
+};
+for (const b of recModes) new MutationObserver(showRecMode).observe(b, { attributes: true, attributeFilter: ["aria-pressed"] });
+showRecMode();
 const aligner = new AlignController(state, engine, (lines) => fileHooks.onWarnings?.(lines), peaks);
 const importer = new ImportController(state, engine, files, makeDialogs(), timeline, (lines) => fileHooks.onWarnings?.(lines));
 const mixer = new Mixer(state, engine);
