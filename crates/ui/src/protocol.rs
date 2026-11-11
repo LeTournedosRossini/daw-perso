@@ -1488,7 +1488,7 @@ pub enum Event {
     /// Avancement de l'import. `active` faux = terminé, annulé ou en échec ; `clips` : ce qui a été posé (à la fin).
     /// Calage de prises en cours ou terminé (voir `align_clips`). `clips` : les prises créées (à la fin).
     /// Rendu d'un étirement (`set_stretch`) : avancement, fin, annulation ou erreur. `fell_back` : Rubber Band a échoué, Signalsmith l'a remplacé.
-    Stretch { active: bool, progress: f64, clip: u64, name: String, cancelled: bool, error: Option<String>, fell_back: bool },
+    Stretch { active: bool, progress: f64, clip: u64, name: String, cancelled: bool, error: Option<String>, fell_back: bool, /** Avertissement non bloquant (ex. crêtes du rendu au-delà de 0 dBFS). */ warning: Option<String> },
     Align { active: bool, progress: f64, done: u32, total: u32, current: String, clips: Vec<AlignedClip>, warnings: Vec<String>, cancelled: bool, error: Option<String> },
     /// Détails du calage d'une prise calée. Temps en secondes ; le chemin donne, pour chaque point (`hop` secondes) de la fenêtre du guide,
     /// la position correspondante dans le double ; `shift` le décalage appliqué ; `consonants` les paires (début, fin) dans le double ;

@@ -187,6 +187,65 @@ struct Output {
     rendered: Arc<AudioData>,
     peaks: Arc<Peaks>,
     fell_back: bool,
+    /// Crête du rendu et de la partie de source rendue (valeur absolue maximale, toutes voies).
+    peak: f32,
+    source_peak: f32,
+}
+
+/// Longueur (secondes) du fondu enchaîné entre un tronçon recopié tel quel et ses voisins rendus.
+const COPY_FADE: f64 = 0.010;
+
+/// Recopie la **source telle quelle** sur les tronçons dont le rapport vaut exactement 1 (le moteur d'étirement les altère un peu, Signalsmith
+/// d'environ −30 dB) ; fondu enchaîné linéaire de 10 ms avec le rendu aux bords intérieurs (pas aux bords du clip). `out` et `src` sont
+/// entrelacés à `ch` voies ; `keys` = clés `(source, sortie)` en secondes.
+pub(crate) fn copy_unity_runs(out: &mut [f32], src: &[f32], ch: usize, keys: &[(f64, f64)], rate: f64) {
+    if ch == 0 || keys.len() < 2 {
+        return;
+    }
+    let (out_frames, src_frames) = (out.len() / ch, src.len() / ch);
+    // Tronçons de rapport 1, regroupés quand ils se touchent : (début sortie, fin sortie, début source, bord gauche intérieur, bord droit intérieur).
+    let mut runs: Vec<(usize, usize, usize, bool, bool)> = Vec::new();
+    let last = keys.len() - 2;
+    for (i, w) in keys.windows(2).enumerate() {
+        let (ds, d_out) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+        if ds <= 0.0 || (d_out / ds - 1.0).abs() > 1e-6 {
+            continue;
+        }
+        let (o0, o1) = ((w[0].1 * rate).round() as usize, (w[1].1 * rate).round() as usize);
+        let s0 = (w[0].0 * rate).round() as usize;
+        match runs.last_mut() {
+            Some(r) if r.1 == o0 => r.1 = o1,
+            _ => runs.push((o0, o1, s0, i != 0, false)),
+        }
+        if let Some(r) = runs.last_mut() {
+            r.4 = i != last;
+        }
+    }
+    let fade = (COPY_FADE * rate).round().max(1.0);
+    for (o0, o1, s0, left_inner, right_inner) in runs {
+        let o1 = o1.min(out_frames);
+        for i in o0..o1 {
+            let si = s0 + (i - o0);
+            if si >= src_frames {
+                break;
+            }
+            let mut w = 1.0f64;
+            if left_inner {
+                w = w.min(((i - o0) as f64 + 0.5) / fade);
+            }
+            if right_inner {
+                w = w.min(((o1 - 1 - i) as f64 + 0.5) / fade);
+            }
+            let w = w.min(1.0) as f32;
+            for c in 0..ch {
+                out[i * ch + c] = out[i * ch + c] * (1.0 - w) + src[si * ch + c] * w;
+            }
+        }
+    }
+}
+
+fn peak_of(x: &[f32]) -> f32 {
+    x.iter().fold(0.0f32, |m, v| m.max(v.abs()))
 }
 
 enum Msg {
@@ -249,15 +308,19 @@ fn work(source: Arc<AudioData>, start: u64, len: u64, keys: Vec<(f64, f64)>, eng
         cancel.load(Ordering::Relaxed)
     };
     match warp_render(Audio { samples: &samples, channels: ch, sample_rate: f64::from(rate) }, &marks, Some(&settings), Some(&mut cb)) {
-        Ok((out, info)) => match AudioData::new(rate, deinterleave(&out, ch)) {
+        Ok((mut out, info)) => {
+            copy_unity_runs(&mut out, &samples, ch, &keys, f64::from(rate));
+            let (peak, source_peak) = (peak_of(&out), peak_of(&samples));
+            match AudioData::new(rate, deinterleave(&out, ch)) {
             Ok(rendered) => {
                 let peaks = Arc::new(Peaks::build(&rendered));
-                let _ = tx.send(Msg::Done(Output { rendered, peaks, fell_back: info.fell_back }));
+                let _ = tx.send(Msg::Done(Output { rendered, peaks, fell_back: info.fell_back, peak, source_peak }));
             }
             Err(e) => {
                 let _ = tx.send(Msg::Failed(format!("{e:?}")));
             }
-        },
+            }
+        }
         Err(daw_align::AlignError::Cancelled) => {
             let _ = tx.send(Msg::Cancelled);
         }
@@ -372,7 +435,7 @@ impl Host {
     }
 
     fn stretch_event(active: bool, progress: f64, clip: u64, name: &str, cancelled: bool, error: Option<String>, fell_back: bool) -> Event {
-        Event::Stretch { active, progress, clip, name: name.to_owned(), cancelled, error, fell_back }
+        Event::Stretch { active, progress, clip, name: name.to_owned(), cancelled, error, fell_back, warning: None }
     }
 
     /// Relève le fil de rendu (appelé par `tick`) ; à la fin, pose le clip étiré en une seule action annulable.
@@ -438,7 +501,13 @@ impl Host {
         let p = job.pending;
         self.stretches.push(StretchRecord { rendered: out.rendered, source: p.source, source_start: p.source_start, source_len: p.source_len, keys: p.keys, marks: p.marks, engine: p.engine });
         let mut events = self.finish_edit("set_stretch", Ok(()));
-        events.push(Self::stretch_event(false, 1.0, clip, &name, false, None, out.fell_back));
+        let mut done = Self::stretch_event(false, 1.0, clip, &name, false, None, out.fell_back);
+        if out.peak > 1.0 && out.peak > out.source_peak + 1e-3 {
+            if let Event::Stretch { warning, .. } = &mut done {
+                *warning = Some(format!("le rendu dépasse 0 dBFS (+{:.1} dB) : le moteur d'étirement a gonflé les crêtes ; baisse le gain du clip si ça sature", 20.0 * f64::from(out.peak).log10()));
+            }
+        }
+        events.push(done);
         events
     }
 
@@ -500,6 +569,20 @@ mod tests {
     fn keys() -> Vec<(f64, f64)> {
         // Source de 4 s : 0-2 s comprimé à 50 %, 2-4 s étiré à 150 % ; clip de 4 s.
         vec![(0.0, 0.0), (2.0, 1.0), (4.0, 4.0)]
+    }
+
+    #[test]
+    fn unity_runs_are_copied_from_the_source_with_short_fades_at_inner_edges() {
+        let rate = 1000.0; // 1 trame = 1 ms
+        // Source 0..300 ; tronçon 1 (0..100) à rapport 1, tronçon 2 (100..300 → 100..200) à 0,5, tronçon 3 (300..? ) n'existe pas.
+        let keys = vec![(0.0, 0.0), (0.1, 0.1), (0.3, 0.2)];
+        let src: Vec<f32> = (0..300).map(|i| i as f32).collect();
+        let mut out = vec![-1.0f32; 200];
+        copy_unity_runs(&mut out, &src, 1, &keys, rate);
+        // Bord gauche = bord du clip : recopie directe ; bord droit intérieur : fondu de 10 trames vers le rendu (-1).
+        assert_eq!(&out[0..89], &src[0..89]);
+        assert!(out[99] < out[95] && out[95] < src[95] && out[99] < 10.0, "fondu vers le rendu : {} {}", out[95], out[99]);
+        assert!(out[100..].iter().all(|&v| v == -1.0), "le tronçon étiré n'est pas touché");
     }
 
     #[test]

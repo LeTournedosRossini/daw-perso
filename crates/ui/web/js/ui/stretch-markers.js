@@ -124,6 +124,7 @@ export class StretchMarkers {
         this.draft = null;
         if (e.error) this.tl.onNotice?.(`Étirement : ${e.error}`);
         else if (e.fell_back) this.tl.onNotice?.("Rubber Band a échoué : Signalsmith l'a remplacé.");
+        else if (e.warning) this.tl.onNotice?.(`Étirement : ${e.warning}`);
       }
       if (status) {
         status.hidden = !e.active;

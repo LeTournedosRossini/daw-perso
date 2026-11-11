@@ -336,3 +336,19 @@ fn a_smoothed_marker_changes_the_speed_gradually_keeps_the_pitch_and_survives_re
     let ev = h2.command_json(&format!(r#"{{"type":"set_stretch","clip":{},"markers":[[72000,48000]],"smooth":[true,false]}}"#, c.id));
     assert!(!errors(&ev).is_empty());
 }
+
+#[test]
+fn segments_with_ratio_one_are_copied_from_the_source_untouched() {
+    let (_e, mut h, proj, id) = project_with_clip("unity", 3.0);
+    // 0-1 s inchangé (rapport 1), puis 1 s de source étiré à 150 %, puis le reste comprimé à 50 %.
+    stretch(&mut h, id, "[[48000,48000],[120000,96000]]", "");
+    h.command_json(r#"{"type":"save_project"}"#);
+    let f = stretched_file(&proj);
+    let rendered = daw_recorder::decode::decode_file(&f).unwrap().audio;
+    let source = daw_recorder::decode::decode_file(&proj.join("audio").join("boucle.wav")).unwrap().audio;
+    let ch = rendered.channels as usize;
+    // Hors des 10 ms de fondu avant 1 s, le rendu est la source, échantillon pour échantillon.
+    for i in 0..(48_000 - 600) * ch {
+        assert_eq!(rendered.samples[i], source.samples[i], "échantillon {i}");
+    }
+}
