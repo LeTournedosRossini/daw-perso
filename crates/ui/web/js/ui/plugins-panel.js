@@ -1,7 +1,10 @@
-// Fenêtre « Plugins de la piste » : la chaîne de plugins (contourner, monter, descendre, retirer, ajouter) et, à côté, la vue du plugin
-// choisi (`PluginView` : bande, paramètres, sorties, sélecteur). Dans l'application, un clic sur un plugin de la chaîne ouvre sa propre
-// fenêtre (bande + interface native + paramètres) et la vue à côté disparaît. Panneau flottant non modal : on peut lancer la lecture et
-// régler en écoutant. Chaque geste est une commande du protocole.
+// Panneau « Plugins de la piste » : la chaîne de plugins (contourner, monter, descendre, retirer, ajouter) et, à côté, la vue du plugin
+// choisi (`PluginView` : bande, paramètres, sorties, sélecteur). Panneau flottant non modal : on peut lancer la lecture et régler en
+// écoutant. Chaque geste est une commande du protocole.
+//
+// **Dans l'application** (`project.plugin_windows`), le panneau disparaît au profit de la fenêtre de plugin : demander les plugins d'une piste
+// ouvre la fenêtre du dernier plugin regardé (ou du premier), qui a sa propre liste des plugins de la piste. Le panneau ne s'ouvre plus que
+// pour une piste **sans plugin** : il ne montre alors que le sélecteur, et se referme dès qu'un plugin est choisi (sa fenêtre s'ouvre).
 
 import { PluginView, sidechainSources } from "./plugin-view.js";
 
@@ -14,6 +17,13 @@ export class PluginsPanel {
     this.root = document.getElementById("plugins-panel");
     this.node = null; // identifiant du nœud affiché
     this.view = new PluginView({ state, client, root: this.root.querySelector(".pv-host"), docked: false, onTarget: () => this.#layout() });
+    this.lastByNode = new Map(); // piste → dernier plugin dont on a ouvert la fenêtre (le prochain « Plugins… » rouvre celui-là)
+    const remember = (insert) => {
+      const node = this.state.project?.nodes.find((n) => n.inserts.some((i) => i.id === insert));
+      if (node) this.lastByNode.set(node.id, insert);
+    };
+    client.on("plugin_ui", (e) => e.open && remember(e.insert));
+    client.on("plugin_ui_switched", (e) => remember(e.to));
     this.root.querySelector(".close").addEventListener("click", () => this.close());
     this.root.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.close();
@@ -30,6 +40,14 @@ export class PluginsPanel {
   }
 
   open(nodeId) {
+    if (this.windowed) {
+      const chain = this.state.project.nodes.find((n) => n.id === nodeId)?.inserts ?? [];
+      if (chain.length) {
+        const last = this.lastByNode.get(nodeId);
+        this.client.send({ type: "open_plugin_ui", insert: chain.some((i) => i.id === last) ? last : chain[0].id });
+        return;
+      }
+    }
     this.node = nodeId;
     const chain = this.chain();
     const keep = chain.find((i) => i.id === this.view.insert)?.id;
@@ -56,12 +74,14 @@ export class PluginsPanel {
     if (!this.isOpen()) return;
     if (!this.nodeInfo()) return this.close();
     this.view.refresh();
+    // Application : un plugin vient d'être choisi sur une piste vide, sa fenêtre s'ouvre ; le panneau n'a plus rien à montrer.
+    if (this.windowed && this.chain().length) return this.close();
     this.render();
   }
 
   /** Dans l'application, les réglages d'un plugin ont leur propre fenêtre : à côté de la chaîne il ne reste que le sélecteur (emplacement vide). */
   #layout() {
-    this.root.classList.toggle("windowed", this.windowed && this.view.view !== "picker");
+    this.root.classList.toggle("windowed", this.windowed);
     this.renderChain();
   }
 

@@ -72,6 +72,14 @@ impl Host {
         Vec::new()
     }
 
+    /// La page a mesuré l'origine de la zone native de la fenêtre de `insert`.
+    pub(super) fn set_plugin_area(&mut self, insert: u32, x: i32, y: i32) -> Vec<Event> {
+        if let Some(win) = self.plugin_windows.iter_mut().find(|w| w.insert == insert).and_then(|w| w.window.as_mut()) {
+            win.set_area_origin(x, y);
+        }
+        Vec::new()
+    }
+
     pub(super) fn plugin_ui_open(&self, insert: u32) -> bool {
         self.plugin_windows.iter().any(|w| w.insert == insert)
     }

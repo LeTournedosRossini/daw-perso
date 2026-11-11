@@ -656,7 +656,8 @@ export class Mixer {
       b.textContent = ins.name;
       b.title = `${ins.name} — ouvrir les plugins de « ${n.name} »${ins.gui ? " (double-clic : l'interface du plugin)" : ""}`;
       b.dataset.insert = String(ins.id);
-      b.addEventListener("click", () => this.onPlugins?.(n.id));
+      // Application : un plugin du mixeur ouvre sa fenêtre (celle de la piste, sur ce plugin) ; sinon le panneau des plugins.
+      b.addEventListener("click", () => (this.state.project?.plugin_windows ? this.client.send({ type: "open_plugin_ui", insert: ins.id }) : this.onPlugins?.(n.id)));
       b.addEventListener("dblclick", () => ins.gui && this.client.send({ type: "open_plugin_ui", insert: ins.id }));
       refs.fx.append(b);
     }

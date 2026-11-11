@@ -101,9 +101,13 @@ extern "system" {
     fn LoadCursorW(instance: Handle, name: *const u16) -> Handle;
     fn ClientToScreen(hwnd: Hwnd, point: *mut Point) -> i32;
     fn IsWindow(hwnd: Hwnd) -> i32;
+    fn GetWindow(hwnd: Hwnd, cmd: u32) -> Hwnd;
+    fn IsWindowVisible(hwnd: Hwnd) -> i32;
 }
 
 const WS_POPUP: u32 = 0x8000_0000;
+const GW_HWNDNEXT: u32 = 2;
+const GW_CHILD: u32 = 5;
 const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
 const SW_HIDE: i32 = 0;
 const SW_SHOWNOACTIVATE: i32 = 4;
@@ -291,13 +295,59 @@ struct Inner {
     close: Arc<AtomicBool>,
     /// Dernière taille de la zone utile de la fenêtre Tauri connue (imposée par nous ou constatée).
     last_client: (u32, u32),
-    /// Taille imposée en attente d'application par Tauri : tant qu'elle n'est pas atteinte (ou le délai écoulé), on ne la prend pas
-    /// pour un geste de l'utilisateur.
+    /// Taille imposée (zone utile de la fenêtre) en attente d'application par Tauri : tant qu'elle n'est pas atteinte (ou le délai
+    /// écoulé), on ne la prend pas pour un geste de l'utilisateur.
     pending: Option<((u32, u32), Instant)>,
     user_resize: Option<(u32, u32)>,
     placed: Option<(i32, i32, u32, u32)>,
-    /// La géométrie a été consignée dans le journal (une fois, à l'affichage) : de quoi comprendre un décalage constaté à l'écran.
-    logged: bool,
+    /// Coin haut-gauche de la zone native **mesuré par la page** (pixels écran, relatifs à la vue web) ; sans lui, valeurs supposées.
+    slot_origin: Option<(i32, i32)>,
+    /// Taille de zone voulue par le plugin (imposée ou constatée) : la fenêtre est redimensionnée pour que la zone la fasse.
+    want_area: Option<(u32, u32)>,
+    shown_at: Option<Instant>,
+    /// Journal de géométrie : 0 rien consigné, 1 à l'affichage, 2 une seconde et demie plus tard (position réelle du plugin).
+    logged: u8,
+}
+
+/// La fenêtre enfant la plus grande de `frame` : c'est la vue web (WebView2), dont l'origine n'est pas forcément celle de la zone utile.
+fn largest_child(frame: Hwnd) -> Option<Hwnd> {
+    let mut best: Option<(Hwnd, i64)> = None;
+    // SAFETY: parcours des fenêtres enfants d'une fenêtre valide ; les poignées rendues ne sont utilisées que dans cet appel.
+    unsafe {
+        let mut child = GetWindow(frame, GW_CHILD);
+        while !child.is_null() {
+            let mut r = Rect::default();
+            if IsWindowVisible(child) != 0 && GetClientRect(child, &mut r) != 0 {
+                let area = (r.right - r.left).max(0) as i64 * (r.bottom - r.top).max(0) as i64;
+                if best.map_or(true, |(_, a)| area > a) {
+                    best = Some((child, area));
+                }
+            }
+            child = GetWindow(child, GW_HWNDNEXT);
+        }
+    }
+    best.map(|(h, _)| h)
+}
+
+fn client_of(hwnd: Hwnd) -> (u32, u32) {
+    let mut r = Rect::default();
+    // SAFETY: `hwnd` est une fenêtre (valide ou non : l'appel échoue alors sans effet) ; `r` est valide.
+    unsafe { GetClientRect(hwnd, &mut r) };
+    ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32)
+}
+
+fn screen_rect(hwnd: Hwnd) -> (i32, i32, i32, i32) {
+    let mut r = Rect::default();
+    // SAFETY: comme ci-dessus.
+    unsafe { GetWindowRect(hwnd, &mut r) };
+    (r.left, r.top, r.right - r.left, r.bottom - r.top)
+}
+
+fn client_origin_on_screen(hwnd: Hwnd) -> (i32, i32) {
+    let mut p = Point { x: 0, y: 0 };
+    // SAFETY: `p` est un `POINT` valide.
+    unsafe { ClientToScreen(hwnd, &mut p) };
+    (p.x, p.y)
 }
 
 impl Inner {
@@ -306,60 +356,125 @@ impl Inner {
         unsafe { GetDpiForWindow(self.frame_hwnd) }.max(96)
     }
 
-    fn strip_px(&self) -> u32 {
-        (TOP_CSS * self.dpi() as f64 / 96.0).round() as u32
+    /// La vue web : c'est dans son repère que la page mesure sa zone.
+    fn view(&self) -> Hwnd {
+        largest_child(self.frame_hwnd).unwrap_or(self.frame_hwnd)
     }
 
-    fn list_px(&self) -> u32 {
-        (LIST_CSS * self.dpi() as f64 / 96.0).round() as u32
+    /// Où est la zone native dans la vue web : mesuré par la page, sinon supposé (bande et liste de la feuille de style).
+    fn origin(&self) -> (u32, u32) {
+        match self.slot_origin {
+            Some((x, y)) => (x.max(0) as u32, y.max(0) as u32),
+            None => ((LIST_CSS * self.dpi() as f64 / 96.0).round() as u32, (TOP_CSS * self.dpi() as f64 / 96.0).round() as u32),
+        }
     }
 
-    fn client(&self) -> (u32, u32) {
-        let mut r = Rect::default();
-        // SAFETY: `frame_hwnd` valide ; lecture seule.
-        unsafe { GetClientRect(self.frame_hwnd, &mut r) };
-        ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32)
+    /// Zone du plugin = vue web moins son origine (la zone va jusqu'aux bords droit et bas).
+    fn area(&self) -> (u32, u32) {
+        let v = client_of(self.view());
+        let o = self.origin();
+        (v.0.saturating_sub(o.0).max(1), v.1.saturating_sub(o.1).max(1))
     }
 
-    /// Un tour de pompe : détecte un redimensionnement de l'utilisateur et replace la zone native sous la bande.
+    /// Redimensionne la fenêtre pour que la zone du plugin fasse `want`.
+    fn resize_for_area(&mut self, want: (u32, u32)) {
+        self.want_area = Some(want);
+        let o = self.origin();
+        let (fc, vc) = (client_of(self.frame_hwnd), client_of(self.view()));
+        let extra = (fc.0.saturating_sub(vc.0), fc.1.saturating_sub(vc.1)); // normalement nul : la vue remplit la fenêtre
+        let target = (want.0 + o.0 + extra.0, want.1 + o.1 + extra.1);
+        if self.pending.map(|(t, _)| t) == Some(target) || (self.pending.is_none() && fc == target) {
+            return;
+        }
+        self.pending = Some((target, Instant::now()));
+        self.user_resize = None;
+        let _ = self.frame.set_size(PhysicalSize::new(target.0, target.1));
+    }
+
+    /// La page a mesuré l'origine de la zone : on la prend, on corrige la taille de la fenêtre si besoin, on replace la zone.
+    fn set_slot_origin(&mut self, x: i32, y: i32) {
+        if self.slot_origin == Some((x, y)) {
+            return;
+        }
+        self.slot_origin = Some((x, y));
+        self.placed = None;
+        if let Some(want) = self.want_area {
+            self.resize_for_area(want);
+        }
+    }
+
+    /// Un tour de pompe : détecte un redimensionnement de l'utilisateur et replace la zone native.
     fn sync(&mut self) {
         // SAFETY: lecture d'état d'une fenêtre qui peut avoir disparu : `IsWindow` répond sans risque.
         if unsafe { IsWindow(self.frame_hwnd) } == 0 || unsafe { IsIconic(self.frame_hwnd) } != 0 {
             return;
         }
-        let size = self.client();
-        if size.0 == 0 || size.1 == 0 {
+        let fc = client_of(self.frame_hwnd);
+        if fc.0 == 0 || fc.1 == 0 {
             return;
         }
-        let strip = self.strip_px();
-        let list = self.list_px();
         match self.pending {
-            Some((target, since)) if size == target || since.elapsed() > IMPOSED_GRACE => {
+            Some((target, since)) if fc == target || since.elapsed() > IMPOSED_GRACE => {
                 self.pending = None;
-                self.last_client = size;
+                self.last_client = fc;
             }
             Some(_) => {}
-            None if size != self.last_client => {
-                self.last_client = size;
-                self.user_resize = Some((size.0.saturating_sub(list).max(1), size.1.saturating_sub(strip).max(1)));
+            None if fc != self.last_client => {
+                self.last_client = fc;
+                let area = self.area();
+                self.want_area = Some(area);
+                self.user_resize = Some(area);
             }
             None => {}
         }
         let Some(popup) = self.popup.as_ref() else { return };
-        let (w, h) = (size.0.saturating_sub(list).max(1), size.1.saturating_sub(strip).max(1));
-        let mut origin = Point { x: list as i32, y: strip as i32 };
-        // SAFETY: `frame_hwnd` valide ; `origin` est un `POINT` valide.
-        unsafe { ClientToScreen(self.frame_hwnd, &mut origin) };
+        let view = self.view();
+        let (w, h) = self.area();
+        let o = self.origin();
+        let mut origin = Point { x: o.0 as i32, y: o.1 as i32 };
+        // SAFETY: `view` est un enfant valide de la fenêtre de l'application ; `origin` est un `POINT` valide.
+        unsafe { ClientToScreen(view, &mut origin) };
         let rect = (origin.x, origin.y, w, h);
-        if !self.logged && self.shown {
-            self.logged = true;
-            crate::log(&format!("fenêtre de plugin : échelle {} ppp, bande {strip} px, liste {list} px, zone utile {}x{}, zone native à ({}, {}) de {w}x{h}", self.dpi(), size.0, size.1, rect.0, rect.1));
-        }
         if self.placed != Some(rect) {
             self.placed = Some(rect);
             // SAFETY: `popup.hwnd` créée par nous sur ce fil ; ni activation ni ordre Z (la propriétaire s'en charge).
             unsafe { SetWindowPos(popup.hwnd, std::ptr::null_mut(), rect.0, rect.1, w as i32, h as i32, SWP_NOZORDER | SWP_NOACTIVATE) };
         }
+        self.log_geometry(view, popup.hwnd, rect);
+    }
+
+    /// Consigne la géométrie réelle (deux fois : à l'affichage et une seconde et demie plus tard, quand le plugin s'est installé) : si
+    /// la zone du plugin déborde sur la bande ou la liste, ces rectangles disent d'où vient l'écart.
+    fn log_geometry(&mut self, view: Hwnd, popup: Hwnd, rect: (i32, i32, u32, u32)) {
+        let Some(since) = self.shown_at else { return };
+        let due = match self.logged {
+            0 => true,
+            1 => since.elapsed() > Duration::from_millis(1500),
+            _ => false,
+        };
+        if !due {
+            return;
+        }
+        self.logged += 1;
+        // SAFETY: lecture de la première fenêtre enfant de la zone native (la fenêtre du plugin), si elle existe.
+        let plugin = unsafe { GetWindow(popup, GW_CHILD) };
+        let plugin_rect = if plugin.is_null() { None } else { Some(screen_rect(plugin)) };
+        crate::log(&format!(
+            "fenêtre de plugin ({}) : échelle {} ppp ; fenêtre {:?} ; zone utile de la fenêtre {:?} à {:?} ; vue web {:?} à {:?} de {:?} ; origine de la zone (mesurée par la page : {}) {:?} ; zone native voulue {:?} ; zone native réelle {:?} ; fenêtre du plugin {:?}",
+            self.logged,
+            self.dpi(),
+            screen_rect(self.frame_hwnd),
+            client_of(self.frame_hwnd),
+            client_origin_on_screen(self.frame_hwnd),
+            screen_rect(view),
+            client_origin_on_screen(view),
+            client_of(view),
+            self.slot_origin.is_some(),
+            self.origin(),
+            rect,
+            screen_rect(popup),
+            plugin_rect,
+        ));
     }
 
     fn apply_area_visibility(&self) {
@@ -392,22 +507,21 @@ impl NativeWindow for DockedWindow {
     }
 
     fn set_client_size(&mut self, width: u32, height: u32) {
-        let mut i = self.inner.borrow_mut();
-        let target = (width + i.list_px(), height + i.strip_px());
-        i.pending = Some((target, Instant::now()));
-        i.user_resize = None;
-        let _ = i.frame.set_size(PhysicalSize::new(target.0, target.1));
+        self.inner.borrow_mut().resize_for_area((width, height));
     }
 
     fn client_size(&self) -> (u32, u32) {
-        let i = self.inner.borrow();
-        let c = i.client();
-        (c.0.saturating_sub(i.list_px()), c.1.saturating_sub(i.strip_px()))
+        self.inner.borrow().area()
+    }
+
+    fn set_area_origin(&mut self, x: i32, y: i32) {
+        self.inner.borrow_mut().set_slot_origin(x, y);
     }
 
     fn show(&mut self) {
         let mut i = self.inner.borrow_mut();
         i.shown = true;
+        i.shown_at = Some(Instant::now());
         i.sync();
         let _ = i.frame.show();
         i.apply_area_visibility();
@@ -528,7 +642,7 @@ impl WindowSystem for DockedSystem {
             }
             Some(Popup { hwnd: popup_hwnd, _state: state })
         };
-        let inner = Rc::new(RefCell::new(Inner { popup, frame, frame_hwnd, area_visible: native, shown: false, close, last_client: (0, 0), pending: None, user_resize: None, placed: None, logged: false }));
+        let inner = Rc::new(RefCell::new(Inner { popup, frame, frame_hwnd, area_visible: native, shown: false, close, last_client: (0, 0), pending: None, user_resize: None, placed: None, slot_origin: None, want_area: None, shown_at: None, logged: 0 }));
         self.windows.push(Rc::downgrade(&inner));
         let mut win = DockedWindow { inner };
         win.set_client_size(client.0, client.1); // à l'échelle réelle de l'écran de la fenêtre

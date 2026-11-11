@@ -16,6 +16,24 @@ const view = new PluginView({ state, client: engine, root: document.querySelecto
 view.boundInsert = insertId;
 let shown = false;
 
+/**
+ * Dit à l'application où est la zone de l'interface native (coin haut-gauche de `.pv-body`, en pixels de l'écran, dans le repère de la vue web) :
+ * c'est mesuré ici, dans la page réellement affichée, plutôt que supposé par l'application. La zone va jusqu'aux bords droit et bas.
+ */
+let lastSlot = "";
+function reportSlot() {
+  const r = document.querySelector(".pv-body").getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const x = Math.round(r.left * dpr);
+  const y = Math.round(r.top * dpr);
+  const key = `${insertId}:${x}:${y}`;
+  if (key === lastSlot) return;
+  lastSlot = key;
+  engine.send({ type: "set_plugin_area", insert: insertId, x, y });
+}
+new ResizeObserver(reportSlot).observe(document.body);
+window.addEventListener("resize", reportSlot);
+
 const rowsBox = document.querySelector(".pw-rows");
 const titleEl = document.querySelector(".pw-title");
 
@@ -50,6 +68,32 @@ function renderList() {
       else view.show(view.view === "native" ? "native" : "params");
     });
     row.append(byp, name);
+    if (ins.id === insertId) {
+      // Le plugin affiché : monter, descendre, retirer (la fenêtre passe au voisin avant le retrait, pour ne pas se fermer).
+      const i = node.inserts.indexOf(ins);
+      const tools = document.createElement("div");
+      tools.className = "pw-tools";
+      const mk = (label, title, disabled, fn) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.disabled = disabled;
+        b.addEventListener("click", fn);
+        return b;
+      };
+      tools.append(
+        mk("↑", "Monter dans la chaîne", i === 0, () => engine.send({ type: "move_plugin", insert: ins.id, before: node.inserts[i - 1].id })),
+        mk("↓", "Descendre dans la chaîne", i === node.inserts.length - 1, () => engine.send(node.inserts[i + 2] ? { type: "move_plugin", insert: ins.id, before: node.inserts[i + 2].id } : { type: "move_plugin", insert: ins.id })),
+        mk("✕", "Retirer ce plugin de la piste", false, () => {
+          const next = node.inserts[i + 1] ?? node.inserts[i - 1];
+          if (next) engine.send({ type: "switch_plugin_ui", from: ins.id, to: next.id });
+          engine.send({ type: "remove_plugin", insert: ins.id });
+        }),
+      );
+      row.append(tools);
+    }
     rowsBox.append(row);
   }
 }
@@ -70,6 +114,8 @@ engine.on("plugin_ui_switched", (e) => {
     document.title = `${node.inserts.find((i) => i.id === insertId)?.name ?? "Plugin"} — ${node.name}`;
   }
   renderList();
+  lastSlot = "";
+  reportSlot();
 });
 
 engine.on("project", (p) => {
@@ -88,6 +134,8 @@ engine.on("project", (p) => {
     view.refresh();
   }
   renderList();
+  reportSlot();
+  setTimeout(reportSlot, 300); // après le chargement des polices : la bande ne bouge plus
 });
 engine.on("position", (e) => {
   state.pos = e.pos;

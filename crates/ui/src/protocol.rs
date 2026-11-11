@@ -410,6 +410,10 @@ pub enum Command {
     /// la taille de la nouvelle interface. Si `to` a déjà sa propre fenêtre, c'est elle qu'on ramène au premier plan et rien ne change.
     /// Réponse : `plugin_ui_switched`.
     SwitchPluginUi { from: u32, to: u32 },
+    /// Fenêtre de plugin à bande : la page a mesuré le coin haut-gauche (`x`, `y`, en pixels de l'écran relatifs à la vue web) de la zone
+    /// où l'application loge l'interface native du plugin `insert` ; la zone va jusqu'aux bords droit et bas de la fenêtre. Envoyée à
+    /// chaque changement de mise en page. Sans effet hors d'une fenêtre à bande.
+    SetPluginArea { insert: u32, x: i32, y: i32 },
     /// Ferme l'interface native du plugin `insert` (sans effet si elle n'est pas ouverte).
     ClosePluginUi { insert: u32 },
     /// Crée une **copie convertie** du projet `path` (un dossier « Nom.daw ») à la fréquence d'échantillonnage du moteur, dans un nouveau
@@ -554,6 +558,7 @@ impl Command {
             Command::OpenPluginUi { .. } => "open_plugin_ui",
             Command::SetPluginView { .. } => "set_plugin_view",
             Command::SwitchPluginUi { .. } => "switch_plugin_ui",
+            Command::SetPluginArea { .. } => "set_plugin_area",
             Command::ClosePluginUi { .. } => "close_plugin_ui",
             Command::ConvertProject { .. } => "convert_project",
             Command::CancelConvert => "cancel_convert",

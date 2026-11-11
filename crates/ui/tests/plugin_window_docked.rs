@@ -23,6 +23,7 @@ struct Seen {
     visible: Vec<bool>,
     destroyed: u32,
     titles: Vec<String>,
+    origins: Vec<(i32, i32)>,
     focused: u32,
     api: &'static str,
 }
@@ -42,6 +43,9 @@ impl NativeWindow for Win {
     fn show(&mut self) {}
     fn focus(&mut self) {
         self.0.borrow_mut().focused += 1;
+    }
+    fn set_area_origin(&mut self, x: i32, y: i32) {
+        self.0.borrow_mut().origins.push((x, y));
     }
     fn set_title(&mut self, title: &str) {
         self.0.borrow_mut().titles.push(title.to_owned());
@@ -206,6 +210,19 @@ fn switching_to_a_plugin_that_already_has_its_window_brings_that_one_forward() {
     assert!(h.command_json(&format!(r#"{{"type":"switch_plugin_ui","from":{a},"to":{a}}}"#)).is_empty());
     let ev = h.command_json(r#"{"type":"switch_plugin_ui","from":999,"to":1}"#);
     assert!(ev.iter().any(|e| matches!(e, Event::Error { command, .. } if command == "switch_plugin_ui")));
+}
+
+#[test]
+fn the_page_measured_origin_of_the_native_area_reaches_the_window() {
+    let _guard = ONE_AT_A_TIME.lock().unwrap();
+    let (_e, mut h, seen, insert) = setup("win32");
+    h.command_json(&format!(r#"{{"type":"open_plugin_ui","insert":{insert}}}"#));
+    let ev = h.command_json(&format!(r#"{{"type":"set_plugin_area","insert":{insert},"x":168,"y":52}}"#));
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    // Sans fenêtre ouverte pour ce plugin : sans effet ni erreur.
+    let ev = h.command_json(r#"{"type":"set_plugin_area","insert":999,"x":1,"y":1}"#);
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })));
+    assert_eq!(seen.borrow().origins, vec![(168, 52)]);
 }
 
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());

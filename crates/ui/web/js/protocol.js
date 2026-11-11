@@ -178,6 +178,8 @@ export function validateCommand(m) {
       return typeof m.path === "string" && m.path.trim() ? null : `${m.type} : path requis`;
     case "set_loop_record":
       return typeof m.enabled === "boolean" ? null : "set_loop_record : enabled est un booléen";
+    case "set_plugin_area":
+      return Number.isInteger(m.insert) && m.insert >= 0 && Number.isInteger(m.x) && Number.isInteger(m.y) && m.x >= 0 && m.y >= 0 && m.x <= 20000 && m.y <= 20000 ? null : "set_plugin_area : insert, x et y (pixels, entiers positifs)";
     case "switch_plugin_ui":
       return Number.isInteger(m.from) && m.from >= 0 && Number.isInteger(m.to) && m.to >= 0 ? null : "switch_plugin_ui : from et to (numéros de plugins)";
     case "set_plugin_view":

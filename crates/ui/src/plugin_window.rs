@@ -30,6 +30,9 @@ pub trait NativeWindow {
     }
     /// Replace la fenêtre ; une position hors de tout écran doit être ramenée à l'intérieur.
     fn set_position(&mut self, _x: i32, _y: i32) {}
+    /// Fenêtre « à bande » : la page a **mesuré** où est la zone du plugin (coin haut-gauche, en pixels de l'écran, relatif à la vue web).
+    /// La zone va jusqu'aux bords droit et bas de la fenêtre : l'origine suffit à en déduire la taille. Remplace les valeurs supposées.
+    fn set_area_origin(&mut self, _x: i32, _y: i32) {}
     /// Change le titre de la fenêtre (une fenêtre à bande qui passe à un autre plugin de la même piste).
     fn set_title(&mut self, _title: &str) {}
     /// Fenêtre « à bande » (voir `WindowSystem::docked`) : montre ou cache la zone de l'interface native du plugin, que la bascule

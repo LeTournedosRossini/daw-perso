@@ -282,8 +282,9 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .pv[data-view="native"] .pv-native { display: grid; align-content: center; justify-items: center; gap: 8px; padding: 18px 8px; }
 .pv-open { padding: 5px 12px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
 .pv input[type="search"] { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 12px; }
-.plugins-panel.windowed .pv-host { display: none; }
+.plugins-panel.windowed .side { display: none; }
 .plugins-panel.windowed .pp-body { grid-template-columns: minmax(0, 1fr); }
+.plugins-panel.windowed { width: min(420px, calc((100vw - 24px) / var(--ui-zoom, 1))); }
 /* Fenêtre de plugin de l'application : liste des plugins de la piste (168 px, constante LIST_CSS) à gauche ; à droite la bande, puis la zone
    de l'interface native logée par l'application. La bande occupe 52 px (6 + 34 + 12 : constante TOP_CSS de crates/app/src/win32_window.rs). */
 .plugin-window { position: static !important; width: auto !important; max-height: none !important; height: 100vh; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
@@ -293,6 +294,10 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .plugin-window .pw-rows { display: grid; gap: 3px; }
 .plugin-window .pw-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
 .plugin-window .pw-row.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.plugin-window .pw-tools { grid-column: 1 / -1; display: flex; gap: 4px; justify-content: flex-end; padding: 0 2px 2px; }
+.plugin-window .pw-tools button { width: 26px; height: 20px; border: 1px solid var(--line) !important; background: var(--panel) !important; font-size: 11px; }
+.plugin-window .pw-tools button:disabled { opacity: 0.35; cursor: default; }
+.plugin-window .pw-tools button:hover:not(:disabled) { border-color: var(--accent) !important; }
 .plugin-window .pw-row button { height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
 .plugin-window .pw-name { text-align: left; padding: 0 4px !important; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plugin-window .pw-name:hover { background: var(--panel) !important; }
@@ -301,8 +306,9 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .plugin-window .pw-main { min-width: 0; height: 100vh; }
 .plugin-window .pv { height: 100%; gap: 0; }
 .plugin-window .pv-strip { height: 34px; margin: 6px 6px 12px; box-sizing: border-box; flex: 0 0 auto; }
-.plugin-window .pv-body { flex: 1 1 auto; min-height: 0; padding: 0 6px 6px; box-sizing: border-box; }
-.plugin-window .pv-params, .plugin-window .pv-picker { height: 100%; }
+.plugin-window .pv-body { flex: 1 1 auto; min-height: 0; padding: 0; box-sizing: border-box; }
+/* La zone de l'interface native est `.pv-body` lui-même (flush contre la liste et le bas) : les vues web gardent leur propre marge. */
+.plugin-window .pv-params, .plugin-window .pv-picker, .plugin-window .pv-outputs { height: 100%; padding: 0 6px 6px; box-sizing: border-box; }
 .plugin-window .list { max-height: none; }
 @media (max-width: 560px) { .plugins-panel .pp-body { grid-template-columns: minmax(0, 1fr); overflow: auto; } }
 .track-head .fx { height: 18px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 9px; background: transparent; color: var(--accent); font-size: 10px; font-weight: 700; cursor: pointer; line-height: 1; }
