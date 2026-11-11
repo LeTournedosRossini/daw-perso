@@ -67,6 +67,23 @@ impl Session {
         Ok(())
     }
 
+    /// Destination de chaque port de sortie auxiliaire d'un effet (`aux[k]` : le deuxième port pour k = 0…), **sans historique** (routage de
+    /// l'effet, comme sa chaîne latérale). Refusée si l'effet n'existe pas ou si le graphe la refuse (pas un bus, le nœud lui-même, une boucle).
+    pub fn set_effect_aux_untracked(&mut self, insert: InsertId, aux: Vec<Option<NodeId>>) -> Result<(), SessionError> {
+        let (n, k) = self.locate_insert(insert).ok_or(SessionError::UnknownInsert(insert))?;
+        let old = std::mem::replace(&mut self.graph.nodes[n].inserts[k].aux, aux);
+        if let Err(e) = self.graph.validate() {
+            self.graph.nodes[n].inserts[k].aux = old;
+            return Err(SessionError::Routing(format!("sorties auxiliaires refusées : {e:?}")));
+        }
+        Ok(())
+    }
+
+    /// Destinations des ports de sortie auxiliaires d'un effet.
+    pub fn effect_aux(&self, insert: InsertId) -> Vec<Option<NodeId>> {
+        self.locate_insert(insert).map(|(n, k)| self.graph.nodes[n].inserts[k].aux.clone()).unwrap_or_default()
+    }
+
     /// Source de la chaîne latérale d'un effet.
     pub fn effect_sidechain(&self, insert: InsertId) -> Option<NodeId> {
         let (n, k) = self.locate_insert(insert)?;

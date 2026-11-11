@@ -51,6 +51,8 @@ pub struct NodeRecord {
     monitor_role: u8,
     /// Effets d'autres nœuds (numéro du nœud, identifiant) dont la chaîne latérale venait de lui : retirée avec lui, rendue avec lui.
     dropped_sidechains: Vec<(u32, daw_engine::InsertId)>,
+    /// Ports de sortie auxiliaires d'effets d'autres nœuds qui visaient ce nœud : `(nœud, effet, port)`.
+    dropped_aux: Vec<(u32, daw_engine::InsertId, usize)>,
     /// Filtre d'entrée MIDI de la piste.
     midi_filter: Vec<crate::midi_filter::MidiRule>,
     /// Place dans l'ordre d'affichage.
@@ -167,6 +169,7 @@ impl Session {
             monitor_token: String::new(),
             monitor_role: 0,
             dropped_sidechains: Vec::new(),
+            dropped_aux: Vec::new(),
             midi_filter: Vec::new(),
             display_pos: self.order.len(),
             rerouted: Vec::new(),
@@ -210,7 +213,18 @@ impl Session {
                 dropped_sidechains.push((i as u32, ins.id));
             }
         }
+        let mut dropped_aux = Vec::new();
+        for (i, other) in self.graph.nodes.iter().enumerate().filter(|(i, _)| *i != n) {
+            for ins in &other.inserts {
+                for (port, t) in ins.aux.iter().enumerate() {
+                    if *t == Some(node) {
+                        dropped_aux.push((i as u32, ins.id, port));
+                    }
+                }
+            }
+        }
         let record = NodeRecord {
+            dropped_aux,
             dropped_sidechains,
             desc,
             clip_ids: self.ids[n].clone(),
@@ -480,6 +494,9 @@ impl Session {
             }
             for i in &mut n.inserts {
                 i.sidechain = i.sidechain.map(|s| shift_up(s, at));
+                for a in &mut i.aux {
+                    *a = a.map(|t| shift_up(t, at));
+                }
             }
         }
         for lanes in &mut self.lanes {
@@ -501,6 +518,13 @@ impl Session {
         for (o, id) in &r.dropped_sidechains {
             if let Some(ins) = self.graph.nodes.get_mut(*o as usize).and_then(|n| n.inserts.iter_mut().find(|i| i.id == *id)) {
                 ins.sidechain = Some(NodeId(at as u32));
+            }
+        }
+        for (o, id, port) in &r.dropped_aux {
+            if let Some(ins) = self.graph.nodes.get_mut(*o as usize).and_then(|n| n.inserts.iter_mut().find(|i| i.id == *id)) {
+                if let Some(slot) = ins.aux.get_mut(*port) {
+                    *slot = Some(NodeId(at as u32));
+                }
             }
         }
         for (o, pos, s) in &r.dropped_sends {
@@ -558,6 +582,11 @@ impl Session {
                 if ins.sidechain == Some(gone) {
                     ins.sidechain = None;
                 }
+                for a in &mut ins.aux {
+                    if *a == Some(gone) {
+                        *a = None;
+                    }
+                }
             }
         }
         for lanes in &mut self.lanes {
@@ -577,6 +606,9 @@ impl Session {
             }
             for i in &mut n.inserts {
                 i.sidechain = i.sidechain.map(|s| shift_down(s, at));
+                for a in &mut i.aux {
+                    *a = a.map(|t| shift_down(t, at));
+                }
             }
         }
         self.ids.remove(at);

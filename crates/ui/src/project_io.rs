@@ -45,6 +45,9 @@ pub struct PluginEntry {
     /// Nœud dont le signal alimente la chaîne latérale du plugin (numéro de nœud du projet) ; absent : aucune.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidechain: Option<u32>,
+    /// Destination de chaque port de sortie auxiliaire (numéro de nœud du projet) ; absent : aucun n'est branché.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aux: Vec<Option<u32>>,
 }
 
 /// Réglages d'affichage que la session ne connaît pas. Les clés d'objet JSON sont du texte : numéros de nœuds en chaînes.

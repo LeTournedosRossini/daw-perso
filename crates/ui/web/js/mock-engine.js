@@ -46,6 +46,7 @@ function demoProject() {
 /** Plugins de démonstration : mêmes champs que l'inventaire du vrai moteur. `params` : [nom, module, min, max, défaut]. */
 const MOCK_PLUGINS = [
   { clap_id: "mock.analogsynth", name: "AnalogSynth", vendor: "Le Tournedos Rossini", file: "AnalogSynth.clap", description: "Synthé analogique", features: ["instrument"], latency: 0, params: [["Volume", "Sortie", 0, 1, 0.7], ["Fréquence de coupure", "Filtre", 20, 20000, 4000], ["Résonance", "Filtre", 0, 1, 0.2], ["Attaque", "Enveloppe", 0, 5, 0.01], ["Relâchement", "Enveloppe", 0, 10, 0.4]] },
+  { clap_id: "mock.neptune", name: "Neptune", vendor: "Le Tournedos Rossini", file: "Neptune.clap", description: "Sampleur multi-sorties", features: ["instrument"], latency: 0, aux: ["Sortie 2", "Sortie 3", "Sortie 4"], params: [["Volume", "Sortie", 0, 1, 0.7], ["Accord", "Sortie", -12, 12, 0]] },
   { clap_id: "mock.compresseur", name: "Compresseur", vendor: "Le Tournedos Rossini", file: "Compresseur.clap", description: "Compresseur", features: ["audio-effect"], latency: 0, sidechain: true, params: [["Seuil", "", -60, 0, -18], ["Ratio", "", 1, 20, 4], ["Attaque", "", 0.1, 100, 10], ["Relâchement", "", 10, 1000, 120], ["Gain de sortie", "", -12, 12, 0]] },
   { clap_id: "mock.egaliseur", name: "Egaliseur", vendor: "Le Tournedos Rossini", file: "Egaliseur.clap", description: "Égaliseur paramétrique", features: ["audio-effect"], latency: 0, params: Array.from({ length: 40 }, (_, i) => [`Bande ${Math.floor(i / 4) + 1} ${["fréquence", "gain", "largeur", "type"][i % 4]}`, `Bande ${Math.floor(i / 4) + 1}`, 0, 1, 0.5]) },
   { clap_id: "mock.digue", name: "Digue", vendor: "Le Tournedos Rossini", file: "Digue.clap", description: "Limiteur", features: ["audio-effect"], latency: 480, params: [["Plafond", "", -12, 0, -1], ["Anticipation", "", 0, 10, 5]] },
@@ -1086,7 +1087,7 @@ export class MockEngine extends EngineClient {
           if (!def) throw new Error(`plugin introuvable : ${msg.clap_id}`);
           const id = this.nextInsert++;
           this.plugins.set(id, { def, values: def.params.map((p) => p[4]) });
-          node.inserts.push({ id, name: def.name, vendor: def.vendor, bypass: false, has_sidechain: !!def.sidechain, sidechain: null, latency: def.latency, gui: def.gui !== false, ui_open: false });
+          node.inserts.push({ id, name: def.name, vendor: def.vendor, bypass: false, has_sidechain: !!def.sidechain, sidechain: null, aux_ports: (def.aux ?? []).map((name) => ({ name, to: null })), latency: def.latency, gui: def.gui !== false, ui_open: false });
         });
       case "remove_plugin":
         return this.#edit("Retirer un plugin", msg, () => {
@@ -1115,6 +1116,23 @@ export class MockEngine extends EngineClient {
           return false;
         }
         ins.bypass = msg.bypass;
+        this.#markDirty();
+        this.#emitProject();
+        break;
+      }
+      case "set_plugin_aux": {
+        const owner = this.project.nodes.find((n) => n.inserts.some((i) => i.id === msg.insert));
+        const ins = owner?.inserts.find((i) => i.id === msg.insert);
+        const fail = (message) => (this.emit("error", { command: "set_plugin_aux", message }), false);
+        if (!ins) return fail(`plugin inconnu : ${msg.insert}`);
+        if (msg.port >= ins.aux_ports.length) return fail(`ce plugin n'a pas de port de sortie auxiliaire n° ${msg.port}`);
+        if (msg.to !== null) {
+          const dest = this.node(msg.to);
+          if (!dest) return fail(`nœud inconnu : ${msg.to}`);
+          if (dest.id === owner.id || !(dest.kind === "bus" || dest.kind === "master")) return fail("sortie auxiliaire refusée : il faut un bus ou la sortie principale");
+          if (dest.kind === "bus" && this.#reaches(dest.id, owner.id)) return fail("sortie auxiliaire refusée : boucle");
+        }
+        ins.aux_ports[msg.port].to = msg.to;
         this.#markDirty();
         this.#emitProject();
         break;
@@ -1206,7 +1224,10 @@ export class MockEngine extends EngineClient {
           for (const o of this.project.nodes) {
             if (o.output === n.id) o.output = 0;
             if (o.sends) o.sends = o.sends.filter((s) => s.to !== n.id);
-            for (const i of o.inserts ?? []) if (i.sidechain === n.id) i.sidechain = null; // sa chaîne latérale disparaît avec la source
+            for (const i of o.inserts ?? []) {
+              if (i.sidechain === n.id) i.sidechain = null; // sa chaîne latérale disparaît avec la source
+              for (const a of i.aux_ports ?? []) if (a.to === n.id) a.to = null;
+            }
             if (o.automation) o.automation = o.automation.filter((l) => !(l.target.kind === "send" && l.target.to === n.id));
           }
         });

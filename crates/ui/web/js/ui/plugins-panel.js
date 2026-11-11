@@ -248,6 +248,36 @@ export class PluginsPanel {
     return row;
   }
 
+  /** Sorties multiples du plugin sélectionné : un sélecteur par port de sortie auxiliaire (un bus, la sortie principale, ou rien). */
+  auxRows(ins) {
+    const box = document.createElement("div");
+    box.className = "aux-rows";
+    const title = document.createElement("div");
+    title.className = "aux-title";
+    title.textContent = `Sorties multiples (${ins.aux_ports.length})`;
+    title.title = "Chaque sortie audio supplémentaire du plugin peut aller sur un bus (ou la sortie principale), comme un envoi avant le fader de niveau 1. Une sortie non branchée n'est pas entendue ; la première sortie suit la piste comme d'habitude.";
+    box.append(title);
+    const list = document.createElement("div");
+    list.className = "aux-list";
+    const dests = this.state.project.nodes.filter((n) => (n.kind === "bus" || n.kind === "master") && n.id !== this.node);
+    ins.aux_ports.forEach((port, k) => {
+      const row = document.createElement("label");
+      row.className = "aux-row";
+      const text = document.createElement("span");
+      text.textContent = port.name;
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", `Destination de la sortie « ${port.name} »`);
+      sel.append(new Option("Non branchée", ""));
+      for (const n of dests) sel.append(new Option(n.kind === "master" ? "Sortie principale" : n.name, String(n.id)));
+      sel.value = port.to == null ? "" : String(port.to);
+      sel.addEventListener("change", () => this.client.send({ type: "set_plugin_aux", insert: ins.id, port: k, to: sel.value === "" ? null : Number(sel.value) }));
+      row.append(text, sel);
+      list.append(row);
+    });
+    box.append(list);
+    return box;
+  }
+
   /** Définit la page de contrôle du plugin dans la banque personnelle (valable pour tous les projets). */
   #savePage(ins, pid, params) {
     this.client.send({ type: "set_control_page", plugin_id: pid, name: ins.name, params });
@@ -325,6 +355,7 @@ export class PluginsPanel {
     }
     title.textContent = `Réglages : ${ins.name}`;
     if (ins.has_sidechain) box.append(this.sidechainRow(ins));
+    if (ins.aux_ports?.length) box.append(this.auxRows(ins));
     const pid = this.pluginIds.get(ins.id);
     if (pid) box.append(this.pageBlock(ins, pid));
     search.value = this.paramSearch;

@@ -19,7 +19,7 @@ use daw_session::{ClipId, MEvent, MKind, MLane, MNote, MPoint, MidiClipId, MidiT
 
 use crate::prefs::{self, Prefs, Runtime};
 use crate::project_io::{self, PluginEntry, UiInput, UiMeta};
-use crate::protocol::{DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
+use crate::protocol::{AuxPortInfo, DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
 
 /// Dossier (sous la racine de la sauvegarde automatique) du projet qui n'a pas encore de dossier à lui.
 const UNTITLED_DIR: &str = "sans-titre.daw";
@@ -846,7 +846,7 @@ impl Host {
                 if node as usize >= self.session.graph().nodes.len() {
                     return error(format!("nœud inconnu : {node}"));
                 }
-                let entry = PluginEntry { node, name: String::new(), clap_id: clap_id.clone(), vendor: String::new(), file: file.unwrap_or_default(), state: None, bypass: false, sidechain: None };
+                let entry = PluginEntry { node, name: String::new(), clap_id: clap_id.clone(), vendor: String::new(), file: file.unwrap_or_default(), state: None, bypass: false, sidechain: None, aux: Vec::new() };
                 let Some((factory, pref)) = (self.resolver)(&entry) else { return error(format!("plugin introuvable : {clap_id}")) };
                 match self.session.add_effect(NodeId(node), &pref.name, factory) {
                     Ok(id) => {
@@ -1163,6 +1163,25 @@ impl Host {
                 }
                 if let Err(e) = self.handle.load_graph(self.session.graph()) {
                     let _ = self.session.set_effect_sidechain_untracked(insert, old);
+                    return error(format!("le moteur a refusé la modification : {e:?}"));
+                }
+                self.dirty = true;
+                vec![self.project_event()]
+            }
+            Command::SetPluginAux { insert, port, to } => {
+                let ports = self.plugin_handle(insert).map_or(0, |h| h.audio_ports().outputs.len().saturating_sub(1));
+                if port as usize >= ports {
+                    return error(format!("ce plugin n'a pas de port de sortie auxiliaire n° {port}"));
+                }
+                let old = self.session.effect_aux(insert);
+                let mut aux = old.clone();
+                aux.resize(ports.max(aux.len()), None);
+                aux[port as usize] = to.map(NodeId);
+                if let Err(e) = self.session.set_effect_aux_untracked(insert, aux) {
+                    return error(explain(&e));
+                }
+                if let Err(e) = self.handle.load_graph(self.session.graph()) {
+                    let _ = self.session.set_effect_aux_untracked(insert, old);
                     return error(format!("le moteur a refusé la modification : {e:?}"));
                 }
                 self.dirty = true;
@@ -2195,7 +2214,7 @@ impl Host {
                     continue;
                 };
                 let state = self.handle.insert_control(ins.id).and_then(|c| c.save_state()).map(|b| project_io::base64_encode(&b));
-                plugins.push(PluginEntry { node: n as u32, name: pref.name.clone(), clap_id: pref.clap_id.clone(), vendor: pref.vendor.clone(), file: pref.file.clone(), state, bypass: ins.bypass, sidechain: ins.sidechain.map(|s| s.0) });
+                plugins.push(PluginEntry { node: n as u32, name: pref.name.clone(), clap_id: pref.clap_id.clone(), vendor: pref.vendor.clone(), file: pref.file.clone(), state, bypass: ins.bypass, sidechain: ins.sidechain.map(|s| s.0), aux: if ins.aux.iter().any(Option::is_some) { ins.aux.iter().map(|a| a.map(|n| n.0)).collect() } else { Vec::new() } });
             }
         }
         plugins.extend(self.kept_plugins.iter().cloned());
@@ -2453,6 +2472,11 @@ impl Host {
                 Some((factory, pref)) => {
                     if let Some(id) = session.add_insert(NodeId(entry.node), &entry.name, with_state(factory, state)) {
                         session.set_effect_bypass_untracked(id, entry.bypass);
+                        if entry.aux.iter().any(Option::is_some) {
+                            if let Err(e) = session.set_effect_aux_untracked(id, entry.aux.iter().map(|a| a.map(NodeId)).collect()) {
+                                warnings.push(format!("plugin « {} » : sorties auxiliaires ignorées ({})", entry.name, explain(&e)));
+                            }
+                        }
                         if let Some(src) = entry.sidechain {
                             if let Err(e) = session.set_effect_sidechain_untracked(id, Some(NodeId(src))) {
                                 warnings.push(format!("plugin « {} » : chaîne latérale ignorée ({})", entry.name, explain(&e)));
@@ -2833,6 +2857,7 @@ impl Host {
                             bypass: i.bypass,
                             has_sidechain: self.plugin_handle(i.id).is_some_and(|h| h.has_sidechain()),
                             sidechain: i.sidechain.map(|s| s.0),
+                            aux_ports: self.plugin_handle(i.id).map_or_else(Vec::new, |h| h.audio_ports().output_names.into_iter().skip(1).take(31).enumerate().map(|(k, name)| AuxPortInfo { name, to: i.aux.get(k).copied().flatten().map(|n| n.0) }).collect()),
                             latency: self.plugin_handle(i.id).map_or(0, |h| h.latency()),
                             gui: self.gui_available(i.id),
                             ui_open: self.plugin_ui_open(i.id),

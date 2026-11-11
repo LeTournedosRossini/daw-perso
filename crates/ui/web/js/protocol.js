@@ -158,6 +158,8 @@ export function validateCommand(m) {
       if (!Number.isInteger(m.node) || m.node <= 0 || !c || typeof c.enabled !== "boolean") return "set_track_velocity_curve : node et curve { enabled, ... }";
       return int(c.min, 1, 127) && int(c.max, 1, 127) && (c.bend === undefined || int(c.bend, -1000, 1000)) && (c.smooth === undefined || int(c.smooth, 0, 1000)) && (c.fixed === undefined || int(c.fixed, 0, 127)) ? null : "set_track_velocity_curve : courbure −1000 à 1000, adoucissement 0 à 1000, vélocités minimale et maximale de 1 à 127, vélocité fixe 0 à 127";
     }
+    case "set_plugin_aux":
+      return Number.isInteger(m.insert) && m.insert >= 0 && Number.isInteger(m.port) && m.port >= 0 && m.port < 31 && (m.to === null || (Number.isInteger(m.to) && m.to >= 0)) ? null : "set_plugin_aux : insert, port (0 à 30) et to (un nœud, ou null)";
     case "set_insert_sidechain":
       return Number.isInteger(m.insert) && m.insert >= 0 && (m.source === null || (Number.isInteger(m.source) && m.source > 0)) ? null : "set_insert_sidechain : insert et source (un nœud, ou null)";
     case "renew_monitor_address":

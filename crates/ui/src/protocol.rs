@@ -208,6 +208,10 @@ pub enum Command {
     /// Source de la chaîne latérale d'un plugin (`null` : aucune) : le signal de cette piste ou de ce bus, avant son fader, va au second
     /// port d'entrée du plugin (un compresseur qui réagit à la grosse caisse, par exemple). Hors historique, enregistrée avec le projet.
     SetInsertSidechain { insert: u32, source: Option<u32> },
+    /// Destination d'un **port de sortie auxiliaire** d'un plugin (`port` : 0 = le deuxième port de sortie, jusqu'à 30) : un bus ou la sortie
+    /// principale (`to`), ou `null` pour le débrancher. Le signal y arrive comme celui d'un envoi avant fader de niveau 1. Hors historique,
+    /// enregistrée avec le projet.
+    SetPluginAux { insert: u32, port: u32, to: Option<u32> },
     /// Contourne (`true`) ou réactive un plugin, sans clic et sans changer la latence. Hors historique.
     SetPluginBypass { insert: u32, bypass: bool },
     /// Demande la liste des paramètres d'un plugin : réponse `plugin_params`.
@@ -483,6 +487,7 @@ impl Command {
             Command::MovePlugin { .. } => "move_plugin",
             Command::SetPluginBypass { .. } => "set_plugin_bypass",
             Command::SetInsertSidechain { .. } => "set_insert_sidechain",
+            Command::SetPluginAux { .. } => "set_plugin_aux",
             Command::GetPluginParams { .. } => "get_plugin_params",
             Command::GetControlPages => "get_control_pages",
             Command::SetControlPage { .. } => "set_control_page",
@@ -887,6 +892,7 @@ impl Command {
                     Some(_) => Err("set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3".into()),
                 }
             }
+            Command::SetPluginAux { port, .. } if *port >= 31 => Err("set_plugin_aux : port de 0 à 30".into()),
             Command::DetectOnsets { sensitivity, .. } => match sensitivity {
                 Some(v) if !(0.0..=1.0).contains(v) => Err("detect_onsets : sensitivity entre 0 et 1".into()),
                 _ => Ok(()),
@@ -1158,12 +1164,21 @@ pub struct InsertInfo {
     pub has_sidechain: bool,
     /// Nœud (piste ou bus) dont le signal, avant son fader, alimente la chaîne latérale du plugin ; `null` : aucune.
     pub sidechain: Option<u32>,
+    /// Ports de sortie au-delà du premier (instruments à sorties multiples) : nom du port et nœud destinataire (`null` : non branché).
+    pub aux_ports: Vec<AuxPortInfo>,
     /// Latence annoncée par le plugin, en échantillons.
     pub latency: u32,
     /// Le plugin a une interface native qu'on peut ouvrir ici (`open_plugin_ui`).
     pub gui: bool,
     /// Son interface native est ouverte en ce moment.
     pub ui_open: bool,
+}
+
+/// Un port de sortie auxiliaire d'un plugin et l'endroit où il est branché.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AuxPortInfo {
+    pub name: String,
+    pub to: Option<u32>,
 }
 
 /// Un plugin installé, tel que l'inventaire le décrit.

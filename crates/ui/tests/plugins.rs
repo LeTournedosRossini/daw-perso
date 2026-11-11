@@ -409,7 +409,7 @@ fn a_take_recorded_while_a_plugin_delays_the_playback_is_placed_earlier_by_that_
 fn sc_resolver() -> PluginResolver {
     let bundle = Arc::new(Bundle::from_static_entry(entry()).unwrap());
     Box::new(move |e| {
-        let ids = [PLUGIN_ID.to_str().unwrap(), daw_test_plugin::SIDECHAIN_ID.to_str().unwrap()];
+        let ids = [PLUGIN_ID.to_str().unwrap(), daw_test_plugin::SIDECHAIN_ID.to_str().unwrap(), daw_test_plugin::MULTIOUT_ID.to_str().unwrap()];
         ids.contains(&e.clap_id.as_str()).then(|| (clap_insert_factory(Arc::clone(&bundle), e.clap_id.clone()), PluginRef { clap_id: e.clap_id.clone(), vendor: "daw-perso".into(), name: "Plugin de test".into(), file: "test.clap".into() }))
     })
 }
@@ -452,5 +452,49 @@ fn a_plugin_side_chain_is_set_through_the_protocol_refused_when_invalid_and_save
     assert_eq!(chain(&ev, "Basse")[0].sidechain, None);
     let ev = h.command_json(r#"{"type":"undo"}"#);
     assert_eq!(chain(&ev, "Basse")[0].sidechain, Some(node(&ev, "Batterie").id));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_multi_output_plugin_has_aux_ports_routed_to_buses_through_the_protocol_and_saved_with_the_project() {
+    let (mut engine, handle) = Engine::new(SR, 64);
+    let (session, meta) = demo_session(SR);
+    let mut h = Host::new(handle, session, meta).unwrap();
+    h.set_plugin_resolver(sc_resolver());
+    let p = h.command_json(r#"{"type":"get_project"}"#);
+    let bass = node(&p, "Basse").id;
+    let ev = h.command_json(r#"{"type":"add_track","kind":"bus","name":"Sortie 2"}"#);
+    let bus = node(&ev, "Sortie 2").id;
+    let ev = h.command_json(&format!(r#"{{"type":"add_plugin","node":{bass},"clap_id":"com.daw-perso.test-multiout","file":"test.clap"}}"#));
+    let ins = chain(&ev, "Basse")[0].clone();
+    let names: Vec<&str> = ins.aux_ports.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["Sortie 2", "Sortie 3"], "{ins:?}");
+    assert!(ins.aux_ports.iter().all(|a| a.to.is_none()));
+    // Le gain de test n'a pas de port auxiliaire.
+    let plain = chain(&add(&mut h, bass), "Basse");
+    assert!(plain.iter().find(|i| i.id != ins.id).unwrap().aux_ports.is_empty());
+    // Brancher le port 0 sur le bus.
+    let ev = h.command_json(&format!(r#"{{"type":"set_plugin_aux","insert":{},"port":0,"to":{bus}}}"#, ins.id));
+    assert_eq!(chain(&ev, "Basse")[0].aux_ports[0].to, Some(bus));
+    // Refus : port inexistant, destination qui n'est pas un bus (la piste elle-même, une autre piste), plugin sans port auxiliaire.
+    for (insert, port, to) in [(ins.id, 5u32, bus), (ins.id, 0, bass), (ins.id, 1, node(&p, "Guitare").id), (999, 0, bus)] {
+        let ev = h.command_json(&format!(r#"{{"type":"set_plugin_aux","insert":{insert},"port":{port},"to":{to}}}"#));
+        assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })), "insert {insert} port {port} to {to}");
+    }
+    assert_eq!(chain(&h.command_json(r#"{"type":"get_project"}"#), "Basse")[0].aux_ports[0].to, Some(bus), "les refus n'ont rien changé");
+    run(&mut engine, 4);
+    // Enregistré et rouvert : le branchement revient (le bus garde son numéro).
+    let dir = saved(&mut h, "aux");
+    h.command_json(r#"{"type":"new_project"}"#);
+    let ev = h.command_json(&format!(r#"{{"type":"open_project","path":{:?}}}"#, dir.join("P.daw").to_string_lossy()));
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    let p = h.command_json(r#"{"type":"get_project"}"#);
+    assert_eq!(chain(&p, "Basse")[0].aux_ports[0].to, Some(node(&p, "Sortie 2").id));
+    // Supprimer le bus : le port est débranché ; annuler le rebranche.
+    let bus = node(&p, "Sortie 2").id;
+    let ev = h.command_json(&format!(r#"{{"type":"delete_track","node":{bus}}}"#));
+    assert_eq!(chain(&ev, "Basse")[0].aux_ports[0].to, None);
+    let ev = h.command_json(r#"{"type":"undo"}"#);
+    assert_eq!(chain(&ev, "Basse")[0].aux_ports[0].to, Some(node(&ev, "Sortie 2").id));
     let _ = std::fs::remove_dir_all(&dir);
 }
