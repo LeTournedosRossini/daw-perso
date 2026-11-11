@@ -12,6 +12,7 @@ members = [
     "crates/ui",
     "crates/test-plugin",
     "crates/align",
+    "crates/headless",
 ]
 # L'application Tauri a son propre espace de travail (dépendances lourdes, bibliothèques système sous Linux) :
 # elle ne doit pas gêner `cargo test --workspace`. Voir crates/app/README.md.

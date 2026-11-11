@@ -1,0 +1,11 @@
+[package]
+name = "daw-headless"
+description = "Hôte du DAW sans interface : le protocole JSON de la page, en lignes sur l'entrée et la sortie standard (scripts, bancs d'essai de plugins)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+daw-engine = { path = "../engine" }
+daw-ui = { path = "../ui" }
+serde_json = "1"

@@ -181,6 +181,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "daw-headless"
+version = "0.1.0"
+dependencies = [
+ "daw-engine",
+ "daw-ui",
+ "serde_json",
+]
+
+[[package]]
 name = "daw-offline-render"
 version = "0.1.0"
 dependencies = [
