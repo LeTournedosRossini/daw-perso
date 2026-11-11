@@ -256,7 +256,7 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     });
     // Interfaces natives des plugins : fenêtres Win32 pompées par ce fil (celui des plugins). Pas encore écrit pour macOS et Linux.
     #[cfg(target_os = "windows")]
-    host.set_window_system(Box::new(win32_window::Win32System::new()));
+    host.set_window_system(Box::new(win32_window::DockedSystem::new()));
     // L'entrée MIDI du moteur est confiée au routeur : les fils des appareils y déposent leurs messages.
     route.lock().unwrap_or_else(|e| e.into_inner()).tx = host.take_midi_input();
     Ok((engine, host))
@@ -416,6 +416,10 @@ fn main() {
         .manage(CloseGuard(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![send_command, close_guard, quit, restart_app])
         .on_window_event(|window, event| {
+            // Seule la fenêtre principale demande confirmation : une fenêtre de plugin se ferme par l'hôte (voir `win32_window`).
+            if window.label() != "main" {
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.state::<CloseGuard>().0.load(Ordering::Relaxed) {
                     api.prevent_close();
@@ -425,6 +429,8 @@ fn main() {
         })
         .setup(move |app| {
             log("fenêtre prête : démarrage du fil moteur");
+            #[cfg(target_os = "windows")]
+            win32_window::set_app(app.handle().clone());
             let handle = app.handle().clone();
             std::thread::Builder::new().name("moteur".into()).spawn(move || engine_thread(handle, rx)).expect("fil moteur");
             Ok(())

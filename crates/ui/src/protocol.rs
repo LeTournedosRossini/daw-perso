@@ -402,6 +402,9 @@ pub enum Command {
     /// pour elle ; déjà ouverte : la fenêtre passe au premier plan. L'interface se ferme seule si le plugin est retiré ou si le
     /// projet change.
     OpenPluginUi { insert: u32 },
+    /// Bascule Interface / Paramètres de la fenêtre de plugin à bande : `native` montre la zone de l'interface native, `web` la cache (la
+    /// bande montre alors la liste de paramètres). Sans effet hors d'une fenêtre à bande.
+    SetPluginView { insert: u32, view: String },
     /// Ferme l'interface native du plugin `insert` (sans effet si elle n'est pas ouverte).
     ClosePluginUi { insert: u32 },
     /// Crée une **copie convertie** du projet `path` (un dossier « Nom.daw ») à la fréquence d'échantillonnage du moteur, dans un nouveau
@@ -544,6 +547,7 @@ impl Command {
             Command::DiscardAutosave { .. } => "discard_autosave",
             Command::SaveProject { .. } => "save_project",
             Command::OpenPluginUi { .. } => "open_plugin_ui",
+            Command::SetPluginView { .. } => "set_plugin_view",
             Command::ClosePluginUi { .. } => "close_plugin_ui",
             Command::ConvertProject { .. } => "convert_project",
             Command::CancelConvert => "cancel_convert",
@@ -1394,6 +1398,9 @@ pub struct NodeInfo {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProjectInfo {
+    /// L'application ouvre une fenêtre de plugin par plugin (bande + interface native + paramètres) : le panneau des plugins de la page
+    /// n'a alors plus à montrer les réglages à côté de la chaîne.
+    pub plugin_windows: bool,
     /// Le bus ou le retour en écoute de contrôle, s'il y en a un (voir `set_listen`).
     pub listen: Option<u32>,
     /// Nombre de canaux de sortie audio que le pilote a ouverts (2 : la sortie principale seule, pas de retour de monitoring possible).

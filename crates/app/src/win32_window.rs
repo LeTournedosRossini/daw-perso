@@ -1,13 +1,12 @@
 //! Fenêtres Win32 des interfaces de plugins (Windows seulement) : réalisation de `daw_ui::plugin_window` par appels système
-//! directs (`user32`, sans dépendance). Tout le `unsafe` de la fenêtre est ici.
+//! directs (`user32`, sans dépendance) et par l'API de Tauri. Tout le `unsafe` des fenêtres est ici.
 //!
-//! * Une fenêtre de haut niveau ordinaire (barre de titre, croix, bords redimensionnables si le plugin l'accepte) ; le plugin y crée
-//!   sa fenêtre enfant (`gui.set_parent`). `WS_CLIPCHILDREN` : l'hôte ne repeint jamais par-dessus l'interface du plugin.
+//! * Une fenêtre de plugin est une fenêtre Tauri (la page `plugin.html` : bande + paramètres) surmontée, sur sa partie basse, d'une
+//!   zone native sans cadre où le plugin crée sa fenêtre enfant (`gui.set_parent`) : voir la deuxième moitié du fichier.
 //! * **Fil** : une fenêtre n'appartient qu'au fil qui l'a créée, qui doit en pomper les messages ([`WindowSystem::pump`]) : c'est le
 //!   fil « moteur », celui où vivent déjà les instances de plugins (règle « fil principal » de CLAP).
 //! * La croix **ne détruit pas** la fenêtre : elle lève un drapeau que l'hôte lit (`take_close_request`) pour fermer dans le bon
-//!   ordre (interface du plugin d'abord, fenêtre ensuite). Un redimensionnement de l'utilisateur est distingué de ceux qu'on
-//!   impose (`set_client_size`) par comparaison avec la dernière taille connue.
+//!   ordre (interface du plugin d'abord, fenêtre ensuite).
 
 use std::cell::Cell;
 use std::ffi::c_void;
@@ -44,6 +43,7 @@ struct Rect {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct Point {
     x: i32,
     y: i32,
@@ -86,13 +86,11 @@ extern "system" {
     fn CreateWindowExW(ex_style: u32, class: *const u16, title: *const u16, style: u32, x: i32, y: i32, w: i32, h: i32, parent: Hwnd, menu: Handle, instance: Handle, param: *mut c_void) -> Hwnd;
     fn DestroyWindow(hwnd: Hwnd) -> i32;
     fn ShowWindow(hwnd: Hwnd, cmd: i32) -> i32;
-    fn SetForegroundWindow(hwnd: Hwnd) -> i32;
     fn IsIconic(hwnd: Hwnd) -> i32;
     fn SetWindowPos(hwnd: Hwnd, after: Hwnd, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn GetClientRect(hwnd: Hwnd, rect: *mut Rect) -> i32;
     fn GetWindowRect(hwnd: Hwnd, rect: *mut Rect) -> i32;
     fn GetSystemMetrics(index: i32) -> i32;
-    fn AdjustWindowRectExForDpi(rect: *mut Rect, style: u32, menu: i32, ex_style: u32, dpi: u32) -> i32;
     fn GetDpiForWindow(hwnd: Hwnd) -> u32;
     fn DefWindowProcW(hwnd: Hwnd, msg: u32, w: usize, l: isize) -> isize;
     fn PeekMessageW(msg: *mut Msg, hwnd: Hwnd, min: u32, max: u32, remove: u32) -> i32;
@@ -101,12 +99,14 @@ extern "system" {
     fn SetWindowLongPtrW(hwnd: Hwnd, index: i32, value: isize) -> isize;
     fn GetWindowLongPtrW(hwnd: Hwnd, index: i32) -> isize;
     fn LoadCursorW(instance: Handle, name: *const u16) -> Handle;
+    fn ClientToScreen(hwnd: Hwnd, point: *mut Point) -> i32;
+    fn IsWindow(hwnd: Hwnd) -> i32;
 }
 
-const WS_CAPTION: u32 = 0x00C0_0000;
-const WS_SYSMENU: u32 = 0x0008_0000;
-const WS_THICKFRAME: u32 = 0x0004_0000;
-const WS_MINIMIZEBOX: u32 = 0x0002_0000;
+const WS_POPUP: u32 = 0x8000_0000;
+const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
+const SW_HIDE: i32 = 0;
+const SW_SHOWNOACTIVATE: i32 = 4;
 const WS_CLIPCHILDREN: u32 = 0x0200_0000;
 const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
 const WM_NCCREATE: u32 = 0x0081;
@@ -114,15 +114,10 @@ const WM_NCDESTROY: u32 = 0x0082;
 const WM_CLOSE: u32 = 0x0010;
 const WM_SIZE: u32 = 0x0005;
 const SIZE_MINIMIZED: usize = 1;
-const SW_SHOWNORMAL: i32 = 5;
-const SW_RESTORE: i32 = 9;
-const SWP_NOSIZE: u32 = 0x0001;
-const SWP_NOMOVE: u32 = 0x0002;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
 const PM_REMOVE: u32 = 1;
 const GWLP_USERDATA: i32 = -21;
-const CW_USEDEFAULT: i32 = i32::MIN;
 const IDC_ARROW: usize = 32512;
 const COLOR_WINDOW: usize = 5;
 const CLASS_NAME: &str = "DAWPluginWindow";
@@ -169,94 +164,6 @@ unsafe extern "system" fn wnd_proc(hwnd: Hwnd, msg: u32, w: usize, l: isize) -> 
     DefWindowProcW(hwnd, msg, w, l)
 }
 
-pub struct Win32Window {
-    hwnd: Hwnd,
-    style: u32,
-    state: Box<State>,
-}
-
-impl Win32Window {
-    fn dpi(&self) -> u32 {
-        // SAFETY: `hwnd` est une fenêtre valide créée par nous.
-        unsafe { GetDpiForWindow(self.hwnd) }.max(96)
-    }
-
-    fn outer(style: u32, client: (u32, u32), dpi: u32) -> (i32, i32) {
-        let mut r = Rect { left: 0, top: 0, right: client.0 as i32, bottom: client.1 as i32 };
-        // SAFETY: `r` est un `RECT` valide.
-        unsafe { AdjustWindowRectExForDpi(&mut r, style, 0, 0, dpi) };
-        (r.right - r.left, r.bottom - r.top)
-    }
-}
-
-impl NativeWindow for Win32Window {
-    fn handle(&self) -> (&'static str, usize) {
-        ("win32", self.hwnd as usize)
-    }
-
-    fn scale(&self) -> f64 {
-        self.dpi() as f64 / 96.0
-    }
-
-    fn set_client_size(&mut self, width: u32, height: u32) {
-        // On note la taille avant de l'imposer : le `WM_SIZE` que `SetWindowPos` provoque aussitôt n'est pas un geste de l'utilisateur.
-        self.state.last_client.set((width, height));
-        self.state.user_resize.set(None);
-        let (ow, oh) = Self::outer(self.style, (width, height), self.dpi());
-        // SAFETY: `hwnd` valide ; pas d'ordre Z, ni de déplacement, ni d'activation.
-        unsafe { SetWindowPos(self.hwnd, std::ptr::null_mut(), 0, 0, ow, oh, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) };
-    }
-
-    fn client_size(&self) -> (u32, u32) {
-        let mut r = Rect::default();
-        // SAFETY: `hwnd` valide, `r` valide.
-        unsafe { GetClientRect(self.hwnd, &mut r) };
-        ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32)
-    }
-
-    fn show(&mut self) {
-        // SAFETY: `hwnd` valide.
-        unsafe { ShowWindow(self.hwnd, SW_SHOWNORMAL) };
-    }
-
-    fn focus(&mut self) {
-        // SAFETY: `hwnd` valide.
-        unsafe {
-            if IsIconic(self.hwnd) != 0 {
-                ShowWindow(self.hwnd, SW_RESTORE);
-            }
-            SetForegroundWindow(self.hwnd);
-        }
-    }
-
-    fn take_close_request(&mut self) -> bool {
-        self.state.close_requested.replace(false)
-    }
-
-    fn take_user_resize(&mut self) -> Option<(u32, u32)> {
-        self.state.user_resize.take()
-    }
-
-    fn position(&self) -> Option<(i32, i32)> {
-        let mut r = Rect::default();
-        // SAFETY: `hwnd` valide, `r` valide. Une fenêtre réduite est rangée à (-32000, -32000) : ce n'est pas sa place.
-        unsafe {
-            if IsIconic(self.hwnd) != 0 || GetWindowRect(self.hwnd, &mut r) == 0 {
-                return None;
-            }
-        }
-        Some((r.left, r.top))
-    }
-
-    fn set_position(&mut self, x: i32, y: i32) {
-        // SAFETY: appels simples à user32 avec des arguments valides.
-        let screen = unsafe { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN)) };
-        let (x, y) = on_screen(x, y, screen);
-        // SAFETY: `hwnd` valide ; ni taille, ni ordre Z, ni activation.
-        unsafe { SetWindowPos(self.hwnd, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) };
-    }
-}
-
 const SM_XVIRTUALSCREEN: i32 = 76;
 const SM_YVIRTUALSCREEN: i32 = 77;
 const SM_CXVIRTUALSCREEN: i32 = 78;
@@ -288,26 +195,12 @@ mod tests {
     }
 }
 
-impl Drop for Win32Window {
-    fn drop(&mut self) {
-        // SAFETY: `hwnd` valide, détruite sur le fil qui l'a créée (l'hôte ferme ses fenêtres sur ce fil). L'état (`self.state`) survit
-        // à cet appel : il n'est libéré qu'ensuite, quand les champs sont détruits.
-        unsafe { DestroyWindow(self.hwnd) };
-    }
-}
+static CLASS_REGISTERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-#[derive(Default)]
-pub struct Win32System {
-    registered: bool,
-}
-
-impl Win32System {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn register(&mut self) -> Result<(), String> {
-        if self.registered {
+/// Enregistre la classe de fenêtre (une seule fois pour tout le processus).
+fn ensure_class() -> Result<(), String> {
+    {
+        if CLASS_REGISTERED.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
         let class_name = wide(CLASS_NAME);
@@ -333,43 +226,311 @@ impl Win32System {
         if atom == 0 {
             return Err("classe de fenêtre refusée par Windows".into());
         }
-        self.registered = true;
+        CLASS_REGISTERED.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }
 
-impl WindowSystem for Win32System {
+// ---------------------------------------------------------------------------------------------------------------------------
+// Fenêtres de plugin « à bande » : une fenêtre Tauri (la page `plugin.html` : bande + liste de paramètres) et, par-dessus sa partie
+// basse, une **zone native** (fenêtre Win32 sans cadre, dont la fenêtre Tauri est la propriétaire) où le plugin loge son interface.
+// La zone suit la fenêtre (position, taille) à chaque tour de la pompe ; elle est cachée quand la bande montre les paramètres.
+//
+// * **Fils** : la fenêtre Tauri vit sur le fil principal de l'application ; la zone native et l'interface du plugin vivent sur le fil
+//   moteur (règle « fil principal » de CLAP : celui des instances). Une fenêtre *propriétaire* d'un autre fil est permise : seul l'ordre Z
+//   est partagé (la zone reste au-dessus de sa propriétaire, se réduit avec elle). Les appels qui modifient la fenêtre Tauri passent par
+//   l'API de Tauri (envoyés au fil principal), jamais par `SetWindowPos` d'un autre fil.
+// * **Géométrie** : la bande occupe les `TOP_CSS` premiers pixels CSS de la page (constante partagée avec la feuille de style) ; la zone
+//   native est le reste de la zone utile de la fenêtre.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{mpsc, Arc, OnceLock};
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+static LABEL: AtomicU32 = AtomicU32::new(0);
+
+/// À appeler une fois au démarrage, avant tout ouvrir de fenêtre de plugin.
+pub fn set_app(app: AppHandle) {
+    let _ = APP.set(app);
+}
+
+/// Hauteur de la bande en pixels CSS (`.plugin-window .pv-strip` : 6 + 34 + 6 dans `css/app.css`).
+const TOP_CSS: f64 = 46.0;
+/// Après un redimensionnement imposé, on laisse ce délai à Tauri pour l'appliquer avant de reprendre les gestes de l'utilisateur.
+const IMPOSED_GRACE: Duration = Duration::from_millis(600);
+
+/// La zone native : fenêtre Win32 sans cadre, propriétaire = la fenêtre Tauri.
+struct Popup {
+    hwnd: Hwnd,
+    _state: Box<State>,
+}
+
+impl Drop for Popup {
+    fn drop(&mut self) {
+        // SAFETY: `hwnd` valide, créée sur ce fil, qui est aussi celui qui la détruit.
+        unsafe { DestroyWindow(self.hwnd) };
+    }
+}
+
+struct Inner {
+    // L'ordre compte : la zone native est détruite avant sa propriétaire (voir `Drop`).
+    popup: Option<Popup>,
+    frame: WebviewWindow,
+    frame_hwnd: Hwnd,
+    area_visible: bool,
+    shown: bool,
+    close: Arc<AtomicBool>,
+    /// Dernière taille de la zone utile de la fenêtre Tauri connue (imposée par nous ou constatée).
+    last_client: (u32, u32),
+    /// Taille imposée en attente d'application par Tauri : tant qu'elle n'est pas atteinte (ou le délai écoulé), on ne la prend pas
+    /// pour un geste de l'utilisateur.
+    pending: Option<((u32, u32), Instant)>,
+    user_resize: Option<(u32, u32)>,
+    placed: Option<(i32, i32, u32, u32)>,
+}
+
+impl Inner {
+    fn dpi(&self) -> u32 {
+        // SAFETY: `frame_hwnd` est la fenêtre de l'application ; la lecture du DPI est sans effet.
+        unsafe { GetDpiForWindow(self.frame_hwnd) }.max(96)
+    }
+
+    fn strip_px(&self) -> u32 {
+        (TOP_CSS * self.dpi() as f64 / 96.0).round() as u32
+    }
+
+    fn client(&self) -> (u32, u32) {
+        let mut r = Rect::default();
+        // SAFETY: `frame_hwnd` valide ; lecture seule.
+        unsafe { GetClientRect(self.frame_hwnd, &mut r) };
+        ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32)
+    }
+
+    /// Un tour de pompe : détecte un redimensionnement de l'utilisateur et replace la zone native sous la bande.
+    fn sync(&mut self) {
+        // SAFETY: lecture d'état d'une fenêtre qui peut avoir disparu : `IsWindow` répond sans risque.
+        if unsafe { IsWindow(self.frame_hwnd) } == 0 || unsafe { IsIconic(self.frame_hwnd) } != 0 {
+            return;
+        }
+        let size = self.client();
+        if size.0 == 0 || size.1 == 0 {
+            return;
+        }
+        let strip = self.strip_px();
+        match self.pending {
+            Some((target, since)) if size == target || since.elapsed() > IMPOSED_GRACE => {
+                self.pending = None;
+                self.last_client = size;
+            }
+            Some(_) => {}
+            None if size != self.last_client => {
+                self.last_client = size;
+                self.user_resize = Some((size.0, size.1.saturating_sub(strip).max(1)));
+            }
+            None => {}
+        }
+        let Some(popup) = self.popup.as_ref() else { return };
+        let (w, h) = (size.0, size.1.saturating_sub(strip).max(1));
+        let mut origin = Point { x: 0, y: strip as i32 };
+        // SAFETY: `frame_hwnd` valide ; `origin` est un `POINT` valide.
+        unsafe { ClientToScreen(self.frame_hwnd, &mut origin) };
+        let rect = (origin.x, origin.y, w, h);
+        if self.placed != Some(rect) {
+            self.placed = Some(rect);
+            // SAFETY: `popup.hwnd` créée par nous sur ce fil ; ni activation ni ordre Z (la propriétaire s'en charge).
+            unsafe { SetWindowPos(popup.hwnd, std::ptr::null_mut(), rect.0, rect.1, w as i32, h as i32, SWP_NOZORDER | SWP_NOACTIVATE) };
+        }
+    }
+
+    fn apply_area_visibility(&self) {
+        if let Some(p) = self.popup.as_ref() {
+            let show = self.shown && self.area_visible;
+            // SAFETY: `p.hwnd` valide, ce fil ; on ne prend pas le focus de la fenêtre de la bande.
+            unsafe { ShowWindow(p.hwnd, if show { SW_SHOWNOACTIVATE } else { SW_HIDE }) };
+        }
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.popup.take(); // la zone native d'abord : sa propriétaire ne doit pas la détruire depuis un autre fil
+        let _ = self.frame.destroy();
+    }
+}
+
+struct DockedWindow {
+    inner: Rc<RefCell<Inner>>,
+}
+
+impl NativeWindow for DockedWindow {
+    fn handle(&self) -> (&'static str, usize) {
+        ("win32", self.inner.borrow().popup.as_ref().map_or(0, |p| p.hwnd as usize))
+    }
+
+    fn scale(&self) -> f64 {
+        self.inner.borrow().dpi() as f64 / 96.0
+    }
+
+    fn set_client_size(&mut self, width: u32, height: u32) {
+        let mut i = self.inner.borrow_mut();
+        let target = (width, height + i.strip_px());
+        i.pending = Some((target, Instant::now()));
+        i.user_resize = None;
+        let _ = i.frame.set_size(PhysicalSize::new(target.0, target.1));
+    }
+
+    fn client_size(&self) -> (u32, u32) {
+        let i = self.inner.borrow();
+        let c = i.client();
+        (c.0, c.1.saturating_sub(i.strip_px()))
+    }
+
+    fn show(&mut self) {
+        let mut i = self.inner.borrow_mut();
+        i.shown = true;
+        i.sync();
+        let _ = i.frame.show();
+        i.apply_area_visibility();
+    }
+
+    fn focus(&mut self) {
+        let i = self.inner.borrow();
+        let _ = i.frame.unminimize();
+        let _ = i.frame.set_focus();
+    }
+
+    fn take_close_request(&mut self) -> bool {
+        self.inner.borrow().close.swap(false, Ordering::Relaxed)
+    }
+
+    fn take_user_resize(&mut self) -> Option<(u32, u32)> {
+        self.inner.borrow_mut().user_resize.take()
+    }
+
+    fn position(&self) -> Option<(i32, i32)> {
+        let i = self.inner.borrow();
+        let mut r = Rect::default();
+        // SAFETY: lecture d'état ; une fenêtre réduite est rangée à (-32000, -32000) : ce n'est pas sa place.
+        unsafe {
+            if IsIconic(i.frame_hwnd) != 0 || GetWindowRect(i.frame_hwnd, &mut r) == 0 {
+                return None;
+            }
+        }
+        Some((r.left, r.top))
+    }
+
+    fn set_position(&mut self, x: i32, y: i32) {
+        // SAFETY: appels simples à user32.
+        let screen = unsafe { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN)) };
+        let (x, y) = on_screen(x, y, screen);
+        let _ = self.inner.borrow().frame.set_position(PhysicalPosition::new(x, y));
+    }
+
+    fn set_area_visible(&mut self, visible: bool) {
+        let mut i = self.inner.borrow_mut();
+        i.area_visible = visible;
+        i.apply_area_visibility();
+    }
+}
+
+#[derive(Default)]
+pub struct DockedSystem {
+    windows: Vec<Weak<RefCell<Inner>>>,
+}
+
+impl DockedSystem {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl WindowSystem for DockedSystem {
     fn api(&self) -> &'static str {
         "win32"
     }
 
-    fn create(&mut self, title: &str, client: (u32, u32), resizable: bool) -> Result<Box<dyn NativeWindow>, String> {
-        self.register()?;
-        let style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | if resizable { WS_THICKFRAME } else { 0 };
-        let state = Box::new(State { close_requested: Cell::new(false), user_resize: Cell::new(None), last_client: Cell::new(client) });
-        let (ow, oh) = Win32Window::outer(style, client, 96);
-        let (class_name, title) = (wide(CLASS_NAME), wide(title));
-        // SAFETY: classe enregistrée ; chaînes valides pendant l'appel ; `state` (dans une `Box`, adresse stable) est transmis à
-        // `WM_NCCREATE` et survit à la fenêtre (voir `Drop`).
-        let hwnd = unsafe {
-            let instance = GetModuleHandleW(std::ptr::null());
-            CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), style, CW_USEDEFAULT, CW_USEDEFAULT, ow, oh, std::ptr::null_mut(), std::ptr::null_mut(), instance, &*state as *const State as *mut c_void)
+    fn docked(&self) -> bool {
+        true
+    }
+
+    fn create(&mut self, _title: &str, _client: (u32, u32), _resizable: bool) -> Result<Box<dyn NativeWindow>, String> {
+        Err("les fenêtres de plugin se créent par plugin (create_for)".into())
+    }
+
+    fn create_for(&mut self, insert: u32, title: &str, client: (u32, u32), resizable: bool, native: bool) -> Result<Box<dyn NativeWindow>, String> {
+        let app = APP.get().ok_or("l'application n'est pas prête")?.clone();
+        let label = format!("plugin-{insert}-{}", LABEL.fetch_add(1, Ordering::Relaxed));
+        let url = format!("plugin.html?insert={insert}");
+        let (tx, rx) = mpsc::channel();
+        let (app2, title2) = (app.clone(), title.to_owned());
+        // La fenêtre Tauri se crée sur le fil principal de l'application ; ce fil-ci attend (le fil principal ne nous attend jamais).
+        app.run_on_main_thread(move || {
+            let built = WebviewWindowBuilder::new(&app2, label, WebviewUrl::App(url.into()))
+                .title(title2)
+                .inner_size(client.0 as f64, client.1 as f64 + TOP_CSS)
+                .min_inner_size(300.0, 200.0)
+                .resizable(resizable)
+                .visible(false)
+                .build();
+            let _ = tx.send(built.map_err(|e| e.to_string()));
+        })
+        .map_err(|e| e.to_string())?;
+        let frame = rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "la fenêtre du plugin n'a pas été créée à temps".to_string())??;
+        let hwnd = frame.hwnd().map_err(|e| e.to_string())?;
+        let frame_hwnd = hwnd.0 as usize as Hwnd;
+        // La croix ne détruit pas la fenêtre : elle lève un drapeau que l'hôte lit (interface du plugin détruite avant la fenêtre).
+        let close = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&close);
+        frame.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                flag.store(true, Ordering::Relaxed);
+            }
+        });
+        let popup = if native {
+            ensure_class()?;
+            let state = Box::new(State { close_requested: Cell::new(false), user_resize: Cell::new(None), last_client: Cell::new(client) });
+            let (class_name, empty) = (wide(CLASS_NAME), wide(""));
+            // SAFETY: classe enregistrée ; chaînes valides pendant l'appel ; `frame_hwnd` est la propriétaire (fenêtre de l'application) ;
+            // `state` (dans une `Box`, adresse stable) est transmis à `WM_NCCREATE` et survit à la fenêtre (voir `Popup`).
+            let popup_hwnd = unsafe {
+                let instance = GetModuleHandleW(std::ptr::null());
+                CreateWindowExW(WS_EX_TOOLWINDOW, class_name.as_ptr(), empty.as_ptr(), WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, client.0 as i32, client.1 as i32, frame_hwnd, std::ptr::null_mut(), instance, &*state as *const State as *mut c_void)
+            };
+            if popup_hwnd.is_null() {
+                let _ = frame.destroy();
+                return Err("Windows n'a pas créé la zone de l'interface".into());
+            }
+            Some(Popup { hwnd: popup_hwnd, _state: state })
+        } else {
+            None
         };
-        if hwnd.is_null() {
-            return Err("Windows n'a pas créé la fenêtre".into());
-        }
-        let mut window = Win32Window { hwnd, style, state };
-        window.set_client_size(client.0, client.1); // à l'échelle réelle de l'écran de la fenêtre
-        Ok(Box::new(window))
+        let inner = Rc::new(RefCell::new(Inner { popup, frame, frame_hwnd, area_visible: true, shown: false, close, last_client: (0, 0), pending: None, user_resize: None, placed: None }));
+        self.windows.push(Rc::downgrade(&inner));
+        let mut win = DockedWindow { inner };
+        win.set_client_size(client.0, client.1); // à l'échelle réelle de l'écran de la fenêtre
+        Ok(Box::new(win))
     }
 
     fn pump(&mut self) {
         let mut msg = Msg { hwnd: std::ptr::null_mut(), message: 0, w_param: 0, l_param: 0, time: 0, pt: Point { x: 0, y: 0 } };
-        // SAFETY: `msg` est un `MSG` valide ; on ne traite que les messages du fil courant (celui des fenêtres).
+        // SAFETY: `msg` est un `MSG` valide ; on ne traite que les messages du fil courant (celui des zones natives).
         unsafe {
             while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+            }
+        }
+        self.windows.retain(|w| w.strong_count() > 0);
+        for w in &self.windows {
+            if let Some(inner) = w.upgrade() {
+                inner.borrow_mut().sync();
             }
         }
     }

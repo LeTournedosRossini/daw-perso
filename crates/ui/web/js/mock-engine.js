@@ -869,6 +869,8 @@ export class MockEngine extends EngineClient {
           this.emit("recording", { active: false, stopping: false, overruns: 0, warnings: [] });
         }
         break;
+      case "set_plugin_view":
+        break; // la zone de l'interface native n'existe que dans l'application
       case "open_plugin_ui":
       case "close_plugin_ui": {
         const ins = this.project.nodes.flatMap((n) => n.inserts).find((i) => i.id === msg.insert);

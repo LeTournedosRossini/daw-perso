@@ -1396,6 +1396,12 @@ impl Host {
                 self.finish_edit(name, r)
             }
             Command::OpenPluginUi { insert } => self.open_plugin_ui(insert),
+            Command::SetPluginView { insert, view } => {
+                if view != "native" && view != "web" {
+                    return vec![Event::Error { command: name.into(), message: format!("vue inconnue : « {view} » (native ou web)") }];
+                }
+                self.set_plugin_view(insert, view == "native")
+            }
             Command::ClosePluginUi { insert } => self.close_plugin_ui(insert),
             Command::ConvertProject { path } => self.start_convert(&path),
             Command::CancelConvert => self.cancel_convert(),
@@ -2921,7 +2927,7 @@ impl Host {
                 }
             })
             .collect();
-        Event::Project(ProjectInfo { listen: self.bus_listen, audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
+        Event::Project(ProjectInfo { plugin_windows: self.plugin_windows_docked(), listen: self.bus_listen, audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
     }
 
     /// Crêtes `[min, max]` de `columns` colonnes de la ligne de temps `[from, to[` pour un clip audio.

@@ -30,6 +30,9 @@ pub trait NativeWindow {
     }
     /// Replace la fenêtre ; une position hors de tout écran doit être ramenée à l'intérieur.
     fn set_position(&mut self, _x: i32, _y: i32) {}
+    /// Fenêtre « à bande » (voir `WindowSystem::docked`) : montre ou cache la zone de l'interface native du plugin, que la bascule
+    /// Interface / Paramètres de la bande remplace par la liste de paramètres. Sans effet pour une fenêtre ordinaire.
+    fn set_area_visible(&mut self, _visible: bool) {}
 }
 
 /// Fabrique les fenêtres d'une plateforme et traite leurs messages.
@@ -38,6 +41,17 @@ pub trait WindowSystem {
     fn api(&self) -> &'static str;
     /// Crée une fenêtre (cachée) dont la zone utile fait `client` pixels ; `resizable` : l'utilisateur peut tirer les bords.
     fn create(&mut self, title: &str, client: (u32, u32), resizable: bool) -> Result<Box<dyn NativeWindow>, String>;
+    /// Vrai si les fenêtres de cette plateforme sont des **fenêtres de plugin** : une bande web (contourner, nom, sorties, bascule
+    /// Interface / Paramètres) au-dessus de la zone où le plugin loge son interface native. Le client donné à `create` et ses tailles
+    /// désignent alors la zone du plugin, la bande en plus étant l'affaire de la fenêtre. Faux par défaut : fenêtre nue.
+    fn docked(&self) -> bool {
+        false
+    }
+    /// Comme `create`, pour le plugin `insert` : une fenêtre à bande a besoin de savoir quel plugin elle montre. `native` faux : le
+    /// plugin n'a pas d'interface native ici, la fenêtre n'a que la bande et la liste de paramètres.
+    fn create_for(&mut self, _insert: u32, title: &str, client: (u32, u32), resizable: bool, _native: bool) -> Result<Box<dyn NativeWindow>, String> {
+        self.create(title, client, resizable)
+    }
     /// Traite les messages en attente de toutes les fenêtres (Windows : la pompe de messages du fil). Appelée très souvent
     /// (toutes les ~10 ms) : l'interface d'un plugin n'est fluide que si la pompe l'est.
     fn pump(&mut self);

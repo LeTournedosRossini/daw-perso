@@ -18,19 +18,25 @@ pub(super) struct OpenWindow {
     key: String,
     handle: PluginHandle,
     window: Option<Box<dyn NativeWindow>>,
+    /// Faux : fenêtre à bande sans interface native (le plugin n'en a pas ici) : rien à créer, à pomper ni à détruire côté plugin.
+    native: bool,
 }
 
 impl OpenWindow {
     /// Ferme dans l'ordre exigé : l'interface du plugin d'abord, la fenêtre native ensuite.
     fn close(mut self) {
-        self.handle.gui_destroy();
+        if self.native {
+            self.handle.gui_destroy();
+        }
         self.window.take(); // détruit la fenêtre native
     }
 }
 
 impl Drop for OpenWindow {
     fn drop(&mut self) {
-        self.handle.gui_destroy();
+        if self.native {
+            self.handle.gui_destroy();
+        }
         self.window.take();
     }
 }
@@ -51,6 +57,19 @@ impl Host {
         let ok = self.plugin_handle(insert).is_some_and(|h| h.gui_support().apis.iter().any(|(a, floating)| a == api && !floating));
         self.gui_cache.borrow_mut().insert(insert, ok);
         ok
+    }
+
+    /// Les fenêtres de cette plateforme sont des fenêtres de plugin à bande (voir `WindowSystem::docked`).
+    pub(super) fn plugin_windows_docked(&self) -> bool {
+        self.window_system.as_ref().is_some_and(|w| w.docked())
+    }
+
+    /// Bascule Interface / Paramètres de la bande : montre ou cache la zone de l'interface native.
+    pub(super) fn set_plugin_view(&mut self, insert: u32, native: bool) -> Vec<Event> {
+        if let Some(win) = self.plugin_windows.iter_mut().find(|w| w.insert == insert).and_then(|w| w.window.as_mut()) {
+            win.set_area_visible(native);
+        }
+        Vec::new()
     }
 
     pub(super) fn plugin_ui_open(&self, insert: u32) -> bool {
@@ -91,8 +110,24 @@ impl Host {
         }
         let Some(handle) = self.plugin_handle(insert) else { return error(format!("plugin {insert} : instance introuvable")) };
         let api = self.window_system.as_ref().map(|w| w.api()).unwrap_or("");
+        let docked = self.plugin_windows_docked();
         if !self.gui_available(insert) {
-            return error(format!("« {title} » n'a pas d'interface pour cette plateforme ({api})"));
+            if !docked {
+                return error(format!("« {title} » n'a pas d'interface pour cette plateforme ({api})"));
+            }
+            // Fenêtre à bande sans interface native : la bande et la liste de paramètres suffisent.
+            let ws = self.window_system.as_mut().expect("système de fenêtres");
+            let mut window = match ws.create_for(insert, &title, (520, 420), true, false) {
+                Ok(w) => w,
+                Err(e) => return error(format!("fenêtre impossible : {e}")),
+            };
+            let key = self.plugin_name(insert).unwrap_or_default();
+            if let Some(&(x, y)) = self.window_places.get(&key) {
+                window.set_position(x, y);
+            }
+            window.show();
+            self.plugin_windows.push(OpenWindow { insert, key, handle, window: Some(window), native: false });
+            return vec![Event::PluginUi { insert, open: true }, self.project_event()];
         }
         if !handle.gui_create(api) {
             return error(format!("« {title} » : le plugin a refusé de créer son interface"));
@@ -105,7 +140,7 @@ impl Host {
         let resizable = handle.gui_can_resize();
         let provisional = handle.gui_size().unwrap_or((400, 300));
         let ws = self.window_system.as_mut().expect("système de fenêtres");
-        let mut window = match ws.create(&title, provisional, resizable) {
+        let mut window = match ws.create_for(insert, &title, provisional, resizable, true) {
             Ok(w) => w,
             Err(e) => return fail(&handle, format!("fenêtre impossible : {e}")),
         };
@@ -127,7 +162,7 @@ impl Host {
             window.set_position(x, y);
         }
         window.show();
-        self.plugin_windows.push(OpenWindow { insert, key, handle, window: Some(window) });
+        self.plugin_windows.push(OpenWindow { insert, key, handle, window: Some(window), native: true });
         vec![Event::PluginUi { insert, open: true }, self.project_event()]
     }
 
@@ -170,8 +205,11 @@ impl Host {
             let gone = !graph_has(insert, self);
             let w = &mut self.plugin_windows[i];
             let Some(win) = w.window.as_mut() else { continue };
-            if gone || win.take_close_request() || w.handle.take_gui_close_request() {
+            if gone || win.take_close_request() || (w.native && w.handle.take_gui_close_request()) {
                 to_close.push(insert);
+                continue;
+            }
+            if !w.native {
                 continue;
             }
             w.handle.run_timers(now);
