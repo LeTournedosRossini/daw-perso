@@ -59,15 +59,13 @@
       </dl>
       <div class="spacer"></div>
       <div id="ui-scale" class="group" role="group" aria-label="Taille de l'interface">
-        <button id="btn-ui-smaller" title="Interface plus petite (Ctrl+Alt+−)" aria-label="Interface plus petite">A−</button>
-        <output id="ui-scale-value" title="Taille de l'interface (Ctrl+Alt+0 : automatique)">100 %</output>
-        <button id="btn-ui-bigger" title="Interface plus grande (Ctrl+Alt++)" aria-label="Interface plus grande">A+</button>
-        <button id="btn-ui-auto" title="Taille automatique d'après l'écran (Ctrl+Alt+0)" aria-label="Taille automatique" hidden>Auto</button>
-      </div>
-      <div class="zoom" role="group" aria-label="Zoom">
-        <button id="btn-zoom-out" title="Zoom arrière (−)" aria-label="Zoom arrière">−</button>
-        <button id="btn-zoom-fit" title="Tout voir" aria-label="Tout voir">⤢</button>
-        <button id="btn-zoom-in" title="Zoom avant (+)" aria-label="Zoom avant">+</button>
+        <button id="btn-ui-scale" class="text" aria-haspopup="true" aria-expanded="false" aria-controls="ui-scale-panel" title="Taille de l'interface (Ctrl+Alt+ + / − / 0)">Aa <span id="ui-scale-mirror"></span></button>
+        <div id="ui-scale-panel" class="pop-panel" role="group" aria-label="Taille de l'interface" hidden>
+          <button id="btn-ui-smaller" title="Interface plus petite (Ctrl+Alt+−)" aria-label="Interface plus petite">A−</button>
+          <output id="ui-scale-value" title="Taille de l'interface (Ctrl+Alt+0 : automatique)">100 %</output>
+          <button id="btn-ui-bigger" title="Interface plus grande (Ctrl+Alt++)" aria-label="Interface plus grande">A+</button>
+          <button id="btn-ui-auto" title="Taille automatique d'après l'écran (Ctrl+Alt+0)" aria-label="Taille automatique" hidden>Auto</button>
+        </div>
       </div>
       <div id="edit-bar" class="edit-bar" role="toolbar" aria-label="Édition des clips">
         <span id="edit-context" class="edit-context" aria-live="polite">Aucun clip sélectionné</span>
@@ -84,6 +82,11 @@
           <select id="onset-sens" class="stretch-engine" title="Sensibilité de la détection des attaques" aria-label="Sensibilité des attaques"><option value="0.2">Peu</option><option value="0.5" selected>Normal</option><option value="0.85">Beaucoup</option></select>
           <button id="btn-quant-markers" title="Caler sur la grille : déplace les marqueurs d'étirement du clip sélectionné sur la grille d'aimantation (temps si l'aimantation est en auto), puis rend l'audio" aria-label="Caler les marqueurs sur la grille" class="txt-btn">Caler</button>
           <select id="stretch-engine" class="stretch-engine" title="Moteur d'étirement (marqueurs : double-clic sur un clip audio pour en poser un, tirer pour étirer). Changer de moteur rerend le clip étiré sélectionné." aria-label="Moteur d'étirement"></select>
+        </div>
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button id="btn-zoom-out" title="Zoom arrière (−)" aria-label="Zoom arrière">−</button>
+          <button id="btn-zoom-fit" title="Tout voir" aria-label="Tout voir">⤢</button>
+          <button id="btn-zoom-in" title="Zoom avant (+)" aria-label="Zoom avant">+</button>
         </div>
       </div>
     </header>

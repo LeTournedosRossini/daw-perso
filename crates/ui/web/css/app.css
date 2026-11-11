@@ -968,3 +968,12 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #transport .edit-bar .edit-context { min-width: 150px; font-size: 11px; color: var(--muted); font-weight: 600; }
 #transport .edit-bar .edit-context[data-kind="audio"], #transport .edit-bar .edit-context[data-kind="mixed"] { color: var(--accent); }
 #transport .edit-bar .group[hidden] { display: none; }
+
+/* Taille de l'interface : bouton « Aa » + panneau flottant (le zoom de la timeline est à droite de la barre d'édition). */
+#transport .pop-panel { position: fixed; z-index: 60; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, .45); }
+#transport .pop-panel[hidden] { display: none; }
+#transport .pop-panel output { min-width: 44px; text-align: center; font-size: 12px; }
+#transport #btn-ui-scale span { margin-left: 4px; font-weight: 400; opacity: .75; }
+#transport .edit-bar .zoom { margin-left: auto; }
+@media (pointer: coarse) { #transport .pop-panel button { min-width: 44px; height: 40px; } }
+#transport button[hidden], #transport select[hidden] { display: none; } /* « #transport button { display: grid } » l'emportait sur l'attribut hidden (le bouton Auto restait affiché) */
