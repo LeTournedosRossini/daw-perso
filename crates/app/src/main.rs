@@ -94,6 +94,101 @@ fn script_save(file: String, source: String, overwrite: bool) -> Result<(), Stri
     std::fs::write(&path, source).map_err(|e| format!("écriture du script : {e}"))
 }
 
+// ---- fichiers des scripts (lot 4) ---------------------------------------------------------------------------------------------
+//
+// Ces commandes sont des primitives : la page décide quelles racines un script a le droit de toucher (dossier du projet, dossier des
+// scripts, fichiers et dossiers que l'utilisateur a choisis dans un dialogue) et les passe à chaque appel ; ici on vérifie encore,
+// sur les chemins réels (`canonicalize` : `..` et liens symboliques ne sortent pas des racines).
+
+/// Taille maximale d'un fichier texte lu ou écrit par un script (1 Mo).
+const SCRIPT_FS_MAX: u64 = 1024 * 1024;
+
+/// Extensions qu'un script ne peut pas écrire (programmes, scripts, plugins).
+const SCRIPT_FS_DENIED_EXT: &[&str] = &["exe", "dll", "bat", "cmd", "com", "msi", "scr", "ps1", "vbs", "lnk", "sh", "app", "so", "dylib", "clap", "js"];
+
+/// Chemin réel de `path` s'il est dans l'une des `roots` (elles-mêmes prises au réel). `must_exist` faux : le fichier peut ne pas exister
+/// encore, c'est alors son dossier qui est vérifié.
+fn script_fs_resolve(path: &str, roots: &[String], must_exist: bool) -> Result<std::path::PathBuf, String> {
+    if roots.is_empty() {
+        return Err("aucun dossier autorisé pour ce script".into());
+    }
+    let p = std::path::Path::new(path);
+    let real = if must_exist || p.exists() {
+        p.canonicalize().map_err(|e| format!("chemin introuvable : {e}"))?
+    } else {
+        let parent = p.parent().ok_or_else(|| "chemin invalide".to_string())?;
+        let name = p.file_name().ok_or_else(|| "nom de fichier invalide".to_string())?;
+        parent.canonicalize().map_err(|e| format!("dossier introuvable : {e}"))?.join(name)
+    };
+    let allowed = roots.iter().filter_map(|r| std::path::Path::new(r).canonicalize().ok()).any(|r| real.starts_with(&r));
+    if allowed {
+        Ok(real)
+    } else {
+        Err("ce script n'a pas le droit d'accéder à ce chemin (choisis-le avec un dialogue, ou utilise le dossier du projet)".into())
+    }
+}
+
+/// Lit un fichier texte (UTF-8, 1 Mo au plus).
+#[tauri::command]
+fn script_fs_read(path: String, roots: Vec<String>) -> Result<String, String> {
+    let real = script_fs_resolve(&path, &roots, true)?;
+    let meta = std::fs::metadata(&real).map_err(|e| format!("lecture : {e}"))?;
+    if !meta.is_file() {
+        return Err("ce n'est pas un fichier".into());
+    }
+    if meta.len() > SCRIPT_FS_MAX {
+        return Err("fichier trop gros (1 Mo au plus)".into());
+    }
+    let bytes = std::fs::read(&real).map_err(|e| format!("lecture : {e}"))?;
+    String::from_utf8(bytes).map_err(|_| "ce fichier n'est pas du texte UTF-8".to_string())
+}
+
+/// Écrit un fichier texte. Sans `overwrite`, un fichier qui existe déjà est refusé.
+#[tauri::command]
+fn script_fs_write(path: String, text: String, roots: Vec<String>, overwrite: bool) -> Result<(), String> {
+    let real = script_fs_resolve(&path, &roots, false)?;
+    if text.len() as u64 > SCRIPT_FS_MAX {
+        return Err("texte trop long (1 Mo au plus)".into());
+    }
+    let ext = real.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if SCRIPT_FS_DENIED_EXT.contains(&ext.as_str()) {
+        return Err(format!("un script ne peut pas écrire de fichier « .{ext} »"));
+    }
+    if real.is_dir() {
+        return Err("c'est un dossier".into());
+    }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true);
+    if overwrite {
+        opts.create(true).truncate(true);
+    } else {
+        opts.create_new(true);
+    }
+    use std::io::Write as _;
+    let mut f = opts.open(&real).map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { "ce fichier existe déjà".to_string() } else { format!("écriture : {e}") })?;
+    f.write_all(text.as_bytes()).map_err(|e| format!("écriture : {e}"))
+}
+
+/// Liste un dossier (500 entrées au plus, triées, sans descendre dans les sous-dossiers).
+#[tauri::command]
+fn script_fs_list(dir: String, roots: Vec<String>) -> Result<serde_json::Value, String> {
+    let real = script_fs_resolve(&dir, &roots, true)?;
+    if !real.is_dir() {
+        return Err("ce n'est pas un dossier".into());
+    }
+    let mut entries: Vec<(String, bool, u64)> = std::fs::read_dir(&real)
+        .map_err(|e| format!("lecture du dossier : {e}"))?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            Some((e.file_name().into_string().ok()?, meta.is_dir(), meta.len()))
+        })
+        .collect();
+    entries.sort();
+    entries.truncate(500);
+    Ok(serde_json::Value::Array(entries.into_iter().map(|(name, is_dir, size)| serde_json::json!({ "name": name, "is_dir": is_dir, "size": size })).collect()))
+}
+
 struct CommandSender(Mutex<Sender<String>>);
 
 /// La page a-t-elle pris en charge la fermeture de la fenêtre (confirmation si le projet a des modifications non
@@ -480,7 +575,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(CommandSender(Mutex::new(tx)))
         .manage(CloseGuard(AtomicBool::new(false)))
-        .invoke_handler(tauri::generate_handler![send_command, close_guard, quit, restart_app, scripts_list, script_save])
+        .invoke_handler(tauri::generate_handler![send_command, close_guard, quit, restart_app, scripts_list, script_save, script_fs_read, script_fs_write, script_fs_list])
         .on_window_event(|window, event| {
             // Seule la fenêtre principale demande confirmation : une fenêtre de plugin se ferme par l'hôte (voir `win32_window`).
             if window.label() != "main" {
@@ -503,4 +598,97 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");
+}
+
+#[cfg(test)]
+mod script_fs_tests {
+    use super::*;
+
+    fn temp(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("daw-script-fs-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    fn s(p: &std::path::Path) -> String {
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_script_only_reaches_its_roots() {
+        let (root, other) = (temp("root"), temp("other"));
+        std::fs::write(root.join("a.txt"), "bonjour").unwrap();
+        std::fs::write(other.join("secret.txt"), "non").unwrap();
+        let roots = vec![s(&root)];
+        assert_eq!(script_fs_read(s(&root.join("a.txt")), roots.clone()).unwrap(), "bonjour");
+        assert!(script_fs_read(s(&other.join("secret.txt")), roots.clone()).is_err(), "hors des racines");
+        // `..` ne permet pas de sortir.
+        let sneaky = format!("{}/../{}/secret.txt", s(&root), other.file_name().unwrap().to_string_lossy());
+        assert!(script_fs_read(sneaky, roots.clone()).is_err());
+        // Aucune racine : rien n'est permis.
+        assert!(script_fs_read(s(&root.join("a.txt")), vec![]).is_err());
+        // Un fichier choisi seul est une racine (il ne donne pas accès à ses voisins).
+        let only = vec![s(&root.join("a.txt"))];
+        assert!(script_fs_read(s(&root.join("a.txt")), only.clone()).is_ok());
+        std::fs::write(root.join("b.txt"), "x").unwrap();
+        assert!(script_fs_read(s(&root.join("b.txt")), only).is_err());
+        // Un dossier voisin au préfixe commun n'est pas « dedans » (« root » et « root-bis »).
+        let bis = std::path::PathBuf::from(format!("{}-bis", s(&root)));
+        std::fs::create_dir_all(&bis).unwrap();
+        std::fs::write(bis.join("c.txt"), "x").unwrap();
+        assert!(script_fs_read(s(&bis.join("c.txt")), roots).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symbolic_link_cannot_leave_the_roots() {
+        let (root, other) = (temp("link-root"), temp("link-other"));
+        std::fs::write(other.join("secret.txt"), "non").unwrap();
+        std::os::unix::fs::symlink(&other, root.join("lien")).unwrap();
+        assert!(script_fs_read(s(&root.join("lien/secret.txt")), vec![s(&root)]).is_err());
+    }
+
+    #[test]
+    fn writing_never_overwrites_by_surprise_and_refuses_programs() {
+        let root = temp("write");
+        let roots = vec![s(&root)];
+        let f = s(&root.join("sortie.txt"));
+        script_fs_write(f.clone(), "un".into(), roots.clone(), false).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "un");
+        assert_eq!(script_fs_write(f.clone(), "deux".into(), roots.clone(), false).unwrap_err(), "ce fichier existe déjà");
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "un", "rien n'a changé");
+        script_fs_write(f.clone(), "deux".into(), roots.clone(), true).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "deux");
+        for bad in ["a.exe", "a.BAT", "a.ps1", "a.js", "a.clap", "a.sh"] {
+            assert!(script_fs_write(s(&root.join(bad)), "x".into(), roots.clone(), false).unwrap_err().contains("ne peut pas écrire"), "{bad}");
+        }
+        // Hors des racines, ou dans un dossier qui n'existe pas : refusé.
+        assert!(script_fs_write(s(&std::env::temp_dir().join("daw-hors-racine.txt")), "x".into(), roots.clone(), true).is_err());
+        assert!(script_fs_write(s(&root.join("nouveau/x.txt")), "x".into(), roots.clone(), false).is_err());
+        assert!(script_fs_write(s(&root), "x".into(), roots.clone(), true).is_err(), "un dossier n'est pas un fichier");
+        // Trop long.
+        let big = "x".repeat(SCRIPT_FS_MAX as usize + 1);
+        assert!(script_fs_write(s(&root.join("gros.txt")), big, roots, false).unwrap_err().contains("trop long"));
+    }
+
+    #[test]
+    fn reading_is_text_only_and_bounded_and_listing_is_flat() {
+        let root = temp("read");
+        let roots = vec![s(&root)];
+        std::fs::write(root.join("binaire.dat"), [0xff, 0xfe, 0x00, 0x9f]).unwrap();
+        assert!(script_fs_read(s(&root.join("binaire.dat")), roots.clone()).unwrap_err().contains("UTF-8"));
+        std::fs::write(root.join("gros.txt"), vec![b'a'; SCRIPT_FS_MAX as usize + 1]).unwrap();
+        assert!(script_fs_read(s(&root.join("gros.txt")), roots.clone()).unwrap_err().contains("trop gros"));
+        assert!(script_fs_read(s(&root.join("absent.txt")), roots.clone()).is_err());
+        std::fs::create_dir_all(root.join("sous")).unwrap();
+        std::fs::write(root.join("sous/profond.txt"), "x").unwrap();
+        std::fs::write(root.join("a.txt"), "12345").unwrap();
+        let list = script_fs_list(s(&root), roots.clone()).unwrap();
+        let names: Vec<&str> = list.as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["a.txt", "binaire.dat", "gros.txt", "sous"], "trié, sans descendre dans les sous-dossiers");
+        let a = list.as_array().unwrap().iter().find(|e| e["name"] == "a.txt").unwrap();
+        assert_eq!((a["is_dir"].as_bool(), a["size"].as_u64()), (Some(false), Some(5)));
+        assert!(script_fs_list(s(&root.join("a.txt")), roots.clone()).is_err(), "pas un dossier");
+        assert!(script_fs_list(s(&std::env::temp_dir()), roots).is_err(), "hors des racines");
+    }
 }

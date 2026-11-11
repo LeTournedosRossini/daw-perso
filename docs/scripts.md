@@ -1,4 +1,4 @@
-# Scripts (lots 1 à 3, 11 novembre 2026)
+# Scripts (lots 1 à 4, 11 novembre 2026)
 
 Un script est un fichier JavaScript ; il tourne dans un **Web Worker** (aucun accès à l'interface) et ne pilote le DAW que par les **commandes du protocole** (`docs/protocole-ui.md`). **Tout ce qu'un script fait forme une seule action annulable** (« Script : nom »). Une erreur, un arrêt ou un dépassement de délai défont tout.
 
@@ -18,7 +18,7 @@ for (const node of project.nodes) {
 
 | `daw.…` | effet |
 |---|---|
-| `await daw.state()` | copie en lecture seule : `project` (pistes, clips, notes…), `position`, `playing`, `loop`, `selection` (ids des clips), `history` |
+| `await daw.state()` | copie en lecture seule : `project` (pistes, clips, notes…), `position`, `playing`, `loop`, `selection` (ids des clips), `history`, `lyrics` (syllabes), `structure` (sections), `chords` (piste d'accords) |
 | `await daw.send(commande)` | envoie une commande du protocole et attend qu'elle soit traitée ; rend le nouvel état ; **lève une erreur** si le moteur la refuse (un script peut l'attraper avec `try`) |
 | `daw.log(...)` | écrit dans la console |
 | `await daw.sleep(ms)` | attend (5 s au plus par appel) |
@@ -67,6 +67,27 @@ daw.on("stop", async (e) => {
 - **Bornes** : 10 s par réaction (au-delà : le script est arrêté et la réaction défaite), 500 commandes par réaction, **30 réactions en 10 s** au plus (au-delà : arrêt).
 - La position n'est pas offerte (elle change 30 fois par seconde). Un script qui écoute n'est **pas relancé** au démarrage de l'application.
 
+### Fichiers (lot 4)
+
+Un script qui déclare `// @permissions files` peut lire et écrire du **texte**. À la **première exécution** (et à chaque modification du script) une confirmation s'affiche ; sans cette déclaration, tout `daw.fs.*` est refusé (sauf `join`).
+
+| aide | effet |
+|---|---|
+| `await daw.fs.pickFile({ title?, extensions? })` | dialogue « ouvrir » ; rend le chemin ou `null` (annulé). **Le choix donne accès à ce fichier**, pas à ses voisins |
+| `await daw.fs.pickSave({ defaultName?, extensions?, title? })` | dialogue « enregistrer sous » ; le fichier choisi peut être écrit, même s'il existe (le dialogue a demandé) |
+| `await daw.fs.pickFolder({ title? })` | dialogue « dossier » ; le choix donne accès à ce dossier et dessous |
+| `await daw.fs.readText(chemin)` | contenu (UTF-8, 1 Mo au plus) |
+| `await daw.fs.writeText(chemin, texte, { overwrite? })` | écrit (1 Mo au plus) ; **un fichier qui existe déjà est refusé**, sauf `overwrite: true`, qui demande une **confirmation** à l'utilisateur |
+| `await daw.fs.list(dossier)` | `[{ name, is_dir, size }]` (500 au plus, sans descendre dans les sous-dossiers) |
+| `await daw.fs.projectDir()` / `scriptsDir()` | dossier du projet (`null` s'il n'est pas enregistré) / des scripts |
+| `daw.fs.join(a, b, …)` | colle des morceaux de chemin avec `/` (Windows l'accepte) |
+
+**Où un script peut aller** : dans le dossier du projet, dans le dossier des scripts et dans ce que l'utilisateur a choisi **pendant ce lancement**. Partout ailleurs : « pas le droit ». Le contrôle est fait deux fois : par la page (comparaison de chemins) et par l'application (chemins **réels** : `..` et liens symboliques ne sortent pas).
+
+**Interdits** : écrire un fichier `.exe`, `.dll`, `.bat`, `.cmd`, `.com`, `.msi`, `.scr`, `.ps1`, `.vbs`, `.lnk`, `.sh`, `.app`, `.so`, `.dylib`, `.clap` ou **`.js`** (un script ne crée ni ne modifie de script ou de plugin) ; lire autre chose que du texte UTF-8 ; plus de 1 Mo. Le délai d'un script ne court pas pendant qu'un dialogue attend l'utilisateur.
+
+Exemples fournis (`docs/scripts-exemples/`) : « Paroles depuis un fichier » (un `.txt` de paroles devient les syllabes du couplet 1 à partir de la tête de lecture), « Exporter les notes en CSV », « Rapport du projet en fichier ».
+
 **Raccourcis** : `Ctrl+Alt+<lettre ou 1-9>` ou `Alt+Maj+<lettre ou 1-9>` seulement (les raccourcis du DAW restent intacts).
 
 ## Où sont les scripts
@@ -80,9 +101,9 @@ daw.on("stop", async (e) => {
 - **Interdits aux scripts** : `begin_group` / `end_group` / `abort_group` / `undo` / `redo` (gérés par l'exécuteur), le cycle de vie du projet (`new_project`, `open_project`, `save_project`, `convert_project`), tout ce qui ouvre le réseau (`start_monitor`, `set_monitor_role`, `renew_monitor_address`…) et `set_prefs`.
 - **Bornes** : 30 s pour le premier passage d'un script, 5 000 commandes, 10 s par commande, 500 lignes de journal. Le bouton « Script « … » » de la barre (ou **Arrêter** dans la console) l'interrompt et défait ce qu'il a fait.
 - **Réseau** : `fetch`, `XMLHttpRequest`, `WebSocket`, les Workers imbriqués… sont retirés du Worker. C'est **au mieux** : ce n'est pas un bac à sable prouvé, et la page n'a pas de politique CSP. **N'exécute que des scripts que tu as lus.**
-- **Fichiers (lot 4, pas fait)** : un script qui déclare `// @permissions files` est refusé pour l'instant.
+- **Actions hors d'une réaction** : `daw.send`, `daw.notes` et `daw.fs` ne sont permis que pendant le premier passage ou une réaction à un événement (un minuteur du script ne peut pas agir plus tard : cela échapperait à l'annulation et aux bornes).
 - Pendant qu'un script tourne, une action faite à la main dans l'interface s'ajoute au même pas d'annulation. Les raccourcis d'annulation sont refusés pendant le script.
 
 ## Dans le code
 
-`crates/ui/web/js/script-runner.js` (Worker, API, limites), `script-api.js` (aides notes et clips, recopiées dans le Worker), `script-store.js` (dossier ou stockage local), `ui/scripts-ui.js` (menu, console) ; côté Rust : `Session::merge_begin/merge_end/merge_abort`, commandes `begin_group` / `end_group` / `abort_group` de l'hôte, commandes Tauri `scripts_list` et `script_save` (`crates/app/src/main.rs`, nom de fichier simple `.js`, jamais de chemin).
+`crates/ui/web/js/script-runner.js` (Worker, API, limites), `script-api.js` (aides notes et clips, recopiées dans le Worker), `script-fs.js` (autorisations de fichiers, dialogues), `script-store.js` (dossier ou stockage local), `ui/scripts-ui.js` (menu, console) ; côté Rust : `Session::merge_begin/merge_end/merge_abort`, commandes `begin_group` / `end_group` / `abort_group` de l'hôte, commandes Tauri `scripts_list`, `script_save`, `script_fs_read`, `script_fs_write` et `script_fs_list` (`crates/app/src/main.rs`, nom de fichier simple `.js`, jamais de chemin).

@@ -135,6 +135,9 @@ export function snapshotOf(state) {
     loop: state.loop,
     selection: [...(state.selected ?? [])],
     history: state.history ?? null,
+    lyrics: state.lyrics ?? [],
+    structure: state.structure ?? [],
+    chords: state.chordTrack?.track ?? null,
   });
 }
 
@@ -176,7 +179,7 @@ export class ScriptRunner {
    * événements (`daw.on`) reste ensuite actif : chaque réaction forme une action annulable « Script : nom (événement) » ; `onEnd(raison)`
    * est appelé quand il s'arrête.
    */
-  async run(source, { name = "script", timeoutMs = LIMITS.timeoutMs, maxCommands = LIMITS.maxCommands, onLog = () => {}, onEnd = () => {}, handlerMs = LIMITS.handlerMs } = {}) {
+  async run(source, { name = "script", timeoutMs = LIMITS.timeoutMs, maxCommands = LIMITS.maxCommands, onLog = () => {}, onEnd = () => {}, handlerMs = LIMITS.handlerMs, fs = null } = {}) {
     if (this.#running) return { ok: false, log: [], error: `un script est déjà en cours${this.listening ? ` (« ${this.listening} » écoute des événements : arrête-le d'abord)` : ""}`, commands: 0 };
     const log = [];
     const ctx = { commands: 0, max: maxCommands, resident: null, setupDone: false };
@@ -192,7 +195,13 @@ export class ScriptRunner {
       worker.terminate?.();
       return { ok: false, log, error: begun.error, commands: 0 };
     }
-    timer = setTimeout(() => fail(`délai dépassé (${Math.round(timeoutMs / 1000)} s)`), timeoutMs);
+    const startTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fail(`délai dépassé (${Math.round(timeoutMs / 1000)} s)`), timeoutMs);
+    };
+    startTimer();
+    ctx.pause = () => clearTimeout(timer); // un dialogue attend l'utilisateur : le délai ne court pas pendant ce temps
+    ctx.resume = () => !ctx.resident && !ctx.setupDone && startTimer();
     const push = (line) => {
       if (log.length < LIMITS.maxLog) log.push(line);
       onLog(line);
@@ -206,6 +215,9 @@ export class ScriptRunner {
       if (m.done) return finish(m.error ? { ok: false, error: m.error } : { ok: true, result: m.result });
       const reply = (r) => worker.postMessage({ id: m.id, ...r });
       if (m.op === "state") return reply({ result: snapshotOf(this.#state) });
+      // Une action n'est permise que dans le premier passage ou pendant une réaction : sinon (minuteur d'un script qui écoute) elle
+      // échapperait au groupe d'annulation et aux bornes.
+      if (ctx.setupDone && !ctx.resident?.busy) return reply({ error: "hors d'une réaction : daw.send, daw.notes et daw.fs ne sont permis que dans le premier passage du script ou dans une réaction à un événement" });
       if (m.op === "send") {
         const cmd = m.arg;
         if (!cmd || typeof cmd !== "object" || typeof cmd.type !== "string") return reply({ error: "daw.send : une commande est un objet avec un champ type" });
@@ -222,11 +234,25 @@ export class ScriptRunner {
         if (r.error) return reply({ error: r.error });
         return reply(r.captured ? { result: clone(r.captured) } : { error: "pas un clip de notes" });
       }
+      if (m.op === "fs") {
+        if (!fs) return reply({ error: "ce script n'a pas déclaré « // @permissions files » (ou l'accès aux fichiers n'a pas été autorisé)" });
+        if (++ctx.commands > ctx.max) return fail(`trop de commandes (${ctx.max})`);
+        ctx.pause();
+        try {
+          reply({ result: await fs.handle(m.arg) });
+        } catch (err) {
+          reply({ error: String(err?.message ?? err) });
+        } finally {
+          ctx.resume();
+        }
+        return;
+      }
       reply({ error: `opération inconnue : ${m.op}` });
     };
     worker.onerror = (e) => fail(String(e?.message ?? e));
     worker.postMessage({ source });
     const outcome = await finished;
+    ctx.setupDone = true;
     clearTimeout(timer);
     const keep = outcome.ok && types.size > 0 && !ctx.resident;
     if (!keep) worker.terminate?.();
@@ -301,7 +327,14 @@ export class ScriptRunner {
     res.ctx.max = LIMITS.handlerCommands;
     const seq = (res.seq = (res.seq ?? 0) + 1);
     const outcome = await new Promise((resolve) => {
-      const t = setTimeout(() => resolve({ timeout: true }), res.handlerMs);
+      let t = null;
+      const arm = () => {
+        clearTimeout(t);
+        t = setTimeout(() => resolve({ timeout: true }), res.handlerMs);
+      };
+      arm();
+      res.ctx.pause = () => clearTimeout(t); // pendant un dialogue de fichier, le délai de la réaction ne court pas
+      res.ctx.resume = arm;
       res.handled = (m) => {
         if (m.handled !== seq) return;
         clearTimeout(t);

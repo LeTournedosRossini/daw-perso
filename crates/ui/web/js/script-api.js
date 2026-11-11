@@ -130,5 +130,23 @@ export function scriptLib(daw, call) {
     /** Supprime des notes par indice (ceux de `notes.get`). */
     remove: (clip, indices) => daw.send({ type: "delete_notes", clip, indices }),
   };
-  return { selection, clips, notes, frac };
+  /** Fichiers texte (lot 4) : demande `// @permissions files` et l'autorisation de l'utilisateur ; voir docs/scripts.md. */
+  const fs = {
+    projectDir: () => call("fs", { op: "projectDir" }),
+    scriptsDir: () => call("fs", { op: "scriptsDir" }),
+    /** Dialogue « ouvrir » : chemin choisi (ou null). Le choix donne accès à ce fichier. `{ title?, extensions?: ["txt"] }` */
+    pickFile: (o = {}) => call("fs", { op: "pickFile", ...o }),
+    /** Dialogue « enregistrer sous » : chemin choisi (ou null). `{ title?, defaultName?, extensions? }` */
+    pickSave: (o = {}) => call("fs", { op: "pickSave", ...o }),
+    /** Dialogue « dossier » : chemin choisi (ou null). Le choix donne accès à ce dossier. */
+    pickFolder: (o = {}) => call("fs", { op: "pickFolder", ...o }),
+    readText: (path) => call("fs", { op: "readText", path }),
+    /** Écrit un texte (1 Mo au plus). Un fichier qui existe déjà est refusé, sauf `{ overwrite: true }` (confirmé par l'utilisateur). */
+    writeText: (path, text, o = {}) => call("fs", { op: "writeText", path, text, overwrite: !!o.overwrite }),
+    /** Contenu d'un dossier : `[{ name, is_dir, size }]` (sans descendre dans les sous-dossiers). */
+    list: (path) => call("fs", { op: "list", path }),
+    join: (...parts) => parts.filter((x) => x !== "" && x != null).map((x, i) => (i === 0 ? String(x).replace(/[\\/]+$/, "") : String(x).replace(/^[\\/]+|[\\/]+$/g, ""))).join("/"),
+  };
+
+  return { selection, clips, notes, frac, fs };
 }

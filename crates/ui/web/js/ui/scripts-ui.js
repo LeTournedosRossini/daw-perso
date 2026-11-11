@@ -4,6 +4,8 @@
 import { ScriptRunner, parseHeader, parseShortcut, shortcutMatches } from "../script-runner.js";
 import { createScriptStore, toFileName } from "../script-store.js";
 import { makeFloatable } from "./float-frame.js";
+import { ScriptFs, createFsBackend, consentText, hashText, unknownPermissions } from "../script-fs.js";
+import { makeDialogs } from "../project-files.js";
 
 const h = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -22,12 +24,18 @@ export class ScriptsUI {
   #runner;
   #store;
   #notify;
+  #state;
+  #dialogs;
+  #fsBackend;
   #scripts = []; // { file, source, meta, shortcut }
   #menu = null;
   #console = null;
   #status = document.getElementById("script-status");
 
-  constructor(engine, state, notify, store = createScriptStore(), runner = new ScriptRunner(engine, state)) {
+  constructor(engine, state, notify, store = createScriptStore(), runner = new ScriptRunner(engine, state), { dialogs = makeDialogs(), fsBackend = createFsBackend() } = {}) {
+    this.#state = state;
+    this.#dialogs = dialogs;
+    this.#fsBackend = fsBackend;
     this.#runner = runner;
     this.#store = store;
     this.#notify = notify;
@@ -72,10 +80,19 @@ export class ScriptsUI {
   }
 
   async #run(source, name, permissions = []) {
+    let fs = null;
     if (permissions.length) {
-      this.#out(`« ${name} » demande des droits (${permissions.join(", ")}) : pas encore pris en charge, le script n'est pas lancé.`);
-      this.#notify(`Script « ${name} » : droits non pris en charge`);
-      return null;
+      const unknown = unknownPermissions(permissions);
+      if (unknown.length) {
+        this.#out(`« ${name} » demande une permission inconnue (${unknown.join(", ")}) : le script n'est pas lancé.`);
+        this.#notify(`Script « ${name} » : permission inconnue`);
+        return null;
+      }
+      if (!(await this.#authorize(name, source))) {
+        this.#out(`« ${name} » : accès aux fichiers non autorisé, le script n'est pas lancé.`);
+        return null;
+      }
+      fs = new ScriptFs({ name, backend: this.#fsBackend, confirm: (m) => this.#dialogs.confirm(m), projectDir: this.#state.file?.path ?? null, scriptsDir: this.#store.dir || null });
     }
     if (this.#runner.running) {
       this.#notify(this.#runner.listening ? `« ${this.#runner.listening} » écoute des événements : arrête-le d'abord (bouton de la barre)` : "Un script est déjà en cours");
@@ -90,7 +107,7 @@ export class ScriptsUI {
       this.#out(`■ « ${name} » n'écoute plus : ${reason}`);
       this.#notify(`Script « ${name} » arrêté : ${reason}`);
     };
-    const r = await this.#runner.run(source, { name, onLog: (line) => this.#out(line), onEnd });
+    const r = await this.#runner.run(source, { name, onLog: (line) => this.#out(line), onEnd, fs });
     if (r.ok && r.listening?.length) {
       // Le script reste actif : le bouton de la barre l'arrête.
       if (this.#status) this.#status.textContent = `Script « ${name} » écoute : ${r.listening.join(", ")} (cliquer pour l'arrêter)`;
@@ -107,6 +124,21 @@ export class ScriptsUI {
       this.#notify(`Script « ${name} » : ${r.error}`);
     }
     return r;
+  }
+
+  /** Première exécution d'un script qui demande les fichiers : confirmation, retenue pour ce texte exact (modifié, il est redemandé). */
+  async #authorize(name, source) {
+    const key = `${name}:${hashText(source)}`;
+    let known = [];
+    try {
+      known = JSON.parse(localStorage.getItem("daw.scriptApprovals") ?? "[]");
+    } catch { /* stockage indisponible : on redemande à chaque fois */ }
+    if (known.includes(key)) return true;
+    if (!(await this.#dialogs.confirm(consentText(name), { ok: "Autoriser", cancel: "Refuser" }))) return false;
+    try {
+      localStorage.setItem("daw.scriptApprovals", JSON.stringify([...known.slice(-199), key]));
+    } catch { /* non mémorisé */ }
+    return true;
   }
 
   // ---- menu ----------------------------------------------------------------------------------------------------------------
