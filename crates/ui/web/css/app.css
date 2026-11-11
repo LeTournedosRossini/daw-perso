@@ -534,7 +534,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #export-dialog .ex-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 #export-dialog .primary { border-color: var(--accent); }
 .export-status { cursor: pointer; }
-#transport .export-status[hidden], #listen-status[hidden], #export-status[hidden], #script-status[hidden], #import-status[hidden], #convert-status[hidden] { display: none !important; } /* un bouton de la barre garde son affichage malgré `hidden` sans cela */
+#transport .export-status[hidden], #listen-status[hidden], #script-status[hidden], #tasks-pill[hidden] { display: none !important; } /* un bouton de la barre garde son affichage malgré `hidden` sans cela */
 
 /* Import */
 #import-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(460px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
@@ -977,3 +977,13 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #transport .edit-bar .zoom { margin-left: auto; }
 @media (pointer: coarse) { #transport .pop-panel button { min-width: 44px; height: 40px; } }
 #transport button[hidden], #transport select[hidden] { display: none; } /* « #transport button { display: grid } » l'emportait sur l'attribut hidden (le bouton Auto restait affiché) */
+
+/* Pastille des tâches en cours (import, export, calage, étirement, conversion) et son panneau. */
+#transport #tasks-pill { color: var(--accent); border-color: var(--accent); font-weight: 700; }
+.tasks-panel { position: fixed; z-index: 60; min-width: 230px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 8px 28px rgba(0, 0, 0, .45); font-size: 12px; display: grid; gap: 2px; }
+.tasks-panel[hidden], .tasks-panel .task[hidden] { display: none; }
+.tasks-panel .task { display: flex; justify-content: space-between; align-items: center; gap: 14px; width: 100%; box-sizing: border-box; text-align: left; padding: 7px 10px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.tasks-panel .task:hover, .tasks-panel .task:focus-visible { background: color-mix(in srgb, var(--accent, #4a8cff) 22%, transparent); outline: none; }
+.tasks-panel .task[data-action="cancel"]::after { content: "annuler ✕"; font-size: 10px; opacity: .65; }
+.tasks-panel .task[data-action="open"]::after { content: "afficher ↗"; font-size: 10px; opacity: .65; }
+@media (pointer: coarse) { .tasks-panel .task { min-height: 40px; } }

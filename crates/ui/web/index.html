@@ -15,13 +15,9 @@
         <button id="btn-scripts" class="text" title="Scripts : lancer un script enregistré, ouvrir la console">Scripts ▾</button>
       </div>
       <div id="project-name" class="project-name" aria-live="polite"></div>
-      <button id="convert-status" class="rec-status export-status" title="Conversion du projet en cours : cliquer pour l'annuler" hidden></button>
-      <button id="align-status" class="rec-status export-status" title="Calage en cours : cliquer pour l'annuler" hidden></button>
-      <button id="stretch-status" class="rec-status export-status" title="Étirement en cours : cliquer pour l'annuler (Échap)" hidden></button>
-      <button id="import-status" class="rec-status export-status" title="Import en cours : cliquer pour l'annuler" hidden></button>
+      <button id="tasks-pill" class="rec-status export-status" aria-haspopup="true" aria-expanded="false" aria-controls="tasks-panel" title="Tâches en cours" hidden></button>
       <button id="listen-status" class="rec-status export-status" title="Écoute de contrôle : un bus est seul dans la sortie principale. Cliquer pour l'arrêter." hidden></button>
       <button id="script-status" class="rec-status export-status" title="Script en cours : cliquer pour l'arrêter (ce qu'il a fait est défait)" hidden></button>
-      <button id="export-status" class="rec-status export-status" title="Export en cours : cliquer pour l'afficher" hidden></button>
       <div id="rec-status" class="rec-status" aria-live="polite" hidden></div>
       <div id="write-status" class="rec-status" aria-live="polite" hidden>● Écriture auto</div>
       <div class="group" role="group" aria-label="Lecture">
@@ -100,6 +96,13 @@
       <button id="btn-align" class="fm-item" role="menuitem" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)"><span>Caler des prises…</span></button>
       <hr>
       <button id="btn-settings" class="fm-item" role="menuitem" title="Réglages : pilote audio, tampon, calcul parallèle, calcul en avance, métronome (Ctrl+,)"><span>Réglages…</span><kbd>Ctrl+,</kbd></button>
+    </div>
+    <div id="tasks-panel" class="tasks-panel" role="group" aria-label="Tâches en cours" hidden>
+      <button id="import-status" class="task" data-action="cancel" title="Import en cours : cliquer pour l'annuler" hidden></button>
+      <button id="export-status" class="task" data-action="open" title="Export en cours : cliquer pour l'afficher" hidden></button>
+      <button id="align-status" class="task" data-action="cancel" title="Calage en cours : cliquer pour l'annuler" hidden></button>
+      <button id="stretch-status" class="task" data-action="cancel" title="Étirement en cours : cliquer pour l'annuler (Échap)" hidden></button>
+      <button id="convert-status" class="task" data-action="cancel" title="Conversion du projet en cours : cliquer pour l'annuler" hidden></button>
     </div>
     <div id="scroller">
       <div id="grid">
