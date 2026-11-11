@@ -39,12 +39,13 @@ fn run(p: &mut Plugin, input: &[f32], block: usize, params: &[(usize, f64)]) -> 
 #[test]
 fn lists_the_plugin_descriptor() {
     let list = bundle().plugins().unwrap();
-    // Deux plugins : le gain de test et sa variante à chaîne latérale.
-    assert_eq!(list.len(), 2);
+    // Trois plugins : le gain de test, sa variante à chaîne latérale et la variante à sorties multiples.
+    assert_eq!(list.len(), 3);
     assert_eq!(list[0].id, "com.daw-perso.test-gain");
     assert_eq!(list[0].name, "Gain de test");
     assert_eq!(list[0].features, vec!["audio-effect", "utility", "stereo"]);
     assert_eq!((list[1].id.as_str(), list[1].name.as_str()), ("com.daw-perso.test-sidechain", "Ducker de test"));
+    assert_eq!((list[2].id.as_str(), list[2].name.as_str()), ("com.daw-perso.test-multiout", "Multi-sorties de test"));
 }
 
 #[test]
