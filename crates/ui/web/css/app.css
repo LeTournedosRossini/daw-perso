@@ -952,3 +952,13 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .script-console .sc-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .script-console .sc-bar input { flex: 1; min-width: 100px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--text); font: inherit; }
 .script-console .sc-out { margin: 0; padding: 6px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 11px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; }
+
+/* Menu « Fichier ▾ » (hors du bandeau : les règles « #transport button » ne s'y appliquent pas). */
+.file-menu { position: fixed; z-index: 60; min-width: 250px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 8px 28px rgba(0, 0, 0, .45); font-size: 12px; display: grid; gap: 1px; }
+.file-menu[hidden] { display: none; }
+.file-menu hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
+.file-menu .fm-item { display: flex; justify-content: space-between; align-items: center; gap: 18px; width: 100%; box-sizing: border-box; text-align: left; padding: 6px 10px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.file-menu .fm-item:hover, .file-menu .fm-item:focus-visible { background: color-mix(in srgb, var(--accent, #4a8cff) 22%, transparent); outline: none; }
+.file-menu .fm-item:disabled { opacity: .4; cursor: default; }
+.file-menu .fm-item kbd { font: 10px system-ui, sans-serif; opacity: .65; }
+@media (pointer: coarse) { .file-menu .fm-item { min-height: 40px; font-size: 14px; } }

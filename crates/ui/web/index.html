@@ -10,15 +10,9 @@
   <div id="app">
     <header id="transport" aria-label="Transport">
       <div class="group files" role="group" aria-label="Projet">
-        <button id="btn-new" class="text" title="Nouveau projet (Ctrl+N)">Nouveau</button>
-        <button id="btn-open" class="text" title="Ouvrir un projet (Ctrl+O)">Ouvrir</button>
+        <button id="btn-file" class="text" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu" title="Fichier : nouveau, ouvrir, enregistrer sous, importer, exporter, caler des prises, réglages">Fichier ▾</button>
         <button id="btn-save" class="text" title="Enregistrer (Ctrl+S)">Enregistrer</button>
-        <button id="btn-saveas" class="text" title="Enregistrer sous… (Ctrl+Maj+S)">Sous…</button>
-        <button id="btn-import" class="text" title="Importer des fichiers audio (WAV, FLAC, MP3) — ou les glisser sur la timeline">Importer…</button>
-        <button id="btn-align" class="text" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)">Caler…</button>
-        <button id="btn-export" class="text" title="Exporter le mixage ou les stems en WAV / FLAC (Ctrl+E)">Exporter…</button>
         <button id="btn-scripts" class="text" title="Scripts : lancer un script enregistré, ouvrir la console">Scripts ▾</button>
-        <button id="btn-settings" class="text" title="Réglages : pilote audio, tampon, calcul parallèle, calcul en avance, métronome (Ctrl+,)">Réglages…</button>
       </div>
       <div id="project-name" class="project-name" aria-live="polite"></div>
       <button id="convert-status" class="rec-status export-status" title="Conversion du projet en cours : cliquer pour l'annuler" hidden></button>
@@ -84,6 +78,17 @@
         <button id="btn-zoom-in" title="Zoom avant (+)" aria-label="Zoom avant">+</button>
       </div>
     </header>
+    <div id="file-menu" class="file-menu" role="menu" aria-label="Fichier" hidden>
+      <button id="btn-new" class="fm-item" role="menuitem" title="Nouveau projet (Ctrl+N)"><span>Nouveau</span><kbd>Ctrl+N</kbd></button>
+      <button id="btn-open" class="fm-item" role="menuitem" title="Ouvrir un projet (Ctrl+O)"><span>Ouvrir…</span><kbd>Ctrl+O</kbd></button>
+      <button id="btn-saveas" class="fm-item" role="menuitem" title="Enregistrer sous… (Ctrl+Maj+S)"><span>Enregistrer sous…</span><kbd>Ctrl+Maj+S</kbd></button>
+      <hr>
+      <button id="btn-import" class="fm-item" role="menuitem" title="Importer des fichiers audio (WAV, FLAC, MP3) — ou les glisser sur la timeline"><span>Importer de l'audio…</span></button>
+      <button id="btn-export" class="fm-item" role="menuitem" title="Exporter le mixage ou les stems en WAV / FLAC (Ctrl+E)"><span>Exporter…</span><kbd>Ctrl+E</kbd></button>
+      <button id="btn-align" class="fm-item" role="menuitem" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)"><span>Caler des prises…</span></button>
+      <hr>
+      <button id="btn-settings" class="fm-item" role="menuitem" title="Réglages : pilote audio, tampon, calcul parallèle, calcul en avance, métronome (Ctrl+,)"><span>Réglages…</span><kbd>Ctrl+,</kbd></button>
+    </div>
     <div id="scroller">
       <div id="grid">
         <div id="corner"><div class="corner-top"><span>Pistes</span><button id="btn-add-track" class="add" title="Ajouter une piste ou un bus" aria-label="Ajouter une piste ou un bus" aria-haspopup="menu">＋</button></div><div id="chord-heads"></div></div>
