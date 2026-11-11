@@ -152,6 +152,7 @@ export class Transport {
     const selected = this.state.selection !== null;
     set("btn-split", selected, "Découper les clips sélectionnés à la tête de lecture (S)");
     set("btn-delete", selected, "Supprimer le clip sélectionné (Suppr). Sélection multiple : Ctrl/Maj + clic ou rectangle ; Ctrl+C / X / V copie, coupe, colle (clic dans le vide d'une piste : la désigne comme destination) ; Ctrl+D ou Alt + glisser duplique ; S découpe tous les clips sélectionnés.");
+    this.onEditing?.(); // la barre d'édition suit la sélection et le projet
   }
 
   toggleLoop() {

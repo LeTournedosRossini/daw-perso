@@ -962,3 +962,9 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .file-menu .fm-item:disabled { opacity: .4; cursor: default; }
 .file-menu .fm-item kbd { font: 10px system-ui, sans-serif; opacity: .65; }
 @media (pointer: coarse) { .file-menu .fm-item { min-height: 40px; font-size: 14px; } }
+
+/* Barre d'édition contextuelle : toujours sur sa propre ligne sous le transport (hauteur stable). */
+#transport .edit-bar { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-top: 6px; border-top: 1px solid var(--line); }
+#transport .edit-bar .edit-context { min-width: 150px; font-size: 11px; color: var(--muted); font-weight: 600; }
+#transport .edit-bar .edit-context[data-kind="audio"], #transport .edit-bar .edit-context[data-kind="mixed"] { color: var(--accent); }
+#transport .edit-bar .group[hidden] { display: none; }

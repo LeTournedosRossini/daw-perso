@@ -19,6 +19,7 @@ import { PianoRoll } from "./ui/piano-roll.js";
 import { ScoreWindow } from "./ui/score-window.js";
 import { ScriptsUI } from "./ui/scripts-ui.js";
 import { FileMenu } from "./ui/file-menu.js";
+import { EditBar } from "./ui/edit-bar.js";
 import { Mixer } from "./ui/mixer.js";
 import { AutomationEditor } from "./ui/automation.js";
 import { ProjectFiles, makeDialogs } from "./project-files.js";
@@ -264,6 +265,8 @@ fileHooks.onWarnings = (list) => {
   errorTimer = setTimeout(() => (status.textContent = label), 12000);
 };
 timeline.onFadeEditor = (target) => fadeEditor.open(target);
+const editBar = new EditBar(state);
+transport.onEditing = () => editBar.update();
 timeline.onSelection = () => transport.updateEditing();
 timeline.refreshColors();
 timeline.resize();
