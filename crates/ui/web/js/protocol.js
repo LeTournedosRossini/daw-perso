@@ -111,7 +111,7 @@ export function validateCommand(m) {
       if (m.guide_more !== undefined && (!Array.isArray(m.guide_more) || m.guide_more.length > 32 || !m.guide_more.every(Number.isInteger) || m.guide_more.some((g) => m.doubles.includes(g)))) return "align_clips : guide_more = clips de la piste du guide, pas parmi les doubles";
       return m.settings === undefined || m.settings === null || typeof m.settings === "string" ? null : "align_clips : settings = texte JSON";
     case "set_stretch": {
-      if (!Number.isInteger(m.clip) || m.clip <= 0) return "set_stretch : clip";
+      if (!Number.isInteger(m.clip) || m.clip < 0) return "set_stretch : clip";
       if (!Array.isArray(m.markers) || m.markers.length > 256) return "set_stretch : markers (256 au plus)";
       let prev = [0, 0];
       for (const p of m.markers) {

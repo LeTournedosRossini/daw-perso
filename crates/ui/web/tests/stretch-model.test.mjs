@@ -192,3 +192,8 @@ test("faux moteur : annuler le rendu ne pose rien, et la découpe répartit les 
   assert.deepEqual(right.stretch.markers, [], "la droite n'en a pas mais reste étirée");
   assert.ok(right.stretch.src_len > 0 && right.stretch.src_len < left.stretch.src_len);
 });
+
+test("set_stretch accepte le clip d'identifiant 0 (le premier clip du projet) et refuse un identifiant négatif", () => {
+  assert.equal(validateCommand({ type: "set_stretch", clip: 0, markers: [[100, 100]] }), null);
+  assert.match(validateCommand({ type: "set_stretch", clip: -1, markers: [] }), /clip/);
+});
