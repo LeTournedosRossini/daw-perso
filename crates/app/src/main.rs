@@ -174,6 +174,11 @@ fn control_pages_path() -> Option<std::path::PathBuf> {
     data_dir().map(|d| d.join("control-pages.json"))
 }
 
+/// Cache du balayage des plugins installés (`…/DAW/plugin-cache.json`).
+fn plugin_cache_path() -> Option<std::path::PathBuf> {
+    data_dir().map(|d| d.join("plugin-cache.json"))
+}
+
 /// Fichier des préférences (`…/DAW/preferences.json`).
 fn prefs_path() -> Option<std::path::PathBuf> {
     data_dir().map(|d| d.join("preferences.json"))
@@ -225,6 +230,9 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     host.set_midi_devices(daw_audio_io::winmm_midi::list_inputs());
     host.set_name("Démonstration");
     host.set_autosave(autosave_root(), Duration::from_secs(60));
+    // Balayage des plugins installés dès le démarrage (fil à part, avec cache disque) : le sélecteur est prêt quand on l'ouvre.
+    host.set_plugin_cache(plugin_cache_path());
+    host.start_plugin_scan();
     host.set_control_pages_path(control_pages_path());
     host.set_audio_inputs(inputs);
     // Préférences (le métronome en reprend ses réglages) et description de ce qui tourne, pour la fenêtre des réglages.

@@ -1188,7 +1188,7 @@ pub struct AuxPortInfo {
 }
 
 /// Un plugin installé, tel que l'inventaire le décrit.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginListing {
     pub clap_id: String,
     pub name: String,

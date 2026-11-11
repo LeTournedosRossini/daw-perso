@@ -134,21 +134,21 @@ pub type CatalogScan = Box<dyn FnOnce() -> Vec<PluginListing> + Send>;
 
 /// Balaie les dossiers CLAP du système : ne fait que lire le descriptif de chaque fichier, rien n'est instancié.
 pub fn default_scan() -> CatalogScan {
-    Box::new(|| {
+    cached_scan(None)
+}
+
+/// Comme `default_scan`, avec un cache disque (`plugin_cache`) : un fichier inchangé n'est pas rouvert.
+pub fn cached_scan(cache: Option<std::path::PathBuf>) -> CatalogScan {
+    Box::new(move || {
         use daw_clap_host::{default_search_dirs, find_plugins, Bundle};
-        let mut out = Vec::new();
-        for dir in default_search_dirs() {
-            for file in find_plugins(&dir) {
-                let Ok(bundle) = Bundle::open(&file) else { continue };
-                let Ok(list) = bundle.plugins() else { continue };
-                let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                for i in list {
-                    out.push(PluginListing { clap_id: i.id, name: i.name, vendor: i.vendor, file: file_name.clone(), description: i.description, features: i.features });
-                }
-            }
-        }
-        out.sort_by_key(|p| (p.vendor.to_lowercase(), p.name.to_lowercase()));
-        out
+        let files: Vec<std::path::PathBuf> = default_search_dirs().iter().flat_map(|d| find_plugins(d)).collect();
+        let open = |file: &std::path::Path| -> Option<Vec<PluginListing>> {
+            let bundle = Bundle::open(file).ok()?;
+            let list = bundle.plugins().ok()?;
+            let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            Some(list.into_iter().map(|i| PluginListing { clap_id: i.id, name: i.name, vendor: i.vendor, file: file_name.clone(), description: i.description, features: i.features }).collect())
+        };
+        crate::plugin_cache::scan_files(&files, cache.as_deref(), open).0
     })
 }
 
@@ -342,6 +342,8 @@ pub struct Host {
     /// Inventaire des plugins installés (balayage en arrière-plan, fait une seule fois).
     catalog: Option<Vec<PluginListing>>,
     scan: Option<CatalogScan>,
+    /// Fichier du cache disque du balayage des plugins.
+    plugin_cache: Option<std::path::PathBuf>,
     scan_rx: Option<std::sync::mpsc::Receiver<Vec<PluginListing>>>,
     /// Canaux d'entrée audio ouverts par le pilote ; décalage (échantillons) à retirer des prises (latence aller-retour).
     audio_inputs: u32,
@@ -410,7 +412,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -836,12 +838,7 @@ impl Host {
                 if let Some(list) = &self.catalog {
                     return vec![Event::Plugins { plugins: list.clone(), scanning: false }];
                 }
-                if self.scan_rx.is_none() {
-                    let scan = self.scan.take().unwrap_or_else(default_scan);
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    std::thread::Builder::new().name("balayage-plugins".into()).spawn(move || drop(tx.send(scan()))).expect("fil de balayage");
-                    self.scan_rx = Some(rx);
-                }
+                self.start_plugin_scan();
                 vec![Event::Plugins { plugins: Vec::new(), scanning: true }]
             }
             Command::AddPlugin { node, clap_id, file } => {
@@ -1664,6 +1661,24 @@ impl Host {
 
     fn plugin_handle(&self, insert: u32) -> Option<daw_clap_host::PluginHandle> {
         self.handle.insert_control(insert)?.as_any().downcast_ref::<daw_clap_host::PluginHandle>().cloned()
+    }
+
+    /// Fichier du cache du balayage des plugins (`…/DAW/plugin-cache.json`). Sans lui, chaque balayage rouvre tous les fichiers.
+    pub fn set_plugin_cache(&mut self, path: Option<std::path::PathBuf>) {
+        self.plugin_cache = path;
+    }
+
+    /// Lance le balayage des plugins installés dans un fil à part s'il n'a pas eu lieu (l'application le fait au démarrage : le
+    /// sélecteur est alors prêt quand on l'ouvre). Le résultat part par `tick`, sans rien demander à la page.
+    pub fn start_plugin_scan(&mut self) {
+        if self.catalog.is_some() || self.scan_rx.is_some() {
+            return;
+        }
+        let cache = self.plugin_cache.clone();
+        let scan = self.scan.take().unwrap_or_else(|| cached_scan(cache));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("balayage-plugins".into()).spawn(move || drop(tx.send(scan()))).expect("fil de balayage");
+        self.scan_rx = Some(rx);
     }
 
     /// Change le balayage des plugins installés (les tests y mettent une liste fixe).
