@@ -94,6 +94,9 @@ pub struct UiStretch {
     pub source_len: u64,
     /// Marqueurs `[secondes de source, secondes de sortie]`.
     pub keys: Vec<[f64; 2]>,
+    /// Marqueurs posés `[secondes de source, secondes de sortie, 1 si lissé]` (`keys` en est la version développée). Absent dans les fiches d'avant le lissage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<[f64; 3]>,
     pub engine: String,
 }
 

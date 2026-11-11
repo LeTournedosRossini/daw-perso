@@ -305,3 +305,34 @@ fn cancelling_a_render_leaves_nothing_behind() {
     stretch(&mut h, id, "[[200000,300000]]", r#","engine":"signalsmith""#);
     assert!(clips(node(&get(&mut h), "boucle"))[0].stretch.is_some());
 }
+
+#[test]
+fn a_smoothed_marker_changes_the_speed_gradually_keeps_the_pitch_and_survives_reopening() {
+    let (_e, mut h, proj, id) = project_with_clip("smooth", 3.0);
+    // Même marqueur que le premier test (×1,5 puis ×0,75), mais lissé.
+    let ev = stretch(&mut h, id, "[[72000,48000]],\"smooth\":[true]", "");
+    assert!(errors(&ev).is_empty());
+    let info = clips(node(&get(&mut h), "boucle")).remove(0).stretch.expect("étiré");
+    assert_eq!((info.markers.clone(), info.smooth.clone()), (vec![[72_000, 48_000]], vec![true]));
+    h.command_json(r#"{"type":"save_project"}"#);
+    let f = stretched_file(&proj);
+    for (ch, want) in [(0, 440.0), (1, 880.0)] {
+        for (a, b) in [(0.3, 1.0), (2.0, 2.8)] {
+            let got = hz(&f, ch, a, b);
+            assert!((got - want).abs() < want * 0.01, "voie {ch} entre {a} et {b} s : {got:.1} Hz au lieu de {want}");
+        }
+    }
+    // Le fichier a la longueur du clip.
+    let d = daw_recorder::decode::decode_file(&f).unwrap().audio;
+    assert_eq!(d.samples.len() / d.channels as usize, 144_000);
+    // Rouvert : l'indicateur est retrouvé ; sans `smooth` dans la commande suivante, plus de lissage.
+    let (_e2, mut h2) = host();
+    h2.command_json(&format!(r#"{{"type":"open_project","path":{:?}}}"#, proj.to_string_lossy()));
+    let c = clips(node(&get(&mut h2), "boucle")).remove(0);
+    assert_eq!(c.stretch.as_ref().unwrap().smooth, vec![true]);
+    stretch(&mut h2, c.id, "[[72000,48000]]", "");
+    assert_eq!(clips(node(&get(&mut h2), "boucle")).remove(0).stretch.unwrap().smooth, vec![false]);
+    // Un indicateur de trop est refusé.
+    let ev = h2.command_json(&format!(r#"{{"type":"set_stretch","clip":{},"markers":[[72000,48000]],"smooth":[true,false]}}"#, c.id));
+    assert!(!errors(&ev).is_empty());
+}

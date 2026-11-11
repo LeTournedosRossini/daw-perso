@@ -82,7 +82,18 @@ fn a_saved_project_reopens_identically_with_names_colors_and_audio() {
     assert_eq!((f.name.as_str(), f.dirty, f.generation), ("Chanson", false, 1));
     assert!(!can_undo(&opened), "l'historique n'est pas conservé");
     let before = a.command_json(r#"{"type":"get_project"}"#);
-    assert_eq!(project(&opened), project(&before), "même projet : pistes, clips, noms, couleurs, fondus, réglages");
+    // `data_id` identifie les données en mémoire (un pointeur) : il diffère forcément d'une instance à l'autre.
+    let (mut p_opened, mut p_before) = (project(&opened).clone(), project(&before).clone());
+    for p in [&mut p_opened, &mut p_before] {
+        for n in &mut p.nodes {
+            for c in &mut n.clips {
+                if let daw_ui::protocol::ClipInfo::Audio { data_id, .. } = c {
+                    *data_id = 0;
+                }
+            }
+        }
+    }
+    assert_eq!(p_opened, p_before, "même projet : pistes, clips, noms, couleurs, fondus, réglages");
     assert!(!project(&opened).auto_crossfade, "réglage conservé");
     assert_eq!(peaks(&mut a, 0), peaks(&mut b, 0), "même audio");
     assert_eq!(peaks(&mut a, 5), peaks(&mut b, 5));

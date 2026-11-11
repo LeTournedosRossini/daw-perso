@@ -27,6 +27,22 @@ const put = (k, v) => {
   }
 };
 
+/** Description d'un clip tel que le moteur la donne, avec l'indicateur « lissé » rangé en troisième élément de chaque marqueur. */
+function baseOf(clip) {
+  const st = clip.stretch;
+  if (!st) return plain(clip.len);
+  return { ...st, markers: st.markers.map((m, i) => [m[0], m[1], !!st.smooth?.[i]]) };
+}
+
+/** Commande `set_stretch` pour ces marqueurs (paires + indicateurs de lissage, ceux-ci omis quand aucun n'est lissé). */
+function stretchMessage(clipId, markers, engine) {
+  const msg = { type: "set_stretch", clip: clipId, markers: markers.map((m) => [m[0], m[1]]), engine };
+  if (markers.some((m) => m[2])) msg.smooth = markers.map((m) => !!m[2]);
+  return msg;
+}
+
+const sameMarkers = (a, b) => a.length === b.length && a.every((m, i) => m[0] === b[i][0] && m[1] === b[i][1] && !!m[2] === !!b[i][2]);
+
 /** Vrai quand tous les rapports valent 1 et que la partie de source égale la longueur du clip : plus rien n'est étiré. */
 function isIdentity(info, len) {
   return info.src_len === len && ratios(info, len).every((r) => Math.abs(r - 1) < 1e-9);
@@ -53,7 +69,7 @@ export class StretchMarkers {
         put(KEY_ENGINE, this.engine);
         // Un clip étiré sélectionné est rerendu avec le nouveau moteur (mêmes marqueurs) : on compare à l'oreille.
         const clip = this.#selectedAudio();
-        if (clip?.stretch) this.tl.client.send({ type: "set_stretch", clip: clip.id, markers: clip.stretch.markers, engine: this.engine });
+        if (clip?.stretch) this.tl.client.send(stretchMessage(clip.id, baseOf(clip).markers, this.engine));
       });
     }
     const status = document.getElementById("stretch-status");
@@ -103,7 +119,7 @@ export class StretchMarkers {
 
   /** Description du clip (étiré ou non) avec ses marqueurs affichés : le brouillon et le glissement en cours l'emportent. */
   describe(clip) {
-    const base = clip.stretch ?? plain(clip.len);
+    const base = baseOf(clip);
     if (this.drag?.clip.id === clip.id) return { ...base, markers: this.drag.markers };
     if (this.draft?.clipId === clip.id) return { ...base, markers: this.draft.markers };
     return base;
@@ -145,7 +161,7 @@ export class StretchMarkers {
     const { view, tempo, meters_ } = this.tl.state;
     let s = xToSample(view, x);
     if (!shift) s = snapSample(view, this.tl.width, tempo, meters_, s, 8);
-    const base = { ...(d.clip.stretch ?? plain(d.clip.len)), markers: d.markers0 };
+    const base = { ...baseOf(d.clip), markers: d.markers0 };
     d.markers = moveMarker(base, d.clip.len, d.index, Math.round(s - d.clip.start));
     d.moved = d.moved || Math.abs(x - d.x0) > 3;
     this.tl.dirty = true;
@@ -161,10 +177,9 @@ export class StretchMarkers {
   }
 
   #commit(clip, markers) {
-    const base = clip.stretch ?? plain(clip.len);
+    const base = baseOf(clip);
     const info = { ...base, markers };
-    const same = markers.length === base.markers.length && markers.every((m, i) => m[0] === base.markers[i][0] && m[1] === base.markers[i][1]);
-    if (same) {
+    if (sameMarkers(markers, base.markers)) {
       this.draft = null;
       return;
     }
@@ -172,7 +187,7 @@ export class StretchMarkers {
     const identity = isIdentity(info, clip.len);
     this.draft = { clipId: clip.id, markers };
     if (identity && !clip.stretch) return; // rien n'est étiré : le brouillon reste local, rien à envoyer
-    const ok = this.tl.client.send({ type: "set_stretch", clip: clip.id, markers: identity ? [] : markers, engine: this.engine });
+    const ok = this.tl.client.send(stretchMessage(clip.id, identity ? [] : markers, this.engine));
     if (!ok) this.draft = null;
   }
 
@@ -195,7 +210,7 @@ export class StretchMarkers {
 
   /** Supprime un marqueur (double-clic dessus, ou Suppr s'il est sélectionné). */
   remove(clip, index) {
-    const base = clip.stretch ?? plain(clip.len);
+    const base = baseOf(clip);
     const shown = this.describe(clip);
     const gone = shown.markers[index];
     if (!gone) return;
@@ -209,6 +224,18 @@ export class StretchMarkers {
       return;
     }
     this.#commit(clip, next);
+  }
+
+  /** Lisse (ou non) le marqueur sélectionné : la vitesse d'étirement y varie progressivement au lieu de changer d'un coup. Rend vrai si traité. */
+  toggleSmoothSelected() {
+    if (!this.sel) return false;
+    const clip = this.#clipById(this.sel.clipId);
+    const shown = clip && this.describe(clip).markers;
+    if (!clip || !shown?.[this.sel.index]) return false;
+    const next = shown.map((m, i) => (i === this.sel.index ? [m[0], m[1], !m[2]] : m));
+    this.#commit(clip, next);
+    this.tl.dirty = true;
+    return true;
   }
 
   /** Suppr : retire le marqueur sélectionné ; rend vrai si c'était le cas (la touche est alors consommée). */
@@ -246,9 +273,8 @@ export class StretchMarkers {
   warpFor(clip) {
     const pending = this.drag?.clip.id === clip.id ? this.drag.markers : this.draft?.clipId === clip.id ? this.draft.markers : null;
     if (!pending) return null;
-    const base = clip.stretch ?? plain(clip.len);
-    const same = pending.length === base.markers.length && pending.every((m, i) => m[0] === base.markers[i][0] && m[1] === base.markers[i][1]);
-    if (same) return null;
+    const base = baseOf(clip);
+    if (sameMarkers(pending, base.markers)) return null;
     return previewSegments(base, clip.len, pending).map((s) => ({ from: [clip.start + s.from[0], clip.start + s.from[1]], to: [clip.start + s.to[0], clip.start + s.to[1]] }));
   }
 
@@ -286,6 +312,7 @@ export class StretchMarkers {
     }
     // Les marqueurs : un trait sur toute la hauteur du clip et une poignée en triangle au sommet du corps.
     const committed = clip.stretch?.markers ?? [];
+    const smoothAt = (i) => !!info.markers[i]?.[2];
     info.markers.forEach((m, index) => {
       const mx = sampleToX(view, clip.start + m[0]);
       if (mx < x0 - 1 || mx > x1 + 1) return;
@@ -301,10 +328,14 @@ export class StretchMarkers {
       g.setLineDash([]);
       g.fillStyle = MARKER_COLOR;
       g.beginPath();
-      g.moveTo(mx - 5.5, bodyTop);
-      g.lineTo(mx + 5.5, bodyTop);
-      g.lineTo(mx, bodyTop + 8);
-      g.closePath();
+      if (smoothAt(index)) {
+        g.arc(mx, bodyTop + 5, 5.5, 0, Math.PI * 2); // rond : marqueur lissé (la vitesse y change progressivement)
+      } else {
+        g.moveTo(mx - 5.5, bodyTop);
+        g.lineTo(mx + 5.5, bodyTop);
+        g.lineTo(mx, bodyTop + 8);
+        g.closePath();
+      }
       g.fill();
     });
     // Rendu en cours : le clip est voilé et dit où il en est.

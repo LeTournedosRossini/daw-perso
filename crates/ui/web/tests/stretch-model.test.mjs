@@ -15,7 +15,7 @@ test("un clip ordinaire est l'identité : la source est lui-même, aucun marqueu
 test("poser un marqueur ne déplace pas le son : sa position source est celle que la carte y met déjà", () => {
   const p = plain(LEN);
   const m = addMarker(p, LEN, 72_000, RATE);
-  assert.deepEqual(m, [[72_000, 72_000]]);
+  assert.deepEqual(m, [[72_000, 72_000, false]]);
   // Sur un clip déjà étiré (×1,5 puis ×0,75), un marqueur posé dans le second tronçon prend la source de ce tronçon.
   const s = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 48_000]] };
   const m2 = addMarker(s, LEN, 108_000, RATE);
@@ -196,4 +196,15 @@ test("faux moteur : annuler le rendu ne pose rien, et la découpe répartit les 
 test("set_stretch accepte le clip d'identifiant 0 (le premier clip du projet) et refuse un identifiant négatif", () => {
   assert.equal(validateCommand({ type: "set_stretch", clip: 0, markers: [[100, 100]] }), null);
   assert.match(validateCommand({ type: "set_stretch", clip: -1, markers: [] }), /clip/);
+});
+
+test("set_stretch : l'indicateur de lissage doit avoir un booléen par marqueur", () => {
+  assert.equal(validateCommand({ type: "set_stretch", clip: 1, markers: [[100, 100]], smooth: [true] }), null);
+  assert.match(validateCommand({ type: "set_stretch", clip: 1, markers: [[100, 100]], smooth: [true, false] }), /smooth/);
+  assert.match(validateCommand({ type: "set_stretch", clip: 1, markers: [[100, 100]], smooth: ["oui"] }), /smooth/);
+});
+
+test("déplacer un marqueur garde son indicateur de lissage", () => {
+  const info = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 48_000, true]] };
+  assert.equal(moveMarker(info, LEN, 0, 80_000)[0][2], true);
 });

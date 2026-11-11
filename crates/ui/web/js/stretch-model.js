@@ -83,7 +83,7 @@ export function addMarker(info, len, out, rate) {
   const k = keysOf(info, len);
   for (const [, o] of k) if (Math.abs(o - at) < minGap) return null;
   const src = Math.round(srcAt(info, len, at));
-  const next = [...info.markers, [at, src]].sort((a, b) => a[0] - b[0]);
+  const next = [...info.markers, [at, src, false]].sort((a, b) => a[0] - b[0]);
   return validate(next, len, info.src_len, rate) ? null : next;
 }
 
@@ -114,7 +114,7 @@ export function moveMarker(info, len, index, out) {
   const b = dragBounds(info, len, index);
   if (!b || b[0] > b[1]) return info.markers;
   const at = Math.min(b[1], Math.max(b[0], Math.round(out)));
-  return info.markers.map((m, i) => (i === index ? [at, m[1]] : m));
+  return info.markers.map((m, i) => (i === index ? [at, m[1], ...m.slice(2)] : m));
 }
 
 /** Position de sortie (carte actuelle) où tombe la position `src` de la source : l'inverse de `srcAt`. */

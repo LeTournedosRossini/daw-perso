@@ -119,6 +119,7 @@ export function validateCommand(m) {
         if (p[0] <= prev[0] || p[1] <= prev[1]) return "set_stretch : marqueurs strictement croissants (position dans le clip et dans la source, au-delà de 0)";
         prev = p;
       }
+      if (m.smooth !== undefined && (!Array.isArray(m.smooth) || m.smooth.length !== m.markers.length || !m.smooth.every((b) => typeof b === "boolean"))) return "set_stretch : smooth = un booléen par marqueur";
       if (m.engine !== undefined && !["signalsmith", "rubberband_r2", "rubberband_r3"].includes(m.engine)) return "set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3";
       return null;
     }

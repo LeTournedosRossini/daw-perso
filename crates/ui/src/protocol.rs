@@ -432,7 +432,8 @@ pub enum Command {
     /// `signalsmith` (défaut), `rubberband_r2` ou `rubberband_r3` ; absent : celui du clip. **Sans marqueur**, un clip étiré retrouve sa source
     /// (aucun rendu). Le rendu a lieu sur un fil de travail (événement `stretch`) ; **une seule action annulable** à la fin (« Étirer l'audio »
     /// / « Retirer l'étirement »). Refusé : enregistrement, calage ou étirement en cours, clip inconnu, marqueurs invalides.
-    SetStretch { clip: u64, markers: Vec<[u64; 2]>, #[serde(default)] engine: Option<String> },
+    SetStretch { clip: u64, markers: Vec<[u64; 2]>, /// Un indicateur par marqueur (ou rien : aucun lissé) : la vitesse d'étirement y varie progressivement au lieu de changer d'un coup.
+        #[serde(default)] smooth: Vec<bool>, #[serde(default)] engine: Option<String> },
     /// Annule l'étirement en cours (rien n'est posé).
     CancelStretch,
     /// Détails du calage d'une prise calée (pour l'écran de réglage) : chemin, décalage appliqué, consonnes, force suggérée. Réponse :
@@ -864,7 +865,10 @@ impl Command {
                 }
                 Ok(())
             }
-            Command::SetStretch { markers, engine, .. } => {
+            Command::SetStretch { markers, smooth, engine, .. } => {
+                if !smooth.is_empty() && smooth.len() != markers.len() {
+                    return Err("set_stretch : smooth = un indicateur par marqueur".into());
+                }
                 if markers.len() > crate::host::MAX_STRETCH_MARKERS {
                     return Err(format!("set_stretch : {} marqueurs au plus", crate::host::MAX_STRETCH_MARKERS));
                 }
@@ -1519,6 +1523,8 @@ pub struct StretchInfo {
     pub src_len: u64,
     /// Marqueurs intérieurs `[position dans le clip, position dans la source du clip]`, en échantillons depuis le début du clip.
     pub markers: Vec<[u64; 2]>,
+    /// Pour chaque marqueur : lissé (vitesse continue de part et d'autre) ou non.
+    pub smooth: Vec<bool>,
 }
 
 /// Une prise calée créée par `align_clips` / `align_redo`.

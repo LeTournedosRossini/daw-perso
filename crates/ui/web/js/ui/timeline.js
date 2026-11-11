@@ -471,6 +471,20 @@ export class Timeline {
       },
       true,
     );
+    // L sur un marqueur d'étirement sélectionné : le lisse (vitesse progressive) ou le rend net.
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if ((e.key !== "l" && e.key !== "L") || e.ctrlKey || e.metaKey || e.altKey || !this.stretch.sel) return;
+        const t = e.target;
+        if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+        if (this.stretch.toggleSmoothSelected()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.stretch.escape();
       if (e.key === "Escape" && (this.band || this.takeDrag || (this.edit && !this.edit.committed))) finish(false);

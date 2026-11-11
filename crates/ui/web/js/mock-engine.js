@@ -1972,7 +1972,7 @@ export class MockEngine extends EngineClient {
     if (j.elapsed < 400) return this.emit("stretch", { active: true, progress: j.elapsed / 400, clip: j.clip.id, name: j.clip.name, cancelled: false, error: null, fell_back: false });
     this.stretchJob = null;
     this.#edit("Étirer l'audio", j.msg, () => {
-      j.clip.stretch = { engine: j.engine, src_len: j.src_len, markers: structuredClone(j.msg.markers) };
+      j.clip.stretch = { engine: j.engine, src_len: j.src_len, markers: structuredClone(j.msg.markers), smooth: j.msg.markers.map((_, i) => !!j.msg.smooth?.[i]) };
       j.clip.data_id = (j.clip.data_id ?? 0) + 1; // le fichier du clip a changé (comme le vrai hôte)
     });
     this.emit("stretch", { active: false, progress: 1, clip: j.clip.id, name: j.clip.name, cancelled: false, error: null, fell_back: false });

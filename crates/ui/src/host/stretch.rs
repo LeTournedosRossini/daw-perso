@@ -41,7 +41,56 @@ pub(super) struct StretchRecord {
     source_len: u64,
     /// Marqueurs `(secondes de source depuis source_start, secondes de sortie depuis le début de rendered)` ; premier `(0, 0)`, dernier = fin des deux.
     keys: Vec<(f64, f64)>,
+    /// Marqueurs posés par l'utilisateur `(secondes de source, secondes de sortie, lissé ?)`, sans les extrémités. `keys` en est la version
+    /// développée : une courbe lissée y est échantillonnée en tronçons droits de 40 ms au plus.
+    marks: Vec<(f64, f64, bool)>,
     engine: String,
+}
+
+/// Pas d'échantillonnage (secondes de source) d'un tronçon lissé.
+const SMOOTH_STEP: f64 = 0.04;
+
+/// Développe des clés `[(0, 0), …, (fin, fin)]` (source, sortie en secondes) en tenant compte des marqueurs **lissés** (`smooth[i]` pour la clé
+/// intérieure `i + 1`) : la vitesse d'étirement y est continue (interpolation d'Hermite monotone, pentes en moyenne harmonique des deux tronçons
+/// voisins), au lieu de changer d'un coup. Un marqueur non lissé garde sa cassure. Sans marqueur lissé, les clés sont rendues telles quelles.
+/// Refuse si la courbe sort des rapports permis [0,25 ; 4] quelque part.
+pub(crate) fn expand_keys(keys: &[(f64, f64)], smooth: &[bool]) -> Result<Vec<(f64, f64)>, String> {
+    if !smooth.iter().any(|&s| s) || keys.len() < 3 {
+        return Ok(keys.to_vec());
+    }
+    let n = keys.len();
+    let sec: Vec<f64> = keys.windows(2).map(|w| (w[1].1 - w[0].1) / (w[1].0 - w[0].0)).collect();
+    let is_smooth = |k: usize| k >= 1 && k + 1 < n && smooth.get(k - 1).copied().unwrap_or(false);
+    let slope = |k: usize, seg: usize| if is_smooth(k) { 2.0 * sec[k - 1] * sec[k] / (sec[k - 1] + sec[k]) } else { sec[seg] };
+    let mut out = vec![keys[0]];
+    for i in 0..n - 1 {
+        let (a, b) = (keys[i], keys[i + 1]);
+        let (m0, m1) = (slope(i, i), slope(i + 1, i));
+        if !is_smooth(i) && !is_smooth(i + 1) {
+            out.push(b);
+            continue;
+        }
+        let h = b.0 - a.0;
+        let count = ((h / SMOOTH_STEP).floor() as usize).max(1);
+        let mut prev = a;
+        for j in 1..=count {
+            let p = if j == count {
+                b
+            } else {
+                let t = j as f64 / count as f64;
+                let (t2, t3) = (t * t, t * t * t);
+                let (h00, h10, h01, h11) = (2.0 * t3 - 3.0 * t2 + 1.0, t3 - 2.0 * t2 + t, -2.0 * t3 + 3.0 * t2, t3 - t2);
+                (a.0 + t * h, h00 * a.1 + h * h10 * m0 + h01 * b.1 + h * h11 * m1)
+            };
+            let ratio = (p.1 - prev.1) / (p.0 - prev.0);
+            if !(WARP_RATIO_MIN..=WARP_RATIO_MAX).contains(&ratio) {
+                return Err(format!("le lissage sortirait des limites d'étirement ({:.0} %) entre les marqueurs {} et {} : rapproche les rapports ou retire le lissage", ratio * 100.0, i, i + 1));
+            }
+            out.push(p);
+            prev = p;
+        }
+    }
+    Ok(out)
 }
 
 /// Instant de la source (secondes) qui tombe à l'instant de sortie `out` (secondes) : interpolation linéaire entre marqueurs.
@@ -64,28 +113,32 @@ pub(crate) struct Geometry {
     pub(crate) source_start: u64,
     pub(crate) source_len: u64,
     pub(crate) markers: Vec<[u64; 2]>,
+    /// Pour chaque marqueur : lissé ou non.
+    pub(crate) smooth: Vec<bool>,
 }
 
 /// Géométrie d'un clip d'après sa fiche (ou, sans fiche, celle d'un clip ordinaire : la source est son fichier, sans marqueur).
-pub(crate) fn geometry(rec: Option<(&[(f64, f64)], u64)>, clip: &Clip, rate: f64) -> Geometry {
-    let Some((keys, rec_source_start)) = rec else {
-        return Geometry { source_start: clip.offset, source_len: clip.len, markers: Vec::new() };
+pub(crate) fn geometry(rec: Option<(&[(f64, f64)], &[(f64, f64, bool)], u64)>, clip: &Clip, rate: f64) -> Geometry {
+    let Some((keys, marks, rec_source_start)) = rec else {
+        return Geometry { source_start: clip.offset, source_len: clip.len, markers: Vec::new(), smooth: Vec::new() };
     };
     let (o, l) = (clip.offset as f64, clip.len as f64);
     let s0 = src_at(keys, o / rate) * rate;
     let s1 = src_at(keys, (o + l) / rate) * rate;
     let (s0r, s1r) = (s0.round(), s1.round());
     let mut markers = Vec::new();
-    for k in keys {
+    let mut smooth = Vec::new();
+    for k in marks {
         let out = (k.1 * rate).round() - o;
         if out >= 1.0 && out <= l - 1.0 {
             let src = (k.0 * rate).round() - s0r;
             if src >= 1.0 && src <= (s1r - s0r) - 1.0 {
                 markers.push([out as u64, src as u64]);
+                smooth.push(k.2);
             }
         }
     }
-    Geometry { source_start: rec_source_start + s0r.max(0.0) as u64, source_len: (s1r - s0r).max(1.0) as u64, markers }
+    Geometry { source_start: rec_source_start + s0r.max(0.0) as u64, source_len: (s1r - s0r).max(1.0) as u64, markers, smooth }
 }
 
 /// Marqueurs → clés complètes en secondes `[(0, 0), …, (fin de la source, fin du clip)]`, ou le refus en clair. Mêmes règles que la bibliothèque
@@ -162,6 +215,7 @@ struct Pending {
     source_start: u64,
     source_len: u64,
     keys: Vec<(f64, f64)>,
+    marks: Vec<(f64, f64, bool)>,
     engine: String,
 }
 
@@ -229,8 +283,8 @@ impl Host {
     /// Ce que la page montre d'un clip étiré (`None` : clip ordinaire).
     pub(super) fn stretch_info(&self, clip: &Clip) -> Option<StretchInfo> {
         let rec = self.stretch_record_of(clip)?;
-        let g = geometry(Some((&rec.keys, rec.source_start)), clip, f64::from(self.session.sample_rate()));
-        Some(StretchInfo { engine: rec.engine.clone(), src_len: g.source_len, markers: g.markers })
+        let g = geometry(Some((&rec.keys, &rec.marks, rec.source_start)), clip, f64::from(self.session.sample_rate()));
+        Some(StretchInfo { engine: rec.engine.clone(), src_len: g.source_len, markers: g.markers, smooth: g.smooth })
     }
 
     /// Chemin `audio/<nom>-etire.wav` (ou `-etire-2`…) : ni un fichier du dossier du projet ni un chemin déjà pris.
@@ -247,7 +301,7 @@ impl Host {
 
     /// `set_stretch` : remplace les marqueurs d'un clip (les marqueurs de début et de fin sont implicites). Sans marqueur et sans étirement
     /// d'ensemble, le clip redevient un clip ordinaire sur sa source (aucun rendu).
-    pub(super) fn start_stretch(&mut self, clip: u64, markers: Vec<[u64; 2]>, engine: Option<String>) -> Vec<Event> {
+    pub(super) fn start_stretch(&mut self, clip: u64, markers: Vec<[u64; 2]>, smooth: Vec<bool>, engine: Option<String>) -> Vec<Event> {
         const CMD: &str = "set_stretch";
         if let Some(refused) = self.refuse_while_recording(CMD) {
             return refused;
@@ -262,7 +316,7 @@ impl Host {
         let Some(before) = self.session.clip(id).cloned() else { return Self::stretch_error(CMD, format!("clip audio inconnu : {clip}")) };
         let rate = f64::from(self.session.sample_rate());
         let rec = self.stretch_record_of(&before);
-        let g = geometry(rec.map(|r| (r.keys.as_slice(), r.source_start)), &before, rate);
+        let g = geometry(rec.map(|r| (r.keys.as_slice(), r.marks.as_slice(), r.source_start)), &before, rate);
         let (source, fallback_engine) = match rec {
             Some(r) => (Arc::clone(&r.source), r.engine.clone()),
             None => (Arc::clone(&before.data), DEFAULT_ENGINE.to_owned()),
@@ -271,7 +325,16 @@ impl Host {
             Ok(e) => e,
             Err(m) => return Self::stretch_error(CMD, m),
         };
-        let keys = match build_keys(&markers, before.len, g.source_len, rate) {
+        if !smooth.is_empty() && smooth.len() != markers.len() {
+            return Self::stretch_error(CMD, "smooth : un indicateur par marqueur");
+        }
+        let smooth: Vec<bool> = if smooth.is_empty() { vec![false; markers.len()] } else { smooth };
+        let user_keys = match build_keys(&markers, before.len, g.source_len, rate) {
+            Ok(k) => k,
+            Err(m) => return Self::stretch_error(CMD, m),
+        };
+        let marks: Vec<(f64, f64, bool)> = user_keys[1..user_keys.len() - 1].iter().zip(&smooth).map(|(k, &s)| (k.0, k.1, s)).collect();
+        let keys = match expand_keys(&user_keys, &smooth) {
             Ok(k) => k,
             Err(m) => return Self::stretch_error(CMD, m),
         };
@@ -297,7 +360,7 @@ impl Host {
         if thread.is_none() {
             return Self::stretch_error(CMD, "le fil d'étirement n'a pas pu démarrer");
         }
-        self.stretch = Some(StretchJob { rx, cancel, thread, clip: id, name: name.clone(), before, pending: Pending { source, source_start: g.source_start, source_len: g.source_len, keys, engine }, fraction: 0.0 });
+        self.stretch = Some(StretchJob { rx, cancel, thread, clip: id, name: name.clone(), before, pending: Pending { source, source_start: g.source_start, source_len: g.source_len, keys, marks, engine }, fraction: 0.0 });
         vec![Self::stretch_event(true, 0.0, clip, &name, false, None, false)]
     }
 
@@ -373,7 +436,7 @@ impl Host {
         }
         self.peaks.insert(Arc::as_ptr(&out.rendered) as usize, Arc::clone(&out.peaks));
         let p = job.pending;
-        self.stretches.push(StretchRecord { rendered: out.rendered, source: p.source, source_start: p.source_start, source_len: p.source_len, keys: p.keys, engine: p.engine });
+        self.stretches.push(StretchRecord { rendered: out.rendered, source: p.source, source_start: p.source_start, source_len: p.source_len, keys: p.keys, marks: p.marks, engine: p.engine });
         let mut events = self.finish_edit("set_stretch", Ok(()));
         events.push(Self::stretch_event(false, 1.0, clip, &name, false, None, out.fell_back));
         events
@@ -392,6 +455,7 @@ impl Host {
                     source_start: r.source_start,
                     source_len: r.source_len,
                     keys: r.keys.iter().map(|k| [k.0, k.1]).collect(),
+                    marks: r.marks.iter().map(|m| [m.0, m.1, if m.2 { 1.0 } else { 0.0 }]).collect(),
                     engine: r.engine.clone(),
                 })
             })
@@ -412,7 +476,9 @@ impl Host {
                 warnings.push(format!("étirement de « {} » : fiche illisible, ignorée", a.asset));
                 continue;
             }
-            self.stretches.push(StretchRecord { rendered, source, source_start: a.source_start, source_len: a.source_len, keys, engine: a.engine.clone() });
+            // Fiche d'avant le lissage : les marqueurs sont les clés intérieures, aucun n'est lissé.
+            let marks: Vec<(f64, f64, bool)> = if a.marks.is_empty() { keys[1..keys.len() - 1].iter().map(|k| (k.0, k.1, false)).collect() } else { a.marks.iter().map(|m| (m[0], m[1], m[2] > 0.5)).collect() };
+            self.stretches.push(StretchRecord { rendered, source, source_start: a.source_start, source_len: a.source_len, keys, marks, engine: a.engine.clone() });
         }
         warnings
     }
@@ -420,9 +486,43 @@ impl Host {
     /// Dispatch des commandes du protocole.
     pub(super) fn stretch_command(&mut self, cmd: Command) -> Vec<Event> {
         match cmd {
-            Command::SetStretch { clip, markers, engine } => self.start_stretch(clip, markers, engine),
+            Command::SetStretch { clip, markers, smooth, engine } => self.start_stretch(clip, markers, smooth, engine),
             Command::CancelStretch => self.cancel_stretch(),
             _ => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys() -> Vec<(f64, f64)> {
+        // Source de 4 s : 0-2 s comprimé à 50 %, 2-4 s étiré à 150 % ; clip de 4 s.
+        vec![(0.0, 0.0), (2.0, 1.0), (4.0, 4.0)]
+    }
+
+    #[test]
+    fn without_smoothing_keys_are_unchanged() {
+        assert_eq!(expand_keys(&keys(), &[false]).unwrap(), keys());
+    }
+
+    #[test]
+    fn smoothing_keeps_ends_and_marker_and_changes_speed_gradually() {
+        let k = keys();
+        let d = expand_keys(&k, &[true]).unwrap();
+        assert_eq!(d.first(), Some(&k[0]));
+        assert_eq!(d.last(), Some(&k[2]));
+        assert!(d.contains(&k[1]), "le marqueur lui-même reste une clé");
+        assert!(d.len() > 50, "courbe échantillonnée : {} clés", d.len());
+        let ratios: Vec<f64> = d.windows(2).map(|w| (w[1].1 - w[0].1) / (w[1].0 - w[0].0)).collect();
+        assert!(ratios.iter().all(|r| (WARP_RATIO_MIN..=WARP_RATIO_MAX).contains(r)));
+        // La plus grande variation entre deux rapports voisins est bien plus petite que le saut de 0,5 à 1,5 d'un coup.
+        let jump = ratios.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f64::max);
+        assert!(jump < 0.2, "variation maximale {jump}");
+        // Le rapport passe progressivement de ~0,5 à ~1,5 et reste monotone entre les deux.
+        assert!((ratios.first().unwrap() - 0.5).abs() < 0.1 && (ratios.last().unwrap() - 1.5).abs() < 0.1, "{:?} {:?}", ratios.first(), ratios.last());
+        // Temps strictement croissants.
+        assert!(d.windows(2).all(|w| w[1].0 > w[0].0 && w[1].1 > w[0].1));
     }
 }
