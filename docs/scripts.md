@@ -1,4 +1,4 @@
-# Scripts (lots 1 et 2, 11 novembre 2026)
+# Scripts (lots 1 à 3, 11 novembre 2026)
 
 Un script est un fichier JavaScript ; il tourne dans un **Web Worker** (aucun accès à l'interface) et ne pilote le DAW que par les **commandes du protocole** (`docs/protocole-ui.md`). **Tout ce qu'un script fait forme une seule action annulable** (« Script : nom »). Une erreur, un arrêt ou un dépassement de délai défont tout.
 
@@ -43,6 +43,30 @@ Toutes sont construites sur `daw.state()` / `daw.send()` (rien d'autre) et se d�
 
 Une aide qui n'a rien à changer n'envoie aucune commande. Après une modification, les indices des notes peuvent changer (elles sont retriées) : relis avec `notes.get` avant la modification suivante. Exemples fournis : « Transposer +1 octave » (`Ctrl+Alt+T`) et « Humaniser la sélection ».
 
+### Réagir à des événements (lot 3)
+
+`daw.on(événement, fonction)` abonne le script ; **s'il s'abonne, il reste actif** après son premier passage (le bouton « Script « … » écoute » de la barre l'arrête ; le menu refuse de lancer un autre script tant qu'il écoute). `daw.on` rend une fonction de désabonnement.
+
+| événement | quand | donnée |
+|---|---|---|
+| `play` | la lecture démarre | `{ position }` (échantillons) |
+| `stop` | la lecture s'arrête | `{ position }` |
+| `selection` | la sélection de clips change (relevée toutes les 150 ms) | `{ clips }` |
+| `project` | le projet change (toute modification, annulation comprise) | `{}` |
+| `recording-end` | une prise vient de se terminer | `{}` |
+
+```js
+// @name Marque chaque arrêt
+daw.on("stop", async (e) => {
+  daw.log("arrêt à " + e.position);
+});
+```
+
+- **Une réaction = un pas d'annulation** (« Script : nom (événement) »). Une réaction qui échoue est défaite et le script continue ; **3 erreurs de suite l'arrêtent**.
+- **Pas de boucle** : pendant une réaction, **tous les événements sont ignorés**, y compris ceux que le script provoque lui-même (un script « project » qui modifie le projet ne se relance pas). Conséquence : un événement extérieur qui tombe pendant une réaction est perdu.
+- **Bornes** : 10 s par réaction (au-delà : le script est arrêté et la réaction défaite), 500 commandes par réaction, **30 réactions en 10 s** au plus (au-delà : arrêt).
+- La position n'est pas offerte (elle change 30 fois par seconde). Un script qui écoute n'est **pas relancé** au démarrage de l'application.
+
 **Raccourcis** : `Ctrl+Alt+<lettre ou 1-9>` ou `Alt+Maj+<lettre ou 1-9>` seulement (les raccourcis du DAW restent intacts).
 
 ## Où sont les scripts
@@ -54,7 +78,7 @@ Une aide qui n'a rien à changer n'envoie aucune commande. Après une modificati
 ## Limites et sécurité
 
 - **Interdits aux scripts** : `begin_group` / `end_group` / `abort_group` / `undo` / `redo` (gérés par l'exécuteur), le cycle de vie du projet (`new_project`, `open_project`, `save_project`, `convert_project`), tout ce qui ouvre le réseau (`start_monitor`, `set_monitor_role`, `renew_monitor_address`…) et `set_prefs`.
-- **Bornes** : 30 s par script, 5 000 commandes, 10 s par commande, 500 lignes de journal. Le bouton « Script « … » » de la barre (ou **Arrêter** dans la console) l'interrompt et défait ce qu'il a fait.
+- **Bornes** : 30 s pour le premier passage d'un script, 5 000 commandes, 10 s par commande, 500 lignes de journal. Le bouton « Script « … » » de la barre (ou **Arrêter** dans la console) l'interrompt et défait ce qu'il a fait.
 - **Réseau** : `fetch`, `XMLHttpRequest`, `WebSocket`, les Workers imbriqués… sont retirés du Worker. C'est **au mieux** : ce n'est pas un bac à sable prouvé, et la page n'a pas de politique CSP. **N'exécute que des scripts que tu as lus.**
 - **Fichiers (lot 4, pas fait)** : un script qui déclare `// @permissions files` est refusé pour l'instant.
 - Pendant qu'un script tourne, une action faite à la main dans l'interface s'ajoute au même pas d'annulation. Les raccourcis d'annulation sont refusés pendant le script.

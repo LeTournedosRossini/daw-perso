@@ -78,14 +78,26 @@ export class ScriptsUI {
       return null;
     }
     if (this.#runner.running) {
-      this.#notify("Un script est déjà en cours");
+      this.#notify(this.#runner.listening ? `« ${this.#runner.listening} » écoute des événements : arrête-le d'abord (bouton de la barre)` : "Un script est déjà en cours");
       return null;
     }
     if (this.#status) {
       this.#status.hidden = false;
       this.#status.textContent = `Script « ${name} »… (cliquer pour l'arrêter)`;
     }
-    const r = await this.#runner.run(source, { name, onLog: (line) => this.#out(line) });
+    const onEnd = (reason) => {
+      if (this.#status) this.#status.hidden = true;
+      this.#out(`■ « ${name} » n'écoute plus : ${reason}`);
+      this.#notify(`Script « ${name} » arrêté : ${reason}`);
+    };
+    const r = await this.#runner.run(source, { name, onLog: (line) => this.#out(line), onEnd });
+    if (r.ok && r.listening?.length) {
+      // Le script reste actif : le bouton de la barre l'arrête.
+      if (this.#status) this.#status.textContent = `Script « ${name} » écoute : ${r.listening.join(", ")} (cliquer pour l'arrêter)`;
+      this.#out(`✓ prêt, écoute : ${r.listening.join(", ")} (une réaction = un pas d'annulation)`);
+      this.#notify(`Script « ${name} » à l'écoute`);
+      return r;
+    }
     if (this.#status) this.#status.hidden = true;
     if (r.ok) {
       this.#out(`✓ terminé (${r.commands} commande${r.commands > 1 ? "s" : ""})${r.result != null ? ` → ${JSON.stringify(r.result)}` : ""}`);
