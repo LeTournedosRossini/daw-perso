@@ -469,11 +469,12 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
         let opts = PlayOptions { seconds: 24 * 3600, driver: driver.clone(), buffer: Some(buffer), sample_rate: None, output_channel: 1, input_channel: u32::from(with_inputs), input_count: if with_inputs { u32::MAX } else { 0 }, output_count: u32::MAX };
         log(&format!("ouverture du pilote ASIO « {driver} », tampon {buffer}, {}", if with_inputs { "toutes les entrées" } else { "sans entrée" }));
         let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
+        let driver2 = driver.clone();
         asio_backend::run_playback_ex(&opts, move |info| {
             log(&format!("pilote ouvert : {} Hz, tampon {}, {} entrée(s) audio, {} sortie(s) audio", info.sample_rate, info.buffer_size, info.inputs, info.outputs));
             let (engine, mut host) = build_host(info.sample_rate, buffer as usize, info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
-            host.set_audio_status(driver.clone(), info.sample_rate, info.buffer_size as u32);
+            host.set_audio_status(driver2, info.sample_rate, info.buffer_size as u32);
             let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
