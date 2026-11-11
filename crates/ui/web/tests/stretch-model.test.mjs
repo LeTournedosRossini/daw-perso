@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { plain, keysOf, srcAt, ratios, ratioAt, validate, addMarker, removeMarker, dragBounds, moveMarker, previewSegments, rewindow, ratioText } from "../js/stretch-model.js";
+import { plain, keysOf, srcAt, outAt, ratios, ratioAt, validate, addMarker, removeMarker, dragBounds, moveMarker, previewSegments, rewindow, ratioText } from "../js/stretch-model.js";
 
 const RATE = 48_000;
 const LEN = 144_000; // 3 s
@@ -77,6 +77,28 @@ test("aperçu : chaque tronçon de la nouvelle carte montre le tronçon de sourc
   const s = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 72_000]] };
   const next = moveMarker(s, LEN, 0, 90_000);
   assert.deepEqual(previewSegments(s, LEN, next), [{ from: [0, 72_000], to: [0, 90_000] }, { from: [72_000, LEN], to: [90_000, LEN] }]);
+});
+
+test("aperçu : un marqueur qu'on vient de poser montre tout le clip tel quel, de chaque côté (défaut : moitié gauche écrasée, droite vide)", () => {
+  const p = plain(LEN);
+  const segs = previewSegments(p, LEN, [[72_000, 72_000]]);
+  assert.equal(segs.length, 2);
+  for (const s of segs) assert.deepEqual(s.from, s.to, "à l'identique, chaque tronçon se montre à sa place");
+  assert.deepEqual(segs.map((s) => s.to), [[0, 72_000], [72_000, LEN]]);
+  // Un marqueur ajouté sur un clip déjà étiré : les tronçons de source sont relus là où la carte actuelle les met.
+  const s1 = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 48_000]] };
+  const two = previewSegments(s1, LEN, [[72_000, 48_000], [108_000, 48_000 + 48_000]]);
+  assert.equal(two.length, 3);
+  assert.deepEqual(two[0], { from: [0, 72_000], to: [0, 72_000] });
+  assert.ok(Math.abs(two[1].from[1] - outAt(s1, LEN, 96_000)) < 1e-6);
+  // Un marqueur retiré : un seul tronçon qui montre tout le clip.
+  const none = previewSegments(s1, LEN, []);
+  assert.deepEqual(none, [{ from: [0, LEN], to: [0, LEN] }]);
+});
+
+test("outAt est l'inverse de srcAt", () => {
+  const s = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 48_000], [100_000, 90_000]] };
+  for (const out of [1, 30_000, 72_000, 85_000, 100_000, 140_000]) assert.ok(Math.abs(outAt(s, LEN, srcAt(s, LEN, out)) - out) < 1e-6, `${out}`);
 });
 
 test("découpe : chaque moitié garde ses marqueurs et la partie de la source qu'elle couvre", () => {

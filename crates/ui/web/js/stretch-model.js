@@ -117,15 +117,32 @@ export function moveMarker(info, len, index, out) {
   return info.markers.map((m, i) => (i === index ? [at, m[1]] : m));
 }
 
+/** Position de sortie (carte actuelle) où tombe la position `src` de la source : l'inverse de `srcAt`. */
+export function outAt(info, len, src) {
+  const k = keysOf(info, len);
+  if (src <= 0) return 0;
+  if (src >= info.src_len) return len;
+  let i = 1;
+  while (i < k.length - 1 && k[i][0] <= src) i++;
+  const [s0, o0] = k[i - 1];
+  const [s1, o1] = k[i];
+  return o0 + ((src - s0) / (s1 - s0)) * (o1 - o0);
+}
+
 /**
- * Pour l'aperçu pendant un glissement : chaque tronçon de la nouvelle carte montre ce que le même tronçon de source montre dans l'ancienne.
+ * Pour l'aperçu (pose, glissement, retrait d'un marqueur) : chaque tronçon de la **nouvelle** carte montre le tronçon de source qu'il couvre,
+ * lu là où la carte **actuelle** le met. On raisonne par position dans la source et non par rang de marqueur : un marqueur ajouté ou retiré
+ * change le nombre de tronçons (défaut d'origine : un marqueur posé écrasait tout le clip dans sa moitié gauche).
  * Rend `[{ from: [a, b], to: [a', b'] }]` (positions de sortie, avant et après).
  */
 export function previewSegments(info, len, markers) {
-  const oldK = keysOf(info, len);
   const next = keysOf({ ...info, markers }, len);
   const out = [];
-  for (let i = 1; i < next.length && i < oldK.length; i++) out.push({ from: [oldK[i - 1][1], oldK[i][1]], to: [next[i - 1][1], next[i][1]] });
+  for (let i = 1; i < next.length; i++) {
+    const [sa, oa] = next[i - 1];
+    const [sb, ob] = next[i];
+    out.push({ from: [outAt(info, len, sa), outAt(info, len, sb)], to: [oa, ob] });
+  }
   return out;
 }
 

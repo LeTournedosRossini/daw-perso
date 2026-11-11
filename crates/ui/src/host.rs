@@ -2765,6 +2765,7 @@ impl Host {
                         take_group: c.take_group,
                         aligned: self.aligns.iter().any(|r| Arc::ptr_eq(&r.rendered, &c.data)),
                         stretch: self.stretch_info(c),
+                        data_id: Arc::as_ptr(&c.data) as usize as u64,
                     });
                 }
                 for (k, mid) in self.session.midi_clip_ids(id).iter().enumerate() {

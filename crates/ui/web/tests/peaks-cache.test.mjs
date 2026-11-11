@@ -55,3 +55,19 @@ test("un rognage de la fin ou du début (décalage) invalide aussi les tuiles", 
   cache.tilesFor({ ...clip, offset: 500 }, SPP, 0, 100_000); // inchangé : rien de nouveau
   assert.equal(requests.length, k);
 });
+
+test("un clip qui change de fichier sans changer d'identifiant ni de géométrie (étirement rendu, retrait, annulation) est redemandé", () => {
+  const { cache, requests } = setup();
+  const clip = { id: 7, start: 0, offset: 0, len: 50_000, data_id: 111 };
+  cache.tilesFor(clip, SPP, 0, 60_000);
+  const n = requests.length;
+  cache.tilesFor(clip, SPP, 0, 60_000);
+  assert.equal(requests.length, n, "même fichier : rien de redemandé");
+  const rendered = { ...clip, data_id: 222 };
+  cache.tilesFor(rendered, SPP, 0, 60_000);
+  assert.ok(requests.length > n, "autre fichier : les tuiles sont redemandées");
+  const back = { ...clip };
+  const m = requests.length;
+  cache.tilesFor(back, SPP, 0, 60_000);
+  assert.equal(requests.length, m, "retour au premier fichier (annulation) : ses tuiles sont encore là");
+});

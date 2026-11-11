@@ -1952,6 +1952,7 @@ export class MockEngine extends EngineClient {
       if (!c.stretch) return fail("ce clip n'a pas de marqueur : rien à étirer");
       return this.#edit("Retirer l'étirement", msg, () => {
         delete c.stretch;
+        c.data_id = (c.data_id ?? 0) + 1;
       });
     }
     this.stretchJob = { msg, clip: c, engine, src_len: info.src_len, elapsed: 0, cancelled: false };
@@ -1972,6 +1973,7 @@ export class MockEngine extends EngineClient {
     this.stretchJob = null;
     this.#edit("Étirer l'audio", j.msg, () => {
       j.clip.stretch = { engine: j.engine, src_len: j.src_len, markers: structuredClone(j.msg.markers) };
+      j.clip.data_id = (j.clip.data_id ?? 0) + 1; // le fichier du clip a changé (comme le vrai hôte)
     });
     this.emit("stretch", { active: false, progress: 1, clip: j.clip.id, name: j.clip.name, cancelled: false, error: null, fell_back: false });
   }

@@ -53,11 +53,12 @@ struct Clip {
     start: u64,
     len: u64,
     source_len: u64,
+    data_id: u64,
     stretch: Option<StretchInfo>,
 }
 
 fn clips(n: &NodeInfo) -> Vec<Clip> {
-    n.clips.iter().filter_map(|c| if let ClipInfo::Audio { id, start, len, source_len, stretch, .. } = c { Some(Clip { id: *id, start: *start, len: *len, source_len: *source_len, stretch: stretch.clone() }) } else { None }).collect()
+    n.clips.iter().filter_map(|c| if let ClipInfo::Audio { id, start, len, source_len, stretch, data_id, .. } = c { Some(Clip { id: *id, start: *start, len: *len, source_len: *source_len, data_id: *data_id, stretch: stretch.clone() }) } else { None }).collect()
 }
 
 fn undo_label(ev: &[Event]) -> Option<String> {
@@ -163,10 +164,15 @@ fn markers_stretch_the_audio_without_changing_the_pitch_in_one_undoable_step() {
             assert!((got - want).abs() < want * 0.01, "voie {ch} entre {a} et {b} s : {got:.1} Hz au lieu de {want}");
         }
     }
+    // Le clip joue un autre fichier sans changer d'identifiant ni de géométrie : la page doit le voir (cache des formes d'onde).
+    assert_ne!(c.data_id, before.data_id, "l'identité des données change avec le rendu");
     // Annuler rend le clip ordinaire sur sa source ; rétablir redonne l'étirement (la fiche est retrouvée par les données).
     h.command_json(r#"{"type":"undo"}"#);
-    assert!(clips(node(&get(&mut h), "boucle"))[0].stretch.is_none());
+    let undone = clips(node(&get(&mut h), "boucle")).remove(0);
+    assert!(undone.stretch.is_none());
+    assert_eq!(undone.data_id, before.data_id, "annulé : les données d'origine");
     h.command_json(r#"{"type":"redo"}"#);
+    assert_eq!(clips(node(&get(&mut h), "boucle"))[0].data_id, c.data_id, "rétabli : les données rendues");
     assert_eq!(clips(node(&get(&mut h), "boucle"))[0].stretch.as_ref().unwrap().markers, vec![[72_000, 48_000]]);
 }
 

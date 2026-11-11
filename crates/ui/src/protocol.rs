@@ -1117,7 +1117,10 @@ pub enum ClipInfo {
         /// Prise calée sur un guide (ses réglages de calage sont enregistrés : `get_align`, `align_redo`).
         aligned: bool,
         /// Clip étiré par des marqueurs (voir `set_stretch`) ; `null` : clip ordinaire (la page peut en poser).
-        stretch: Option<StretchInfo> },
+        stretch: Option<StretchInfo>,
+        /// Identité des données audio du clip : change quand le clip joue un autre fichier **sans changer d'identifiant ni de géométrie**
+        /// (un étirement rendu, son retrait, une annulation). La page l'inclut dans la clé de son cache de formes d'onde.
+        data_id: u64 },
     /// `offset`, `fade_in`, `fade_out` : en échantillons (le décalage de la fenêtre visible dans la matière, les fondus de
     /// vélocité) ; `source_len` : pratiquement illimité (un clip de notes peut être étendu à droite à volonté).
     Midi { id: u64, name: String, start: u64, len: u64, offset: u64, source_len: u64, fade_in: u64, fade_out: u64, notes: Vec<NoteInfo>, muted: bool, take_group: u32 },

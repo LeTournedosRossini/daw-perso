@@ -17,10 +17,12 @@ export class PeaksCache {
   /**
    * Une tuile dépend de l'étendue demandée (`from`, `to`) et de la place du fichier sur la ligne de temps (`shift` =
    * début − décalage) : sans cela, après un déplacement ou un rognage la tuile partielle de l'ancienne position restait
-   * en cache et la partie nouvellement couverte du clip n'était jamais redemandée (trou dans la forme d'onde).
+   * en cache et la partie nouvellement couverte du clip n'était jamais redemandée (trou dans la forme d'onde). `data` (identité des données
+   * du clip, `data_id`) : un clip dont le **fichier** change sans que son identifiant ni sa géométrie changent (étirement rendu, retrait,
+   * annulation) ne doit pas garder l'ancienne image.
    */
-  #key(clip, spp, tile, from, to, shift) {
-    return `${clip}|${spp}|${tile}|${from}|${to}|${shift}`;
+  #key(clip, spp, tile, from, to, shift, data) {
+    return `${clip}|${spp}|${tile}|${from}|${to}|${shift}|${data}`;
   }
 
   /** Appelle `fn` à chaque tuile reçue ; rend la fonction qui l'arrête. */
@@ -38,7 +40,7 @@ export class PeaksCache {
       const from = Math.max(clip.start, Math.round(k * spp * TILE_COLUMNS));
       const to = Math.min(clip.start + clip.len, Math.round((k + 1) * spp * TILE_COLUMNS));
       if (to <= from) continue;
-      const key = this.#key(clip.id, spp, k, from, to, clip.start - (clip.offset ?? 0));
+      const key = this.#key(clip.id, spp, k, from, to, clip.start - (clip.offset ?? 0), clip.data_id ?? 0);
       const t = this.tiles.get(key);
       if (t && t !== "pending") {
         out.push(t);
