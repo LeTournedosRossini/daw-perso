@@ -1307,6 +1307,7 @@ impl CompiledGraph {
             let g = n.effective_gain();
             n.gain.set_target(g, ramp);
         }
+        self.refresh_sends(ramp);
     }
 
     /// Inverse (ou rétablit) la polarité d'un nœud : le gain passe de + à − (rampe courte, sans clic).
@@ -1332,6 +1333,7 @@ impl CompiledGraph {
                 n.gain.set_target(g, ramp);
             }
         }
+        self.refresh_sends(ramp);
     }
 
     pub fn set_send_mute(&mut self, node: usize, send: usize, mute: bool) {
@@ -1354,17 +1356,21 @@ impl CompiledGraph {
     /// Sans allocation (balayage des nœuds : rare, seulement sur commande).
     fn refresh_sends(&mut self, ramp: u32) {
         for i in 0..self.nodes.len() {
+            // Une sortie auxiliaire d'un plugin suit le muet et le solo de sa piste (elle sort du plugin, pas du fader) ; un envoi
+            // « avant fader » ordinaire, lui, les ignore volontairement (retour casque).
+            let source_silent = self.nodes[i].mute || self.nodes[i].solo_excluded;
             for s in 0..self.nodes[i].sends.len() {
-                let (to, mute, solo) = {
+                let (to, mute, solo, is_aux) = {
                     let x = &self.nodes[i].sends[s];
-                    (x.to, x.mute, x.solo)
+                    (x.to, x.mute, x.solo, x.aux.is_some())
                 };
+                let source_ok = !(is_aux && source_silent);
                 if !self.nodes.get(to).is_some_and(|d| d.is_return) {
-                    self.nodes[i].sends[s].aud.set_target(1.0, ramp);
+                    self.nodes[i].sends[s].aud.set_target(if source_ok { 1.0 } else { 0.0 }, ramp);
                     continue;
                 }
                 let others = self.nodes.iter().any(|n| n.sends.iter().any(|y| y.to == to && y.solo));
-                let audible = !mute && (solo || !others);
+                let audible = source_ok && !mute && (solo || !others);
                 self.nodes[i].sends[s].aud.set_target(if audible { 1.0 } else { 0.0 }, ramp);
             }
         }
