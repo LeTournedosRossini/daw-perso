@@ -408,6 +408,13 @@ fn engine_thread(app: AppHandle, rx: SharedRx) {
 
 fn main() {
     log("démarrage de l'application");
+    // Un panic dans un fil (callback audio compris, où il est contenu et rend du silence) doit laisser une trace.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        log(&format!("PANIC (fil « {} ») : {info}", thread.name().unwrap_or("sans nom")));
+        previous(info);
+    }));
     let (tx, rx) = mpsc::channel::<String>();
     let rx: SharedRx = Arc::new(Mutex::new(rx));
     tauri::Builder::default()

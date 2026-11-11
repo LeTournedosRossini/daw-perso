@@ -83,3 +83,18 @@ fn an_aux_route_must_target_a_bus_and_not_create_a_loop() {
     g.node_mut(track).unwrap().inserts[0].aux = vec![Some(track)];
     assert!(g.validate().is_err(), "vers elle-même");
 }
+
+#[test]
+fn a_call_longer_than_the_promised_block_does_not_panic_with_aux_ports() {
+    // Jumelle du calcul en avance : blocs de 256 pour un plugin activé avec 64 au plus (régression : panic « range end index 128 »).
+    let bundle = Arc::new(Bundle::from_static_entry(entry()).unwrap());
+    let factory = clap_insert_factory(bundle, MULTIOUT_ID.to_str().unwrap().into());
+    let mut fx = factory(SR, 64, None).unwrap();
+    let input = vec![0.5f32; 256];
+    let (mut l, mut r) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+    for _ in 0..4 {
+        fx.process(&input, &input, &mut l, &mut r);
+    }
+    assert!(l.iter().all(|v| v.is_finite()));
+    assert!(l[128..].iter().any(|v| *v != 0.0), "la sortie principale est traitée sur tout le bloc");
+}

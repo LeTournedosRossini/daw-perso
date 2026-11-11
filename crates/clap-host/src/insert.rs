@@ -61,6 +61,11 @@ impl ClapInsert {
             );
         self.plugin.set_chords(std::ptr::null()); // l'instantané n'existe plus pour le plugin dès que `process` a rendu la main
         for (k, (al, ar)) in self.aux.iter_mut().enumerate() {
+            // Un appel plus long que `max_frames` (jumelle du calcul en avance, blocs de 256) n'a pas de tampon auxiliaire
+            // assez grand : ces sorties ne sont alors routées nulle part (une piste qui les route se calcule dans le callback).
+            if range.end > al.len() {
+                continue;
+            }
             match self.plugin.aux_output(k, len).filter(|_| ok) {
                 Some((l, r)) => {
                     al[range.clone()].copy_from_slice(l);
