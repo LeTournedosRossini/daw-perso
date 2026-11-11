@@ -3,7 +3,8 @@
 // de l'état et des événements du moteur.
 
 import { TouchPinch } from "../touch-pinch.js";
-import { gridLines, sampleToX, xToSample, zoomAt, clampView, snapSample } from "../time.js";
+import { gridLines, sampleToX, xToSample, zoomAt, clampView } from "../time.js";
+import { snapSample, snapPlayhead } from "../snap.js";
 import { hitTest, previewDrag, commandFor, fadeHandles, targetTrackAt, crossfadeAt, crossfadeOf, CURSORS } from "./clip-geometry.js";
 import { fadeGain } from "../fades.js";
 import { canvasPoint, pixelRatio } from "../ui-scale.js";
@@ -177,7 +178,7 @@ export class Timeline {
         if (e.shiftKey) sendLoop(this.drag.anchor, this.drag.anchor + 1);
       } else {
         this.drag = { kind: "seek" };
-        this.client.send({ type: "seek", pos: Math.round(sample) });
+        this.client.send({ type: "seek", pos: e.altKey ? Math.round(sample) : snapPlayhead(this.state.view, this.width, this.state.tempo, this.state.meters_, sample) });
       }
     });
     this.ruler.addEventListener("pointermove", (e) => {
@@ -190,7 +191,7 @@ export class Timeline {
       const sample = sampleAt(e);
       switch (d.kind) {
         case "seek":
-          this.client.send({ type: "seek", pos: Math.round(sample) });
+          this.client.send({ type: "seek", pos: e.altKey ? Math.round(sample) : snapPlayhead(this.state.view, this.width, this.state.tempo, this.state.meters_, sample) });
           break;
         case "loop-new": {
           if (!d.active && Math.abs(pt(e).x - d.x0) < 4) break;
@@ -221,7 +222,7 @@ export class Timeline {
       const d = this.drag;
       this.drag = null;
       // Clic sans glisser dans la bande de boucle (hors du glissement d'un bord) : la tête de lecture va là.
-      if (e?.type === "pointerup" && d && (d.kind === "loop-new" || d.kind === "loop-move") && !d.active && !d.moved) this.client.send({ type: "seek", pos: Math.round(d.sample) });
+      if (e?.type === "pointerup" && d && (d.kind === "loop-new" || d.kind === "loop-move") && !d.active && !d.moved) this.client.send({ type: "seek", pos: e.altKey ? Math.round(d.sample) : snapPlayhead(this.state.view, this.width, this.state.tempo, this.state.meters_, d.sample) });
     };
     this.ruler.addEventListener("pointerup", end);
     this.ruler.addEventListener("pointercancel", () => (this.drag = null));
@@ -559,7 +560,9 @@ export class Timeline {
     if (!this.dirty) return;
     this.dirty = false;
     if (!this.colors.bg) this.refreshColors();
+    this.stretch.frameStart();
     this.#drawTracks();
+    this.stretch.frameEnd();
     this.#drawRuler();
     this.chordLane?.paint(); // voies d'accords épinglées sous la règle
     this.onDraw?.();

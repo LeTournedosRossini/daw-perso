@@ -5,7 +5,8 @@
 //
 // Cette classe tient l'état et le dessin ; la timeline lui passe les gestes (voir `timeline.js`). Calculs purs : `../stretch-model.js`.
 
-import { sampleToX, xToSample, snapSample } from "../time.js";
+import { sampleToX, xToSample } from "../time.js";
+import { snapSample } from "../snap.js";
 import { ENGINES, ENGINE_LABELS, addMarker, dragBounds, moveMarker, plain, previewSegments, ratioText, ratios, removeMarker } from "../stretch-model.js";
 import { clipRect } from "./clip-geometry.js";
 
@@ -57,6 +58,48 @@ export class StretchMarkers {
     this.busy = null; // { clip, progress, name }
     this.engine = ENGINES.includes(get(KEY_ENGINE)) ? get(KEY_ENGINE) : "signalsmith";
     this.#bindUi();
+  }
+
+  /** Bulle d'actions du marqueur sélectionné (utile au toucher : lisser / rendre net, supprimer), posée dans `#tracks-wrap`. */
+  #ensureBubble() {
+    if (this.bubble) return this.bubble;
+    const el = document.createElement("div");
+    el.className = "stretch-bubble";
+    el.hidden = true;
+    el.innerHTML = '<button type="button" data-act="smooth"></button><button type="button" data-act="delete" title="Supprimer le marqueur (Suppr)">Supprimer</button>';
+    el.addEventListener("pointerdown", (e) => e.stopPropagation());
+    el.addEventListener("click", (e) => {
+      const act = e.target instanceof HTMLElement ? e.target.dataset.act : null;
+      if (act === "smooth") this.toggleSmoothSelected();
+      else if (act === "delete") this.deleteSelected();
+    });
+    (this.tl.tracks.parentElement ?? document.body).append(el);
+    this.bubble = el;
+    return el;
+  }
+
+  /** Début d'un tracé de la timeline : on oublie où mettre la bulle. */
+  frameStart() {
+    this.bubbleAt = null;
+  }
+
+  /** Fin du tracé : la bulle suit le marqueur sélectionné (ou se cache). */
+  frameEnd() {
+    const at = this.bubbleAt;
+    if (!at && !this.bubble) return;
+    const el = this.#ensureBubble();
+    if (!at || this.drag) {
+      el.hidden = true;
+      return;
+    }
+    const smoothBtn = el.querySelector('[data-act="smooth"]');
+    smoothBtn.textContent = at.smooth ? "Net" : "Lisser";
+    smoothBtn.title = at.smooth ? "Rendre ce marqueur net (changement de vitesse d'un coup)" : "Lisser : la vitesse d'étirement change progressivement autour de ce marqueur (L)";
+    el.hidden = false;
+    const w = el.offsetWidth || 150;
+    const room = this.tl.width - at.x;
+    el.style.left = `${Math.max(2, room > w + 16 ? at.x + 10 : at.x - w - 10)}px`;
+    el.style.top = `${Math.max(2, at.y)}px`;
   }
 
   #bindUi() {
@@ -202,8 +245,9 @@ export class StretchMarkers {
       this.tl.onNotice?.("Trop près d'un bord ou d'un autre marqueur (10 ms au moins).");
       return false;
     }
+    const before = this.describe(clip).markers;
     this.draft = { clipId: clip.id, markers: next };
-    this.sel = { clipId: clip.id, index: next.findIndex((m) => !this.describe(clip).markers.includes(m)) };
+    this.sel = { clipId: clip.id, index: next.findIndex((m) => !before.includes(m)) }; // le marqueur qu'on vient de poser
     this.tl.dirty = true;
     return true;
   }
@@ -326,6 +370,14 @@ export class StretchMarkers {
       g.lineTo(Math.round(mx) + 0.5, y + h);
       g.stroke();
       g.setLineDash([]);
+      if (selected) {
+        // Marque de sélection : un halo clair derrière la poignée.
+        g.fillStyle = "#ffffff55";
+        g.beginPath();
+        g.arc(mx, bodyTop + 5, 11, 0, Math.PI * 2);
+        g.fill();
+        this.bubbleAt = { x: mx, y: bodyTop + 22, smooth: smoothAt(index) };
+      }
       g.fillStyle = MARKER_COLOR;
       g.beginPath();
       if (smoothAt(index)) {

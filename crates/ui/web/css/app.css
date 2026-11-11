@@ -842,3 +842,10 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 /* Marqueurs d'étirement : choix du moteur dans la barre d'édition. */
 .stretch-engine { height: 28px; max-width: 128px; padding: 0 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: inherit; font-size: 11px; }
 @media (pointer: coarse) { .stretch-engine { height: 36px; } }
+
+/* Bulle d'actions du marqueur d'étirement sélectionné */
+.stretch-bubble { position: absolute; z-index: 6; display: flex; gap: 4px; padding: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 14px #0006; }
+.stretch-bubble[hidden] { display: none; }
+.stretch-bubble button { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font-size: 12px; cursor: pointer; }
+.stretch-bubble button:hover { border-color: #ffd04d; }
+@media (pointer: coarse) { .stretch-bubble button { height: 44px; padding: 0 16px; font-size: 14px; } }

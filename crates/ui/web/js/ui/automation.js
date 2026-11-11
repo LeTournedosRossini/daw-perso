@@ -6,7 +6,8 @@
 import { canvasPoint } from "../ui-scale.js";
 import { menuEl, showMenu, closeMenu } from "./track-menu.js";
 import { isWriteMode } from "./gesture.js";
-import { sampleToX, xToSample, snapSample } from "../time.js";
+import { sampleToX, xToSample } from "../time.js";
+import { snapSample } from "../snap.js";
 import { fnum } from "../notes-model.js";
 import { rangeFor, valueToFrac, fracToValue, toPos, insertPoint, movePoint, removePoint, toggleCurve, targetKey, sameTarget, targetLabel, valueText } from "../automation-model.js";
 

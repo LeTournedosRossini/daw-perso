@@ -1,6 +1,7 @@
 // Barre de transport : boutons et affichage de la position (mesures et temps), tempo, mesure, latence.
 
 import { formatBBT, formatTime } from "../time.js";
+import { SNAP_MODES, getSnapMode, setSnapMode, onSnapChange } from "../snap.js";
 import { openTempoForm, openMeterForm } from "./time-menu.js";
 import { openMetronomeForm, preRollText, DEFAULT_METRONOME } from "./metronome-menu.js";
 
@@ -27,6 +28,11 @@ export class Transport {
     this.$("btn-redo").addEventListener("click", () => client.send({ type: "redo" }));
     this.$("btn-split").addEventListener("click", () => this.splitSelected());
     this.$("btn-delete").addEventListener("click", () => this.deleteSelected());
+    const snap = this.$("snap-grid");
+    for (const [m, label] of SNAP_MODES) snap.append(new Option(m === "auto" ? "Aimant. : auto" : m === "off" ? "Aimant. : non" : label, m));
+    snap.value = getSnapMode();
+    snap.addEventListener("change", () => setSnapMode(snap.value));
+    onSnapChange((m) => (snap.value = m));
     this.$("btn-xfade").addEventListener("click", () => client.send({ type: "set_auto_crossfade", enabled: !this.state.project.auto_crossfade }));
   }
 
