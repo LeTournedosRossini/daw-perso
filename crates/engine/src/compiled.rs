@@ -896,6 +896,12 @@ pub struct CompiledGraph {
     /// Canaux de sortie au-delà de la paire principale : un tampon par canal (le canal physique `k + 2`), rempli à chaque bloc par les bus
     /// qui ont une sortie physique ; la longueur est le nombre de canaux supplémentaires dont ce graphe a besoin.
     phys_bufs: Vec<Vec<f32>>,
+    /// Écoute de contrôle (AFL) : le bus écouté entre seul dans la sortie principale (par le fader et les effets de celle-ci) ; les
+    /// sorties physiques ne changent pas. `listen_l/r` : ce que ce bus a produit pendant le bloc (somme mono si c'est un retour mono).
+    listen: Option<usize>,
+    listen_mix: Smoother,
+    listen_l: Vec<f32>,
+    listen_r: Vec<f32>,
     /// Transport donné aux plugins (voir `NodeC::time`) ; la boucle y est mise à jour par le moteur avant chaque bloc.
     time: Arc<TimeShared>,
     /// Niveaux de crête rendus à l'interface (après chaque fader) ; `None` : non mesuré.
@@ -1093,6 +1099,9 @@ impl CompiledGraph {
                 level[t] = level[t].max(level[i] + 1);
             }
         }
+        // Écoute de contrôle : tout bus peut être écouté, donc doit être calculé avant la sortie principale, même un retour qui ne l'alimente pas.
+        let master_level = (0..n).filter(|&i| desc.nodes[i].kind == NodeKind::Bus).map(|i| level[i] + 1).max().unwrap_or(0);
+        level[0] = level[0].max(master_level);
         let mut order = order;
         order.sort_by_key(|&i| level[i]);
         let mut level_ends = Vec::new();
@@ -1102,7 +1111,7 @@ impl CompiledGraph {
             }
         }
         let extra = desc.nodes.iter().filter_map(|d| d.phys).map(|p| usize::from(p.first) + usize::from(p.channels())).max().unwrap_or(2) - 2;
-        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
+        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], listen: None, listen_mix: Smoother::new(0.0), listen_l: vec![0.0; max_block], listen_r: vec![0.0; max_block], time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
         g.refresh_sends(0);
         if let Some(p) = ahead {
             g.make_twins(p);
@@ -1139,6 +1148,12 @@ impl CompiledGraph {
     /// Reprend dans `old` les instances des effets que ce graphe attend (même identifiant). Les effets de `old` qui
     /// n'existent plus ici y restent : ils sont libérés avec lui, hors du thread audio.
     pub fn adopt_inserts_from(&mut self, old: &mut CompiledGraph) {
+        // L'écoute de contrôle d'un bus survit à un rechargement du graphe (le bus garde son numéro tant que la structure ne change pas ;
+        // l'hôte la défait sinon).
+        if let Some(i) = old.listen.filter(|&i| self.nodes.get(i).is_some_and(|d| d.kind == NodeKind::Bus)) {
+            self.listen = Some(i);
+            self.listen_mix = old.listen_mix;
+        }
         // Armement et prise d'enregistrement suivent leur piste (même indice) : modifier le routage en pleine prise ne
         // l'interrompt pas.
         let mut dropped = 0;
@@ -1336,6 +1351,39 @@ impl CompiledGraph {
         self.refresh_sends(ramp);
     }
 
+    /// Écoute de contrôle d'un bus ou d'un retour (`None` : fin de l'écoute). Seul un bus peut être écouté ; le reste est ignoré.
+    /// L'entrée et la sortie de l'écoute se font en rampe ; changer de bus d'écoute coupe net d'un bus à l'autre.
+    pub fn set_listen(&mut self, node: Option<usize>) {
+        let ramp = self.ramp;
+        match node {
+            Some(i) if self.nodes.get(i).is_some_and(|d| d.kind == NodeKind::Bus) => {
+                self.listen = Some(i);
+                self.listen_mix.set_target(1.0, ramp);
+            }
+            Some(_) => {}
+            None => self.listen_mix.set_target(0.0, ramp),
+        }
+    }
+
+    /// Le bus écouté, s'il y en a un (même pendant la rampe de sortie).
+    pub fn listening(&self) -> Option<usize> {
+        self.listen
+    }
+
+    /// Juste avant le calcul de la sortie principale : son entrée est remplacée (en rampe) par ce que le bus écouté a produit, de sorte
+    /// que le signal passe par le fader et les effets de la sortie principale comme n'importe quel mixage.
+    fn apply_listen(&mut self, master: usize, n: usize) {
+        let m = &mut self.nodes[master];
+        for j in 0..n {
+            let k = self.listen_mix.next();
+            m.l[j] += (self.listen_l[j] - m.l[j]) * k;
+            m.r[j] += (self.listen_r[j] - m.r[j]) * k;
+        }
+        if self.listen_mix.is_settled() && self.listen_mix.target() == 0.0 {
+            self.listen = None;
+        }
+    }
+
     pub fn set_send_mute(&mut self, node: usize, send: usize, mute: bool) {
         if let Some(s) = self.nodes.get_mut(node).and_then(|n| n.sends.get_mut(send)) {
             s.mute = mute;
@@ -1494,6 +1542,11 @@ impl CompiledGraph {
         for lv in 0..self.level_ends.len() {
             let end = self.level_ends[lv];
             let count = end - start;
+            if self.listen.is_some() {
+                if let Some(master) = self.order[start..end].iter().copied().find(|&i| self.nodes[i].kind == NodeKind::Master) {
+                    self.apply_listen(master, n);
+                }
+            }
             let mut parallel = false;
             if let Some(p) = pool {
                 if count >= 2 && p.threads() >= 2 {
@@ -1536,6 +1589,20 @@ impl CompiledGraph {
             for k in start..end {
                 let i = self.order[k];
                 self.midi_dropped += self.nodes[i].block_dropped;
+                if self.listen == Some(i) {
+                    // Ce que le bus écouté envoie à l'extérieur : un retour mono ou à un seul canal s'écoute en somme mono.
+                    let (l, r) = (&self.nodes[i].l, &self.nodes[i].r);
+                    if self.nodes[i].phys.is_some_and(|p| !p.stereo || p.mono) {
+                        for j in 0..n {
+                            let m = (l[j] + r[j]) * 0.5;
+                            self.listen_l[j] = m;
+                            self.listen_r[j] = m;
+                        }
+                    } else {
+                        self.listen_l[..n].copy_from_slice(&l[..n]);
+                        self.listen_r[..n].copy_from_slice(&r[..n]);
+                    }
+                }
                 if self.nodes[i].kind == NodeKind::Master {
                     out_l[..n].copy_from_slice(&self.nodes[i].l[..n]);
                     out_r[..n].copy_from_slice(&self.nodes[i].r[..n]);

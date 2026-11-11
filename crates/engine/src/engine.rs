@@ -59,6 +59,8 @@ pub enum Command {
     SetInsertBypass { insert: u32, bypass: bool },
     /// Panique : coupe toutes les notes de toutes les pistes (voir `CompiledGraph::panic`). Sans effet sur la lecture.
     Panic,
+    /// Écoute de contrôle d'un bus ou d'un retour dans la sortie principale ; `u32::MAX` : plus d'écoute.
+    SetListen { node: u32 },
 }
 
 enum Msg {
@@ -329,6 +331,7 @@ impl Engine {
             }
             Command::SetInsertBypass { insert, bypass } => self.graph.set_insert_bypass(insert, bypass),
             Command::Panic => self.graph.panic(),
+            Command::SetListen { node } => self.graph.set_listen((node != u32::MAX).then_some(node as usize)),
         }
     }
 

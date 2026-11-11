@@ -376,6 +376,9 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .mx-btns button { width: 26px; height: 22px; padding: 0; }
 .mx-btns .m[aria-pressed="true"] { background: var(--mute); color: #000; }
 .mx-btns .s[aria-pressed="true"] { background: var(--solo); color: #000; }
+.listen svg { display: block; margin: 0 auto; }
+.mx-btns .listen[aria-pressed="true"], .track-head .btns button.listen[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+#listen-status { color: var(--accent); border-color: var(--accent); }
 .mx-btns .r[aria-pressed="true"] { background: var(--rec); color: #fff; }
 .mx-btns .p[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .mx-top { display: grid; gap: 4px; align-content: start; flex: 0 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin; }
@@ -484,7 +487,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #export-dialog .ex-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 #export-dialog .primary { border-color: var(--accent); }
 .export-status { cursor: pointer; }
-#transport .export-status[hidden], #export-status[hidden], #import-status[hidden], #convert-status[hidden] { display: none !important; } /* un bouton de la barre garde son affichage malgré `hidden` sans cela */
+#transport .export-status[hidden], #listen-status[hidden], #export-status[hidden], #import-status[hidden], #convert-status[hidden] { display: none !important; } /* un bouton de la barre garde son affichage malgré `hidden` sans cela */
 
 /* Import */
 #import-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(460px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }

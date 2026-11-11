@@ -13,6 +13,7 @@ import { getScale, pixelRatio } from "../ui-scale.js";
 import { LevelSheet, linearToDb } from "./level-sheet.js";
 import { menuEl, showMenu } from "./track-menu.js";
 import { openReturnDialog } from "./return-dialog.js";
+import { isListenable, setupListenButton, toggleListen } from "./listen.js";
 import { openGroupDialog } from "./group-dialog.js";
 import { OFFSET_RANGE, effectiveGroups, anySendSolo, formatOffset, groupColor, groupFlags, groupMembers, groupOffset } from "../groups-model.js";
 
@@ -691,7 +692,13 @@ export class Mixer {
     refs.db.addEventListener("click", () => this.#openSheet({ node: n.id, to: null }));
     // Boutons.
     refs.m.addEventListener("click", () => send({ mute: !this.#node(n.id).mute }));
-    refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
+    if (isListenable(n)) {
+      setupListenButton(refs.s);
+      refs.s.addEventListener("click", () => toggleListen(this.client, this.state.project, n.id));
+    } else {
+      refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
+    }
+    if (n.kind === "master") refs.s.hidden = true; // le solo n'a pas de sens pour la sortie principale
     refs.r?.addEventListener("click", () => send({ arm: !this.#node(n.id).arm }));
     refs.p.addEventListener("click", () => send({ invert: !this.#node(n.id).invert }));
     return root;
@@ -841,7 +848,7 @@ export class Mixer {
       r.pan.classList.toggle("automated", shown.panAuto);
       r.panOut.textContent = shown.pan === 0 ? "C" : `${Math.abs(Math.round(shown.pan * 100))} ${shown.pan < 0 ? "G" : "D"}`;
       r.m.setAttribute("aria-pressed", String(n.mute));
-      r.s.setAttribute("aria-pressed", String(n.solo));
+      r.s.setAttribute("aria-pressed", String(isListenable(n) ? this.state.project.listen === id : n.solo));
       r.r?.setAttribute("aria-pressed", String(n.arm));
       paintWitness(r.witness, n, this.state.midiAct?.[id] ?? 0);
       r.p.setAttribute("aria-pressed", String(!!n.invert));

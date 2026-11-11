@@ -9,6 +9,7 @@ import { LANE_MODES, trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
 import { openTrackMenu, openAddMenu } from "./track-menu.js";
 import { openReturnDialog } from "./return-dialog.js";
+import { isListenable, setupListenButton, toggleListen } from "./listen.js";
 import { parseReturnChoice, returnChoices } from "./mixer.js";
 import { createWitness, paintWitness } from "./midi-witness.js";
 import { knobControl } from "./knob.js";
@@ -251,7 +252,12 @@ export class Headers {
     root.append(grip);
     root.style.gridTemplateRows = "";
     refs.m.addEventListener("click", () => send({ mute: !this.#node(n.id).mute }));
-    refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
+    if (isListenable(n)) {
+      setupListenButton(refs.s);
+      refs.s.addEventListener("click", () => toggleListen(this.client, this.state.project, n.id));
+    } else {
+      refs.s.addEventListener("click", () => send({ solo: !this.#node(n.id).solo }));
+    }
     refs.r.addEventListener("click", () => send({ arm: !this.#node(n.id).arm }));
     refs.a.addEventListener("click", () => this.automation.toggle(n.id));
     refs.t.addEventListener("click", () => {
@@ -393,7 +399,7 @@ export class Headers {
     refs.t.textContent = `▤ ${takes}`;
     refs.t.setAttribute("aria-pressed", String(this.state.takesOpen.has(n.id)));
     refs.a.classList.toggle("has", (n.automation?.length ?? 0) > 0);
-    for (const [btn, on] of [[refs.m, n.mute], [refs.s, n.solo], [refs.r, n.arm]]) btn.setAttribute("aria-pressed", String(on));
+    for (const [btn, on] of [[refs.m, n.mute], [refs.s, isListenable(n) ? this.state.project.listen === n.id : n.solo], [refs.r, n.arm]]) btn.setAttribute("aria-pressed", String(on));
     // Armement : l'entrée de la piste dans l'info-bulle ; figé pendant une prise (le moteur refuserait).
     const inp = n.input ?? { kind: "audio", channels: [1] };
     const where = inp.kind === "midi" ? "entrée MIDI" : inp.channels.length === 2 ? `entrées ${inp.channels.join("-")}` : `entrée ${inp.channels[0]}`;

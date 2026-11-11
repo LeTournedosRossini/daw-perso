@@ -294,6 +294,8 @@ pub struct Host {
     /// Punch allumé : `record` enregistre exactement dans la zone (la bande bleue de la règle, `loop_range`) au lieu de refuser quand
     /// une boucle existe ; la boucle est suspendue pendant la prise puis rétablie.
     punch_on: bool,
+    /// Bus ou retour en écoute de contrôle (non enregistré).
+    bus_listen: Option<u32>,
     /// Dernière révision de la piste d'accords envoyée à la page.
     chord_rev_sent: u32,
     /// Serveur web local des retours de monitoring (démarré à la demande de l'utilisateur).
@@ -408,7 +410,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -1430,6 +1432,17 @@ impl Host {
                 self.handle.send(EngineCommand::Panic);
                 vec![self.position_event()]
             }
+            Command::SetListen { node } => {
+                if let Some(n) = node {
+                    let is_bus = self.session.graph().nodes.get(n as usize).is_some_and(|d| d.kind == daw_engine::NodeKind::Bus);
+                    if !is_bus {
+                        return vec![Event::Error { command: name.into(), message: "seul un bus ou un retour peut être écouté".into() }];
+                    }
+                }
+                self.bus_listen = node;
+                self.handle.send(EngineCommand::SetListen { node: node.unwrap_or(u32::MAX) });
+                vec![self.project_event()]
+            }
             Command::StopPreview => {
                 if self.preview.is_none() {
                     return vec![Event::Preview { active: false }];
@@ -2160,6 +2173,7 @@ impl Host {
     /// l'hôte d'après le graphe, on défait les armements (ils tenaient à des numéros) et on coupe les notes qui sonnaient (leur
     /// suivi tenait lui aussi à des numéros).
     fn resync_nodes(&mut self) {
+        self.clear_bus_listen();
         let old = self.nodes.len();
         self.last_structure = self.session.structure_version();
         self.nodes = self.session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
@@ -2167,6 +2181,13 @@ impl Host {
             self.handle.send(EngineCommand::SetInput { node, armed: false, monitor: false, source: RecordSource::Left });
         }
         self.handle.send(EngineCommand::Panic);
+    }
+
+    /// Fin de l'écoute de contrôle (les numéros de nœuds ont changé ou le projet est remplacé).
+    fn clear_bus_listen(&mut self) {
+        if self.bus_listen.take().is_some() {
+            self.handle.send(EngineCommand::SetListen { node: u32::MAX });
+        }
     }
 
     // ---- projet : nouveau, ouvrir, enregistrer ------------------------------------------------------------------
@@ -2303,6 +2324,7 @@ impl Host {
         for node in 0..old_nodes.max(new_nodes) as u32 {
             self.handle.send(EngineCommand::SetInput { node, armed: false, monitor: false, source: RecordSource::Left });
         }
+        self.clear_bus_listen();
         self.handle.send(EngineCommand::Stop);
         self.handle.send(EngineCommand::Seek(0));
         self.handle.send(EngineCommand::SetLoop(None));
@@ -2884,7 +2906,7 @@ impl Host {
                 }
             })
             .collect();
-        Event::Project(ProjectInfo { audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
+        Event::Project(ProjectInfo { listen: self.bus_listen, audio_outputs: self.audio_outputs, audio_inputs: self.audio_inputs, sample_rate: self.session.sample_rate(), tempo_map, meters, latency_samples: self.handle.latency_samples(), auto_crossfade: self.auto_crossfade, write_arms: self.write_arm_infos(), midi_devices: self.midi_devices.clone(), groups: self.session.groups().iter().map(|g| GroupInfo { id: g.id, name: g.name.clone(), color: g.color.clone(), offsets: self.group_offset_infos(g.id) }).collect(), nodes })
     }
 
     /// Crêtes `[min, max]` de `columns` colonnes de la ligne de temps `[from, to[` pour un clip audio.

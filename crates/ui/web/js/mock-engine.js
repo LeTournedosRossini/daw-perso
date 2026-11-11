@@ -1204,6 +1204,7 @@ export class MockEngine extends EngineClient {
         break;
       }
       case "add_track": {
+        this.listenNode = null; // les numéros de nœuds changent : l'écoute est défaite, comme dans l'hôte
         this.#endPreview(true, false);
         return this.#edit(msg.kind === "return" ? "Ajouter un retour" : msg.kind === "bus" ? "Ajouter un bus" : "Ajouter une piste", msg, () => {
           const id = Math.max(...this.project.nodes.map((n) => n.id)) + 1;
@@ -1216,6 +1217,7 @@ export class MockEngine extends EngineClient {
         });
       }
       case "delete_track": {
+        this.listenNode = null;
         this.#endPreview(true, false);
         return this.#edit("Supprimer une piste", msg, () => {
           const n = this.node(msg.node);
@@ -1459,6 +1461,7 @@ export class MockEngine extends EngineClient {
           this.project.nodes = rest;
         });
       case "new_project": {
+        this.listenNode = null;
         this.alignRecords?.clear();
         if (this.exportJob) return (this.emit("error", { command: "new_project", message: "un export est en cours : attends sa fin ou annule-le" }), false);
         if (this.importJob) return (this.emit("error", { command: "new_project", message: "un import est en cours : attends sa fin ou annule-le" }), false);
@@ -1754,6 +1757,13 @@ export class MockEngine extends EngineClient {
         if (msg.enabled) this.punchOn = false;
         this.#emitPunch();
         break;
+      case "set_listen": {
+        const n = msg.node === null ? null : this.node(msg.node);
+        if (msg.node !== null && n?.kind !== "bus") return (this.emit("error", { command: "set_listen", message: "seul un bus ou un retour peut être écouté" }), false);
+        this.listenNode = msg.node;
+        this.#emitProject();
+        break;
+      }
       case "set_punch":
         this.punchOn = msg.enabled;
         if (msg.enabled) this.loopRecOn = false;
@@ -2156,6 +2166,7 @@ export class MockEngine extends EngineClient {
       midi_devices: rest.midi_devices ?? ["Clavier MIDI (aperçu)", "Pad MIDI (aperçu)"],
       groups: (rest.groups ?? []).map((g) => ({ ...structuredClone(g), offsets: [...(this.groupOffsets ?? new Map())].filter(([k, db]) => k.startsWith(`${g.id}:`) && db !== 0).map(([k, db]) => ({ to: k.split(":")[1] === "-" ? null : Number(k.split(":")[1]), db })) })),
       auto_crossfade: this.autoCrossfade,
+      listen: this.listenNode ?? null,
       nodes: nodes.map(({ ...n }) => ({
         ...n,
         phys: n.phys ? { ...n.phys } : null,

@@ -1,5 +1,6 @@
 // Barre de transport : boutons et affichage de la position (mesures et temps), tempo, mesure, latence.
 
+import { listenedName } from "./listen.js";
 import { formatBBT, formatTime } from "../time.js";
 import { SNAP_MODES, getSnapMode, setSnapMode, onSnapChange } from "../snap.js";
 import { openTempoForm, openMeterForm } from "./time-menu.js";
@@ -24,6 +25,7 @@ export class Transport {
     this.$("btn-looprec").addEventListener("click", () => this.toggleLoopRecord());
     this.$("btn-metro").addEventListener("click", () => this.toggleMetronome());
     this.$("btn-metro-opts").addEventListener("click", (e) => openMetronomeForm(e.currentTarget, state, client));
+    this.$("listen-status").addEventListener("click", () => client.send({ type: "set_listen", node: null }));
     this.$("btn-undo").addEventListener("click", () => client.send({ type: "undo" }));
     this.$("btn-redo").addEventListener("click", () => client.send({ type: "redo" }));
     this.$("btn-split").addEventListener("click", () => this.splitSelected());
@@ -142,6 +144,11 @@ export class Transport {
     const x = this.$("btn-xfade");
     x.setAttribute("aria-pressed", String(!!this.state.project.auto_crossfade));
     x.title = this.state.project.auto_crossfade ? "Fondus enchaînés automatiques : activés (cliquer pour désactiver)" : "Fondus enchaînés automatiques : désactivés (cliquer pour activer)";
+    // Voyant de l'écoute de contrôle d'un bus : toujours visible tant qu'elle dure, pour ne pas l'oublier.
+    const ls = this.$("listen-status");
+    const heard = listenedName(this.state.project);
+    ls.hidden = !heard;
+    ls.textContent = heard ? `🎧 Écoute : ${heard} ✕` : "";
     const selected = this.state.selection !== null;
     set("btn-split", selected, "Découper les clips sélectionnés à la tête de lecture (S)");
     set("btn-delete", selected, "Supprimer le clip sélectionné (Suppr). Sélection multiple : Ctrl/Maj + clic ou rectangle ; Ctrl+C / X / V copie, coupe, colle (clic dans le vide d'une piste : la désigne comme destination) ; Ctrl+D ou Alt + glisser duplique ; S découpe tous les clips sélectionnés.");

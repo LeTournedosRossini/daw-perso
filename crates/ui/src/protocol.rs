@@ -353,6 +353,11 @@ pub enum Command {
     /// Panique : coupe toutes les notes de toutes les pistes (fins de notes, pédale, molette, « toutes les notes » sur les 16
     /// canaux, une fin de note pour chaque touche de chaque canal). Ne touche ni à la lecture ni à la position.
     Panic,
+    /// Écoute de contrôle (AFL) d'un bus ou d'un retour : il entre seul dans la sortie principale, par son fader et ses effets (un retour
+    /// est écouté tel que le musicien l'entend, somme mono comprise) ; les sorties physiques des retours ne changent pas et l'export
+    /// l'ignore. `null` : fin de l'écoute. Une seule écoute à la fois ; refusé pour une piste ou pour la sortie principale. Pas enregistré
+    /// dans le projet ; défait par tout changement de structure (ajout ou suppression de nœuds), « Nouveau » et « Ouvrir ».
+    SetListen { node: Option<u32> },
     /// Arrête l'aperçu et rend à l'utilisateur sa lecture, sa position, sa boucle et ses solos.
     StopPreview,
     /// Exporte le mixage ou les stems en fichiers (WAV ou FLAC), sur un fil de travail : la lecture reste possible. Progression par
@@ -481,6 +486,7 @@ impl Command {
             Command::PreviewFade { .. } => "preview_fade",
             Command::StopPreview => "stop_preview",
             Command::Panic => "panic",
+            Command::SetListen { .. } => "set_listen",
             Command::ListPlugins => "list_plugins",
             Command::AddPlugin { .. } => "add_plugin",
             Command::RemovePlugin { .. } => "remove_plugin",
@@ -1388,6 +1394,8 @@ pub struct NodeInfo {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProjectInfo {
+    /// Le bus ou le retour en écoute de contrôle, s'il y en a un (voir `set_listen`).
+    pub listen: Option<u32>,
     /// Nombre de canaux de sortie audio que le pilote a ouverts (2 : la sortie principale seule, pas de retour de monitoring possible).
     pub audio_outputs: u32,
     /// Nombre de canaux d'entrée audio que le pilote a ouverts (0 : pas d'entrée, on ne peut pas enregistrer l'audio).
