@@ -8,6 +8,7 @@ pub mod control_pages;
 pub mod demo;
 pub mod host;
 pub mod monitor;
+pub mod onsets;
 pub mod plugin_window;
 pub mod prefs;
 pub mod project_io;

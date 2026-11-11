@@ -1386,6 +1386,7 @@ impl Host {
             Command::CancelImport => self.cancel_import(),
             Command::AlignClips { .. } | Command::AlignRedo { .. } => self.start_align(cmd),
             Command::SetStretch { .. } | Command::CancelStretch => self.stretch_command(cmd),
+            Command::DetectOnsets { clip, sensitivity } => self.detect_onsets(clip, sensitivity),
             Command::CancelAlign => self.cancel_align(),
             Command::ListenAlign { guide, guide_more, node, aligned, what } => self.listen_align(guide, guide_more, node, aligned, what),
             Command::StopListen => self.end_listen(true, true),

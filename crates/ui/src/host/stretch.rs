@@ -427,6 +427,19 @@ impl Host {
         vec![Self::stretch_event(true, 0.0, clip, &name, false, None, false)]
     }
 
+    /// `detect_onsets` : les attaques de l'audio du clip tel qu'il joue (partie visible, fondus et gain non appliqués).
+    pub(super) fn detect_onsets(&mut self, clip: u64, sensitivity: Option<f64>) -> Vec<Event> {
+        const CMD: &str = "detect_onsets";
+        let Some(c) = self.session.clip(ClipId(clip)) else { return Self::stretch_error(CMD, format!("clip audio inconnu : {clip}")) };
+        let (start, len) = (c.offset as usize, c.len as usize);
+        let total = c.data.len() as usize;
+        let end = (start + len).min(total);
+        let chans: Vec<&[f32]> = (0..c.data.channel_count()).map(|k| &c.data.channel(k)[start.min(end)..end]).collect();
+        let rate = f64::from(self.session.sample_rate());
+        let positions = crate::onsets::detect(&chans, rate, sensitivity.unwrap_or(0.5)).into_iter().map(|p| p as u64).collect();
+        vec![Event::Onsets { clip, positions }]
+    }
+
     pub(super) fn cancel_stretch(&mut self) -> Vec<Event> {
         if let Some(job) = &self.stretch {
             job.cancel.store(true, Ordering::Relaxed);

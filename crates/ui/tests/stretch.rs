@@ -352,3 +352,42 @@ fn segments_with_ratio_one_are_copied_from_the_source_untouched() {
         assert_eq!(rendered.samples[i], source.samples[i], "échantillon {i}");
     }
 }
+
+#[test]
+fn detect_onsets_finds_the_hits_of_a_clip_and_refuses_bad_requests() {
+    let (_e, mut h) = host();
+    let dir = temp("onsets");
+    h.command_json(&format!(r#"{{"type":"save_project","path":{:?}}}"#, dir.join("P").to_string_lossy()));
+    // 3 s de quasi-silence avec des coups de bruit décroissants à 0,5 s, 1,2 s et 2,1 s.
+    let mut seed = 5u64;
+    let mut noise = move || {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((seed >> 33) as f32 / (1u64 << 31) as f32) * 2.0 - 1.0
+    };
+    let mut x: Vec<f32> = (0..3 * SR as usize).map(|_| noise() * 0.0005).collect();
+    let times = [0.5, 1.2, 2.1];
+    for t in times {
+        for k in 0..(0.08 * SR as f64) as usize {
+            x[(t * SR as f64) as usize + k] += noise() * 0.8 * (-(k as f32) / 800.0).exp();
+        }
+    }
+    let e = encode(&x, &x, SR, Format { container: Container::Wav, depth: BitDepth::Float32, dither: false }, None).unwrap();
+    let src = temp("onsets-src").join("coups.wav");
+    std::fs::write(&src, e.bytes).unwrap();
+    let mut ev = h.command_json(&format!(r#"{{"type":"import_audio","files":[{:?}]}}"#, src.to_string_lossy()));
+    let t = Instant::now();
+    while !ev.iter().any(|e| matches!(e, Event::Import { active: false, .. })) {
+        assert!(t.elapsed() < Duration::from_secs(60));
+        std::thread::sleep(Duration::from_millis(5));
+        ev = h.tick();
+    }
+    let id = clips(node(&get(&mut h), "coups"))[0].id;
+    let ev = h.command_json(&format!(r#"{{"type":"detect_onsets","clip":{id}}}"#));
+    let Some(Event::Onsets { clip, positions }) = ev.iter().find(|e| matches!(e, Event::Onsets { .. })).cloned() else { panic!("{ev:?}") };
+    assert_eq!((clip, positions.len()), (id, 3), "{positions:?}");
+    for (p, t) in positions.iter().zip(times) {
+        assert!((*p as f64 / SR as f64 - t).abs() < 0.008, "attaque à {t} s trouvée à {} s", *p as f64 / SR as f64);
+    }
+    assert!(!errors(&h.command_json(r#"{"type":"detect_onsets","clip":99999}"#)).is_empty());
+    assert!(!errors(&h.command_json(&format!(r#"{{"type":"detect_onsets","clip":{id},"sensitivity":2}}"#))).is_empty());
+}

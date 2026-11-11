@@ -906,6 +906,16 @@ export class MockEngine extends EngineClient {
         break;
       case "set_stretch":
         return this.#startStretch(msg);
+      case "detect_onsets": {
+        const c = this.clip(msg.clip);
+        if (!c || c.kind !== "audio") return (this.emit("error", { command: msg.type, message: `clip audio inconnu : ${msg.clip}` }), false);
+        // Aperçu : une « attaque » toutes les demi-secondes (le vrai hôte analyse l'audio).
+        const step = Math.round(this.project.sample_rate * (msg.sensitivity > 0.7 ? 0.35 : 0.5));
+        const positions = [];
+        for (let p = step; p < c.len - 1000; p += step) positions.push(p);
+        this.emit("onsets", { clip: c.id, positions });
+        break;
+      }
       case "cancel_stretch":
         if (this.stretchJob) this.stretchJob.cancelled = true;
         break;

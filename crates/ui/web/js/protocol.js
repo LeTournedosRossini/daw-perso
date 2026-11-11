@@ -123,6 +123,9 @@ export function validateCommand(m) {
       if (m.engine !== undefined && !["signalsmith", "rubberband_r2", "rubberband_r3"].includes(m.engine)) return "set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3";
       return null;
     }
+    case "detect_onsets":
+      if (!Number.isInteger(m.clip) || m.clip < 0) return "detect_onsets : clip";
+      return m.sensitivity === undefined || (typeof m.sensitivity === "number" && m.sensitivity >= 0 && m.sensitivity <= 1) ? null : "detect_onsets : sensitivity entre 0 et 1";
     case "cancel_stretch":
       return null;
     case "align_redo": {

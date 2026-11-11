@@ -436,6 +436,8 @@ pub enum Command {
         #[serde(default)] smooth: Vec<bool>, #[serde(default)] engine: Option<String> },
     /// Annule l'étirement en cours (rien n'est posé).
     CancelStretch,
+    /// Cherche les attaques (débuts de son) de l'audio d'un clip tel qu'il joue ; répond par l'événement `onsets`. `sensitivity` de 0 à 1 (0,5 par défaut).
+    DetectOnsets { clip: u64, #[serde(default)] sensitivity: Option<f64> },
     /// Détails du calage d'une prise calée (pour l'écran de réglage) : chemin, décalage appliqué, consonnes, force suggérée. Réponse :
     /// événement `align_detail`.
     GetAlign { clip: u64, settings: Option<String>, #[serde(default)] threshold_ms: Option<f64> },
@@ -544,6 +546,7 @@ impl Command {
             Command::StopListen => "stop_listen",
             Command::SetStretch { .. } => "set_stretch",
             Command::CancelStretch => "cancel_stretch",
+            Command::DetectOnsets { .. } => "detect_onsets",
             Command::GetAlign { .. } => "get_align",
             Command::MergeAlignSettings { .. } => "merge_align_settings",
             Command::Export { .. } => "export",
@@ -884,6 +887,10 @@ impl Command {
                     Some(_) => Err("set_stretch : engine = signalsmith, rubberband_r2 ou rubberband_r3".into()),
                 }
             }
+            Command::DetectOnsets { sensitivity, .. } => match sensitivity {
+                Some(v) if !(0.0..=1.0).contains(v) => Err("detect_onsets : sensitivity entre 0 et 1".into()),
+                _ => Ok(()),
+            },
             Command::ListenAlign { what, aligned, .. } => {
                 if !["guide", "original", "aligned", "guide_original", "guide_aligned"].contains(&what.as_str()) {
                     return Err("listen_align : what = guide, original, aligned, guide_original ou guide_aligned".into());
@@ -1488,6 +1495,8 @@ pub enum Event {
     /// Avancement de l'import. `active` faux = terminé, annulé ou en échec ; `clips` : ce qui a été posé (à la fin).
     /// Calage de prises en cours ou terminé (voir `align_clips`). `clips` : les prises créées (à la fin).
     /// Rendu d'un étirement (`set_stretch`) : avancement, fin, annulation ou erreur. `fell_back` : Rubber Band a échoué, Signalsmith l'a remplacé.
+    /// Attaques trouvées dans un clip (`detect_onsets`) : positions en échantillons depuis le début du clip, croissantes.
+    Onsets { clip: u64, positions: Vec<u64> },
     Stretch { active: bool, progress: f64, clip: u64, name: String, cancelled: bool, error: Option<String>, fell_back: bool, /** Avertissement non bloquant (ex. crêtes du rendu au-delà de 0 dBFS). */ warning: Option<String> },
     Align { active: bool, progress: f64, done: u32, total: u32, current: String, clips: Vec<AlignedClip>, warnings: Vec<String>, cancelled: bool, error: Option<String> },
     /// Détails du calage d'une prise calée. Temps en secondes ; le chemin donne, pour chaque point (`hop` secondes) de la fenêtre du guide,

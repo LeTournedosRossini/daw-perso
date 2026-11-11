@@ -208,3 +208,9 @@ test("déplacer un marqueur garde son indicateur de lissage", () => {
   const info = { engine: "signalsmith", src_len: LEN, markers: [[72_000, 48_000, true]] };
   assert.equal(moveMarker(info, LEN, 0, 80_000)[0][2], true);
 });
+
+test("detect_onsets : clip valide et sensibilité entre 0 et 1", () => {
+  assert.equal(validateCommand({ type: "detect_onsets", clip: 0 }), null);
+  assert.equal(validateCommand({ type: "detect_onsets", clip: 3, sensitivity: 0.5 }), null);
+  assert.match(validateCommand({ type: "detect_onsets", clip: 3, sensitivity: 2 }), /sensitivity/);
+});

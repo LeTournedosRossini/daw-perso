@@ -7,8 +7,9 @@
 
 import { sampleToX, xToSample } from "../time.js";
 import { snapSample } from "../snap.js";
-import { ENGINES, ENGINE_LABELS, addMarker, dragBounds, moveMarker, plain, previewSegments, ratioText, ratios, removeMarker } from "../stretch-model.js";
+import { ENGINES, ENGINE_LABELS, addMarker, validate, dragBounds, moveMarker, plain, previewSegments, ratioText, ratios, removeMarker } from "../stretch-model.js";
 import { clipRect } from "./clip-geometry.js";
+import { getSnapMode, gridSnap, isFixedGrid } from "../snap.js";
 
 const KEY_ENGINE = "daw-stretch-engine";
 const MARKER_COLOR = "#ffd04d";
@@ -115,6 +116,9 @@ export class StretchMarkers {
         if (clip?.stretch) this.tl.client.send(stretchMessage(clip.id, baseOf(clip).markers, this.engine));
       });
     }
+    document.getElementById("btn-onsets")?.addEventListener("click", () => this.detectOnsets());
+    document.getElementById("btn-quant-markers")?.addEventListener("click", () => this.quantizeToGrid());
+    this.tl.client.on("onsets", (e) => this.#placeOnsets(e));
     const status = document.getElementById("stretch-status");
     status?.addEventListener("click", () => this.tl.client.send({ type: "cancel_stretch" }));
     this.tl.client.on("stretch", (e) => {
@@ -269,6 +273,69 @@ export class StretchMarkers {
       return;
     }
     this.#commit(clip, next);
+  }
+
+  /** Demande à l'hôte les attaques du clip audio sélectionné ; la réponse (`onsets`) pose les marqueurs. */
+  detectOnsets() {
+    const clip = this.#selectedAudio();
+    if (!clip || clip.muted) {
+      this.tl.onNotice?.("Sélectionne d'abord un clip audio.");
+      return;
+    }
+    const sensitivity = Number(document.getElementById("onset-sens")?.value ?? 0.5);
+    this.onsetClip = clip.id;
+    this.tl.client.send({ type: "detect_onsets", clip: clip.id, sensitivity });
+  }
+
+  #placeOnsets(e) {
+    if (e.clip !== this.onsetClip) return;
+    this.onsetClip = null;
+    const clip = this.#clipById(e.clip);
+    if (!clip) return;
+    let markers = this.describe(clip).markers;
+    let added = 0;
+    for (const pos of e.positions) {
+      const info = { ...baseOf(clip), markers };
+      const next = addMarker(info, clip.len, pos, this.#rate());
+      if (next) {
+        markers = next;
+        added++;
+      }
+    }
+    if (!e.positions.length) this.tl.onNotice?.("Aucune attaque trouvée (essaie « Beaucoup »).");
+    else this.tl.onNotice?.(`${e.positions.length} attaque(s) trouvée(s), ${added} marqueur(s) posé(s). Tire-les ou « Caler » : le rendu part à ce moment-là.`);
+    if (!added) return;
+    this.draft = { clipId: clip.id, markers };
+    this.sel = null;
+    this.tl.dirty = true;
+  }
+
+  /** Cale les marqueurs du clip audio sélectionné sur la grille d'aimantation (les temps si elle est en auto), puis lance le rendu. */
+  quantizeToGrid() {
+    const clip = this.#selectedAudio();
+    if (!clip || clip.muted) {
+      this.tl.onNotice?.("Sélectionne d'abord un clip audio avec des marqueurs.");
+      return;
+    }
+    const cur = this.describe(clip);
+    if (!cur.markers.length) {
+      this.tl.onNotice?.("Ce clip n'a pas de marqueur : pose-en (double-clic) ou utilise « Attaques ».");
+      return;
+    }
+    const { tempo, meters_ } = this.tl.state;
+    const mode = isFixedGrid() ? getSnapMode() : "beat";
+    const rate = this.#rate();
+    let markers = cur.markers.map((m) => [...m]);
+    markers.forEach((m, i) => {
+      const out = gridSnap(tempo, meters_, clip.start + m[0], mode) - clip.start;
+      const trial = markers.map((q, j) => (j === i ? [out, q[1], q[2]] : q));
+      if (validate(trial, clip.len, cur.src_len, rate) === null) markers = trial;
+    });
+    if (markers.every((m, i) => m[0] === cur.markers[i][0])) {
+      this.tl.onNotice?.("Les marqueurs sont déjà sur la grille (ou ne peuvent pas bouger sans dépasser 25-400 %).");
+      return;
+    }
+    this.#commit(clip, markers);
   }
 
   /** Lisse (ou non) le marqueur sélectionné : la vitesse d'étirement y varie progressivement au lieu de changer d'un coup. Rend vrai si traité. */
