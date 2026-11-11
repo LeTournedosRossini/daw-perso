@@ -30,6 +30,8 @@ pub trait NativeWindow {
     }
     /// Replace la fenêtre ; une position hors de tout écran doit être ramenée à l'intérieur.
     fn set_position(&mut self, _x: i32, _y: i32) {}
+    /// Change le titre de la fenêtre (une fenêtre à bande qui passe à un autre plugin de la même piste).
+    fn set_title(&mut self, _title: &str) {}
     /// Fenêtre « à bande » (voir `WindowSystem::docked`) : montre ou cache la zone de l'interface native du plugin, que la bascule
     /// Interface / Paramètres de la bande remplace par la liste de paramètres. Sans effet pour une fenêtre ordinaire.
     fn set_area_visible(&mut self, _visible: bool) {}

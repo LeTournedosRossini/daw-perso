@@ -35,6 +35,8 @@ export class PluginView {
     this.client = client;
     this.docked = docked;
     this.onTarget = onTarget;
+    this.onAdded = null; // fenêtre de l'application : appelée avec le plugin qu'on vient d'ajouter
+    this.boundInsert = null; // fenêtre de l'application : le plugin dont la fenêtre est ouverte
     this.node = null;
     this.insert = null; // le plugin affiché (null : emplacement vide, on propose le sélecteur)
     this.view = "params"; // "native" | "params" | "outputs" | "picker"
@@ -56,10 +58,7 @@ export class PluginView {
         <button type="button" class="pv-name"></button>
         <span class="pv-meta"></span>
         <button type="button" class="pv-outs" title="Sorties du plugin"></button>
-        <div class="pv-toggle" role="group" aria-label="Affichage">
-          <button type="button" data-view="native">Interface</button>
-          <button type="button" data-view="params">Paramètres</button>
-        </div>
+        <button type="button" class="pv-ui" aria-pressed="false" title="Interface du plugin">Interface</button>
       </div>
       <div class="pv-body">
         <div class="pv-native"></div>
@@ -76,7 +75,8 @@ export class PluginView {
       if (!this.ins()) this.show("picker");
     });
     this.$(".pv-outs").addEventListener("click", () => this.show(this.view === "outputs" ? "params" : "outputs"));
-    for (const b of root.querySelectorAll(".pv-toggle button")) b.addEventListener("click", () => this.show(b.dataset.view));
+    // Un seul bouton à deux états : enfoncé = l'interface du plugin ; relâché = la liste de ses paramètres.
+    this.$(".pv-ui").addEventListener("click", () => this.show(this.view === "native" ? "params" : "native"));
     this.#subscribe();
   }
 
@@ -156,7 +156,9 @@ export class PluginView {
   }
 
   #sendView() {
-    if (this.docked && this.insert !== null) this.client.send({ type: "set_plugin_view", insert: this.insert, view: this.view === "native" ? "native" : "web" });
+    // Dans la fenêtre de l'application, la zone native appartient au plugin de la fenêtre (même quand le sélecteur est affiché).
+    const id = this.boundInsert ?? this.insert;
+    if (this.docked && id !== null && id !== undefined) this.client.send({ type: "set_plugin_view", insert: id, view: this.view === "native" ? "native" : "web" });
   }
 
   /** Le projet a changé : la bande suit (un plugin qui disparaît laisse un emplacement vide ; un plugin tout juste ajouté s'affiche). */
@@ -167,6 +169,10 @@ export class PluginView {
       const fresh = this.chain().find((i) => !w.before.has(i.id));
       if (fresh) {
         this.openOnAdd = null;
+        if (this.docked && this.onAdded) {
+          this.onAdded(fresh.id); // la fenêtre passe au nouveau plugin (commande `switch_plugin_ui`) puis nous le désigne
+          return;
+        }
         this.setTarget(w.node, fresh.id);
         // Un plugin tout juste ajouté ouvre aussitôt sa fenêtre (l'application) ou son interface (s'il en a une).
         if (!fresh.ui_open && !this.docked && (fresh.gui || this.state.project?.plugin_windows)) this.client.send({ type: "open_plugin_ui", insert: fresh.id });
@@ -198,10 +204,11 @@ export class PluginView {
     outs.disabled = !multi;
     outs.setAttribute("aria-pressed", String(this.view === "outputs"));
     outs.title = multi ? "Brancher les sorties multiples du plugin sur des bus" : "Ce plugin n'a qu'une sortie stéréo";
-    const native = this.$('.pv-toggle [data-view="native"]');
-    native.disabled = !ins?.gui;
-    native.title = ins?.gui ? "Interface du plugin" : "Ce plugin n'a pas d'interface native ici";
-    for (const b of this.root.querySelectorAll(".pv-toggle button")) b.setAttribute("aria-pressed", String(b.dataset.view === this.view));
+    const ui = this.$(".pv-ui");
+    ui.disabled = !ins?.gui;
+    ui.setAttribute("aria-pressed", String(this.view === "native"));
+    ui.title = !ins?.gui ? "Ce plugin n'a pas d'interface native ici" : this.view === "native" ? "Interface affichée : cliquer pour voir la liste des paramètres" : "Paramètres affichés : cliquer pour voir l'interface du plugin";
+    byp.title = !ins ? "Contourner" : ins.bypass ? "Plugin contourné (son signal passe sans traitement) : cliquer pour le réactiver" : "Plugin actif : cliquer pour le contourner";
     this.root.dataset.view = this.view;
     this.renderNative();
     if (this.view === "params") this.renderParams();

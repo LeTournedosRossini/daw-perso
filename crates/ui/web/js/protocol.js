@@ -178,6 +178,8 @@ export function validateCommand(m) {
       return typeof m.path === "string" && m.path.trim() ? null : `${m.type} : path requis`;
     case "set_loop_record":
       return typeof m.enabled === "boolean" ? null : "set_loop_record : enabled est un booléen";
+    case "switch_plugin_ui":
+      return Number.isInteger(m.from) && m.from >= 0 && Number.isInteger(m.to) && m.to >= 0 ? null : "switch_plugin_ui : from et to (numéros de plugins)";
     case "set_plugin_view":
       return Number.isInteger(m.insert) && m.insert >= 0 && (m.view === "native" || m.view === "web") ? null : "set_plugin_view : insert (numéro) et view (native ou web)";
     case "set_listen":

@@ -1396,6 +1396,7 @@ impl Host {
                 self.finish_edit(name, r)
             }
             Command::OpenPluginUi { insert } => self.open_plugin_ui(insert),
+            Command::SwitchPluginUi { from, to } => self.switch_plugin_ui(from, to),
             Command::SetPluginView { insert, view } => {
                 if view != "native" && view != "web" {
                     return vec![Event::Error { command: name.into(), message: format!("vue inconnue : « {view} » (native ou web)") }];

@@ -22,6 +22,8 @@ struct Seen {
     created: Vec<(u32, bool, (u32, u32))>,
     visible: Vec<bool>,
     destroyed: u32,
+    titles: Vec<String>,
+    focused: u32,
     api: &'static str,
 }
 
@@ -38,7 +40,12 @@ impl NativeWindow for Win {
         (320, 200)
     }
     fn show(&mut self) {}
-    fn focus(&mut self) {}
+    fn focus(&mut self) {
+        self.0.borrow_mut().focused += 1;
+    }
+    fn set_title(&mut self, title: &str) {
+        self.0.borrow_mut().titles.push(title.to_owned());
+    }
     fn take_close_request(&mut self) -> bool {
         false
     }
@@ -148,6 +155,57 @@ fn a_plugin_without_a_native_interface_here_still_gets_a_window_with_the_strip_o
     h.command_json(&format!(r#"{{"type":"remove_plugin","insert":{insert}}}"#));
     let closed = h.pump_windows();
     assert!(closed.iter().any(|e| matches!(e, Event::PluginUi { insert: i, open: false } if *i == insert)), "{closed:?}");
+}
+
+fn add_second(h: &mut Host) -> (u32, u32) {
+    let ev = h.command_json(r#"{"type":"get_project"}"#);
+    let node = project(&ev).nodes.iter().find(|n| n.name == "Batterie").unwrap();
+    let first = node.inserts[0].id;
+    let id = node.id;
+    let ev = h.command_json(&format!(r#"{{"type":"add_plugin","node":{id},"clap_id":"{}","file":"test.clap"}}"#, PLUGIN_ID.to_str().unwrap()));
+    let second = project(&ev).nodes.iter().find(|n| n.id == id).unwrap().inserts.last().unwrap().id;
+    assert_ne!(first, second);
+    (first, second)
+}
+
+#[test]
+fn a_window_can_switch_to_another_plugin_of_the_track_without_being_recreated() {
+    let _guard = ONE_AT_A_TIME.lock().unwrap();
+    let (_e, mut h, seen, _) = setup("win32");
+    let (a, b) = add_second(&mut h);
+    h.command_json(&format!(r#"{{"type":"open_plugin_ui","insert":{a}}}"#));
+    let ev = h.command_json(&format!(r#"{{"type":"switch_plugin_ui","from":{a},"to":{b}}}"#));
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, Event::PluginUiSwitched { from, to } if (*from, *to) == (a, b))));
+    assert!(ev.iter().any(|e| matches!(e, Event::PluginUi { insert, open: true } if *insert == b)));
+    assert!(ev.iter().any(|e| matches!(e, Event::PluginUi { insert, open: false } if *insert == a)));
+    assert_eq!(seen.borrow().created.len(), 1, "la même fenêtre sert aux deux plugins");
+    assert_eq!(seen.borrow().destroyed, 0);
+    assert!(seen.borrow().titles.last().is_some_and(|t| t.contains("Batterie")), "{:?}", seen.borrow().titles);
+    // La fenêtre appartient maintenant à `b` : retirer `a` ne la ferme pas, retirer `b` la ferme.
+    h.command_json(&format!(r#"{{"type":"remove_plugin","insert":{a}}}"#));
+    assert!(h.pump_windows().is_empty(), "la fenêtre montre b");
+    h.command_json(&format!(r#"{{"type":"remove_plugin","insert":{b}}}"#));
+    let closed = h.pump_windows();
+    assert!(closed.iter().any(|e| matches!(e, Event::PluginUi { insert, open: false } if *insert == b)), "{closed:?}");
+    assert_eq!(seen.borrow().destroyed, 1);
+}
+
+#[test]
+fn switching_to_a_plugin_that_already_has_its_window_brings_that_one_forward() {
+    let _guard = ONE_AT_A_TIME.lock().unwrap();
+    let (_e, mut h, seen, _) = setup("win32");
+    let (a, b) = add_second(&mut h);
+    h.command_json(&format!(r#"{{"type":"open_plugin_ui","insert":{a}}}"#));
+    h.command_json(&format!(r#"{{"type":"open_plugin_ui","insert":{b}}}"#));
+    assert_eq!(seen.borrow().created.len(), 2);
+    let ev = h.command_json(&format!(r#"{{"type":"switch_plugin_ui","from":{a},"to":{b}}}"#));
+    assert!(!ev.iter().any(|e| matches!(e, Event::PluginUiSwitched { .. } | Event::Error { .. })), "{ev:?}");
+    assert_eq!(seen.borrow().focused, 1);
+    // Même plugin, fenêtre fermée, plugin inconnu : rien ou une erreur claire.
+    assert!(h.command_json(&format!(r#"{{"type":"switch_plugin_ui","from":{a},"to":{a}}}"#)).is_empty());
+    let ev = h.command_json(r#"{"type":"switch_plugin_ui","from":999,"to":1}"#);
+    assert!(ev.iter().any(|e| matches!(e, Event::Error { command, .. } if command == "switch_plugin_ui")));
 }
 
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());

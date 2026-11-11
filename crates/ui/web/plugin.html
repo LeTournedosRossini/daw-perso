@@ -7,10 +7,17 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <!-- Fenêtre d'un plugin (application) : la bande en haut ; sous elle, la zone de l'interface native (logée par l'application) ou la
-       liste des paramètres. Ouverte par l'application avec ?insert=<numéro du plugin>. -->
+  <!-- Fenêtre d'un plugin (application) : à gauche la liste des plugins de la piste ; à droite la bande en haut puis, dessous, la zone de
+       l'interface native (logée par l'application) ou la liste des paramètres. Ouverte par l'application avec ?insert=<numéro du plugin>. -->
   <section class="plugins-panel plugin-window" aria-label="Plugin">
-    <div class="pp-body"><div class="pv-host"></div></div>
+    <div class="pw">
+      <nav class="pw-list" aria-label="Plugins de la piste">
+        <div class="pw-title"></div>
+        <div class="pw-rows"></div>
+        <button type="button" class="pw-add">＋ Choisir un plugin…</button>
+      </nav>
+      <div class="pw-main"><div class="pv-host"></div></div>
+    </div>
   </section>
   <script type="module" src="js/plugin-window.js"></script>
 </body>

@@ -405,6 +405,11 @@ pub enum Command {
     /// Bascule Interface / Paramètres de la fenêtre de plugin à bande : `native` montre la zone de l'interface native, `web` la cache (la
     /// bande montre alors la liste de paramètres). Sans effet hors d'une fenêtre à bande.
     SetPluginView { insert: u32, view: String },
+    /// Fenêtre de plugin à bande : la fenêtre de `from` montre maintenant le plugin `to` (un autre plugin de la même piste, choisi dans la
+    /// liste de gauche). L'interface de `from` est détruite, celle de `to` est logée dans la même zone ; la fenêtre est redimensionnée à
+    /// la taille de la nouvelle interface. Si `to` a déjà sa propre fenêtre, c'est elle qu'on ramène au premier plan et rien ne change.
+    /// Réponse : `plugin_ui_switched`.
+    SwitchPluginUi { from: u32, to: u32 },
     /// Ferme l'interface native du plugin `insert` (sans effet si elle n'est pas ouverte).
     ClosePluginUi { insert: u32 },
     /// Crée une **copie convertie** du projet `path` (un dossier « Nom.daw ») à la fréquence d'échantillonnage du moteur, dans un nouveau
@@ -548,6 +553,7 @@ impl Command {
             Command::SaveProject { .. } => "save_project",
             Command::OpenPluginUi { .. } => "open_plugin_ui",
             Command::SetPluginView { .. } => "set_plugin_view",
+            Command::SwitchPluginUi { .. } => "switch_plugin_ui",
             Command::ClosePluginUi { .. } => "close_plugin_ui",
             Command::ConvertProject { .. } => "convert_project",
             Command::CancelConvert => "cancel_convert",
@@ -1514,6 +1520,8 @@ pub enum Event {
     /// L'interface native d'un plugin vient de s'ouvrir ou de se fermer (par l'utilisateur, par le plugin, ou parce que le plugin ou
     /// le projet a disparu).
     PluginUi { insert: u32, open: bool },
+    /// La fenêtre du plugin `from` montre maintenant `to` (voir `switch_plugin_ui`).
+    PluginUiSwitched { from: u32, to: u32 },
     /// `open_project` a trouvé un projet à une autre fréquence d'échantillonnage que le moteur : rien n'a changé. La page propose de
     /// le convertir (`convert_project { path }`).
     RateMismatch { path: String, project_rate: u32, engine_rate: u32 },

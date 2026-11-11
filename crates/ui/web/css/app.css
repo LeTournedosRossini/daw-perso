@@ -263,19 +263,17 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .pv-strip { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); min-width: 0; }
 .pv-strip button { height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
 .pv-strip button:disabled { opacity: 0.45; cursor: default; }
-.pv-byp { width: 28px; padding: 0 !important; color: var(--play); }
-.pv-byp[aria-pressed="true"] { color: var(--muted); }
+.pv-strip .pv-byp { width: 34px; padding: 0; font-weight: 700; background: var(--play); border-color: var(--play); color: #06210f; }
+.pv-strip .pv-byp[aria-pressed="true"] { background: var(--solo); border-color: var(--solo); color: #2a1a00; }
+.pv-strip .pv-byp:disabled { background: var(--panel); border-color: var(--line); color: var(--muted); }
 .pv-name { flex: 1 1 auto; min-width: 0; text-align: left; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-name:disabled { opacity: 1 !important; border-color: transparent !important; background: transparent !important; cursor: default; }
 .pv-name.empty { color: var(--muted); font-weight: 400; border-style: dashed !important; }
 .pv-meta { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .pv-outs[hidden] { display: none; }
 .pv-outs[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-.pv-toggle { display: inline-flex; flex: 0 0 auto; }
-.pv-toggle button { border-radius: 0; margin-left: -1px; }
-.pv-toggle button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
-.pv-toggle button:last-child { border-radius: 0 6px 6px 0; }
-.pv-toggle button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; position: relative; }
+.pv-strip .pv-ui { flex: 0 0 auto; }
+.pv-strip .pv-ui[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
 .pv-body { min-height: 0; min-width: 0; display: grid; }
 .pv-body > div { display: none; min-height: 0; min-width: 0; }
 .pv[data-view="params"] .pv-params, .pv[data-view="picker"] .pv-picker { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; }
@@ -286,12 +284,23 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 .pv input[type="search"] { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 12px; }
 .plugins-panel.windowed .pv-host { display: none; }
 .plugins-panel.windowed .pp-body { grid-template-columns: minmax(0, 1fr); }
-/* Fenêtre de plugin de l'application : la page occupe toute la fenêtre. La bande fait exactement 46 px (6 + 34 + 6) : l'application loge
-   l'interface native du plugin juste dessous (constante TOP_CSS de crates/app/src/win32_window.rs). */
+/* Fenêtre de plugin de l'application : liste des plugins de la piste (168 px, constante LIST_CSS) à gauche ; à droite la bande, puis la zone
+   de l'interface native logée par l'application. La bande occupe 52 px (6 + 34 + 12 : constante TOP_CSS de crates/app/src/win32_window.rs). */
 .plugin-window { position: static !important; width: auto !important; max-height: none !important; height: 100vh; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
-.plugin-window .pp-body { display: block; height: 100vh; padding: 0; box-sizing: border-box; }
+.plugin-window .pw { display: grid; grid-template-columns: 168px minmax(0, 1fr); height: 100vh; }
+.plugin-window .pw-list { box-sizing: border-box; width: 168px; display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; border-right: 1px solid var(--line); background: var(--panel); overflow: auto; }
+.plugin-window .pw-title { font-size: 11px; font-weight: 600; color: var(--muted); padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-window .pw-rows { display: grid; gap: 3px; }
+.plugin-window .pw-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
+.plugin-window .pw-row.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.plugin-window .pw-row button { height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.plugin-window .pw-name { text-align: left; padding: 0 4px !important; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-window .pw-name:hover { background: var(--panel) !important; }
+.plugin-window .pw-add { padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
+.plugin-window .pw-add:hover { border-color: var(--muted); }
+.plugin-window .pw-main { min-width: 0; height: 100vh; }
 .plugin-window .pv { height: 100%; gap: 0; }
-.plugin-window .pv-strip { height: 34px; margin: 6px; box-sizing: border-box; flex: 0 0 auto; }
+.plugin-window .pv-strip { height: 34px; margin: 6px 6px 12px; box-sizing: border-box; flex: 0 0 auto; }
 .plugin-window .pv-body { flex: 1 1 auto; min-height: 0; padding: 0 6px 6px; box-sizing: border-box; }
 .plugin-window .pv-params, .plugin-window .pv-picker { height: 100%; }
 .plugin-window .list { max-height: none; }
@@ -895,3 +904,9 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .aux-row { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(110px, 1.4fr); gap: 8px; align-items: center; font-size: 12px; }
 .aux-row select { height: 26px; background: var(--panel-2); color: inherit; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 @media (pointer: coarse) { .aux-row select { height: 36px; } }
+
+/* Contournement bien visible : actif = vert, contourné = orange (chaîne du panneau, liste de la fenêtre de plugin). */
+.plugins-panel .slot .byp, .plugin-window .pw-row .pw-byp { background: var(--play) !important; color: #06210f !important; font-weight: 700; }
+.plugins-panel .slot .byp[aria-pressed="true"], .plugin-window .pw-row .pw-byp[aria-pressed="true"] { background: var(--solo) !important; color: #2a1a00 !important; }
+.plugins-panel .slot .byp:hover:not(:disabled) { background: var(--play) !important; }
+.plugins-panel .slot .byp[aria-pressed="true"]:hover:not(:disabled) { background: var(--solo) !important; }

@@ -144,18 +144,8 @@ impl Host {
             Ok(w) => w,
             Err(e) => return fail(&handle, format!("fenêtre impossible : {e}")),
         };
-        // Ordre de la spécification : échelle, puis taille (qui en dépend), puis parent, puis affichage.
-        handle.gui_set_scale(window.scale());
-        let Some((w, h)) = handle.gui_size() else { return fail(&handle, format!("« {title} » : le plugin n'a pas donné la taille de son interface")) };
-        window.set_client_size(w, h);
-        let (api_name, native) = window.handle();
-        // SAFETY: `native` est la fenêtre qu'on vient de créer ; elle vit dans `OpenWindow`, qui détruit l'interface du plugin avant elle.
-        if !unsafe { handle.gui_set_parent(api_name, native) } {
-            return fail(&handle, format!("« {title} » : le plugin a refusé la fenêtre fournie"));
-        }
-        handle.gui_suggest_title(&title);
-        if !handle.gui_show() {
-            return fail(&handle, format!("« {title} » : le plugin n'a pas pu afficher son interface"));
+        if let Err(message) = attach_created_gui(&handle, &mut window, &title) {
+            return fail(&handle, message);
         }
         let key = self.plugin_name(insert).unwrap_or_default();
         if let Some(&(x, y)) = self.window_places.get(&key) {
@@ -164,6 +154,59 @@ impl Host {
         window.show();
         self.plugin_windows.push(OpenWindow { insert, key, handle, window: Some(window), native: true });
         vec![Event::PluginUi { insert, open: true }, self.project_event()]
+    }
+
+    /// La fenêtre de `from` montre maintenant le plugin `to` (même piste) : l'interface de `from` est détruite, celle de `to` est logée dans
+    /// la même zone, et la fenêtre prend la taille de la nouvelle interface. Si `to` a déjà sa fenêtre, on la ramène au premier plan.
+    pub(super) fn switch_plugin_ui(&mut self, from: u32, to: u32) -> Vec<Event> {
+        let error = |message: String| vec![Event::Error { command: "switch_plugin_ui".into(), message }];
+        if from == to {
+            return Vec::new();
+        }
+        let Some(i) = self.plugin_windows.iter().position(|w| w.insert == from) else { return error(format!("pas de fenêtre ouverte pour le plugin {from}")) };
+        if let Some(other) = self.plugin_windows.iter_mut().find(|w| w.insert == to) {
+            if let Some(win) = other.window.as_mut() {
+                win.focus();
+            }
+            return Vec::new();
+        }
+        let Some(title) = self.window_title(to) else { return error(format!("plugin inconnu : {to}")) };
+        let Some(handle) = self.plugin_handle(to) else { return error(format!("plugin {to} : instance introuvable")) };
+        let api = self.window_system.as_ref().map(|w| w.api()).unwrap_or("");
+        let native = self.gui_available(to);
+        let key = self.plugin_name(to).unwrap_or_default();
+        {
+            let w = &mut self.plugin_windows[i];
+            // L'ancienne interface d'abord ; la zone native, elle, reste (c'est la même fenêtre).
+            if w.native {
+                w.handle.gui_destroy();
+                w.native = false;
+            }
+            let window = w.window.as_mut().expect("fenêtre ouverte");
+            if native && handle.gui_create(api) {
+                match attach_created_gui(&handle, window, &title) {
+                    Ok(()) => {
+                        w.native = true;
+                        window.set_area_visible(true);
+                    }
+                    Err(message) => {
+                        handle.gui_destroy();
+                        window.set_area_visible(false);
+                        w.insert = to;
+                        w.handle = handle;
+                        w.key = key;
+                        return error(message);
+                    }
+                }
+            } else {
+                window.set_area_visible(false); // pas d'interface native : la bande montre les paramètres
+            }
+            window.set_title(&title);
+            w.insert = to;
+            w.handle = handle;
+            w.key = key;
+        }
+        vec![Event::PluginUiSwitched { from, to }, Event::PluginUi { insert: from, open: false }, Event::PluginUi { insert: to, open: true }, self.project_event()]
     }
 
     pub(super) fn close_plugin_ui(&mut self, insert: u32) -> Vec<Event> {
@@ -231,4 +274,22 @@ impl Host {
         }
         events
     }
+}
+
+/// Loge dans `window` l'interface que le plugin vient de créer (`gui_create` déjà fait). Ordre de la spécification : échelle, puis taille
+/// (qui en dépend), puis parent, puis affichage. Un échec laisse l'interface créée : à l'appelant de la détruire.
+fn attach_created_gui(handle: &PluginHandle, window: &mut Box<dyn NativeWindow>, title: &str) -> Result<(), String> {
+    handle.gui_set_scale(window.scale());
+    let Some((w, h)) = handle.gui_size() else { return Err(format!("« {title} » : le plugin n'a pas donné la taille de son interface")) };
+    window.set_client_size(w, h);
+    let (api_name, native) = window.handle();
+    // SAFETY: `native` est la fenêtre de `window`, qui vit dans `OpenWindow` ; celui-ci détruit l'interface du plugin avant elle.
+    if !unsafe { handle.gui_set_parent(api_name, native) } {
+        return Err(format!("« {title} » : le plugin a refusé la fenêtre fournie"));
+    }
+    handle.gui_suggest_title(title);
+    if !handle.gui_show() {
+        return Err(format!("« {title} » : le plugin n'a pas pu afficher son interface"));
+    }
+    Ok(())
 }

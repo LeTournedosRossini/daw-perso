@@ -869,6 +869,9 @@ export class MockEngine extends EngineClient {
           this.emit("recording", { active: false, stopping: false, overruns: 0, warnings: [] });
         }
         break;
+      case "switch_plugin_ui":
+        this.emit("plugin_ui_switched", { from: msg.from, to: msg.to });
+        break;
       case "set_plugin_view":
         break; // la zone de l'interface native n'existe que dans l'application
       case "open_plugin_ui":

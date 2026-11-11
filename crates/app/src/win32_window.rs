@@ -260,8 +260,11 @@ pub fn set_app(app: AppHandle) {
     let _ = APP.set(app);
 }
 
-/// Hauteur de la bande en pixels CSS (`.plugin-window .pv-strip` : 6 + 34 + 6 dans `css/app.css`).
-const TOP_CSS: f64 = 46.0;
+/// Hauteur de la bande en pixels CSS (`.plugin-window .pv-strip` dans `css/app.css` : 6 de marge + 34 de bande + 12 de marge basse,
+/// pour que la zone native ne morde jamais sur la bande, même avec l'arrondi des échelles d'affichage fractionnaires).
+const TOP_CSS: f64 = 52.0;
+/// Largeur de la liste des plugins de la piste, à gauche, en pixels CSS (`.pw-list` dans `css/app.css`).
+const LIST_CSS: f64 = 168.0;
 /// Après un redimensionnement imposé, on laisse ce délai à Tauri pour l'appliquer avant de reprendre les gestes de l'utilisateur.
 const IMPOSED_GRACE: Duration = Duration::from_millis(600);
 
@@ -293,6 +296,8 @@ struct Inner {
     pending: Option<((u32, u32), Instant)>,
     user_resize: Option<(u32, u32)>,
     placed: Option<(i32, i32, u32, u32)>,
+    /// La géométrie a été consignée dans le journal (une fois, à l'affichage) : de quoi comprendre un décalage constaté à l'écran.
+    logged: bool,
 }
 
 impl Inner {
@@ -303,6 +308,10 @@ impl Inner {
 
     fn strip_px(&self) -> u32 {
         (TOP_CSS * self.dpi() as f64 / 96.0).round() as u32
+    }
+
+    fn list_px(&self) -> u32 {
+        (LIST_CSS * self.dpi() as f64 / 96.0).round() as u32
     }
 
     fn client(&self) -> (u32, u32) {
@@ -323,6 +332,7 @@ impl Inner {
             return;
         }
         let strip = self.strip_px();
+        let list = self.list_px();
         match self.pending {
             Some((target, since)) if size == target || since.elapsed() > IMPOSED_GRACE => {
                 self.pending = None;
@@ -331,16 +341,20 @@ impl Inner {
             Some(_) => {}
             None if size != self.last_client => {
                 self.last_client = size;
-                self.user_resize = Some((size.0, size.1.saturating_sub(strip).max(1)));
+                self.user_resize = Some((size.0.saturating_sub(list).max(1), size.1.saturating_sub(strip).max(1)));
             }
             None => {}
         }
         let Some(popup) = self.popup.as_ref() else { return };
-        let (w, h) = (size.0, size.1.saturating_sub(strip).max(1));
-        let mut origin = Point { x: 0, y: strip as i32 };
+        let (w, h) = (size.0.saturating_sub(list).max(1), size.1.saturating_sub(strip).max(1));
+        let mut origin = Point { x: list as i32, y: strip as i32 };
         // SAFETY: `frame_hwnd` valide ; `origin` est un `POINT` valide.
         unsafe { ClientToScreen(self.frame_hwnd, &mut origin) };
         let rect = (origin.x, origin.y, w, h);
+        if !self.logged && self.shown {
+            self.logged = true;
+            crate::log(&format!("fenêtre de plugin : échelle {} ppp, bande {strip} px, liste {list} px, zone utile {}x{}, zone native à ({}, {}) de {w}x{h}", self.dpi(), size.0, size.1, rect.0, rect.1));
+        }
         if self.placed != Some(rect) {
             self.placed = Some(rect);
             // SAFETY: `popup.hwnd` créée par nous sur ce fil ; ni activation ni ordre Z (la propriétaire s'en charge).
@@ -379,7 +393,7 @@ impl NativeWindow for DockedWindow {
 
     fn set_client_size(&mut self, width: u32, height: u32) {
         let mut i = self.inner.borrow_mut();
-        let target = (width, height + i.strip_px());
+        let target = (width + i.list_px(), height + i.strip_px());
         i.pending = Some((target, Instant::now()));
         i.user_resize = None;
         let _ = i.frame.set_size(PhysicalSize::new(target.0, target.1));
@@ -388,7 +402,7 @@ impl NativeWindow for DockedWindow {
     fn client_size(&self) -> (u32, u32) {
         let i = self.inner.borrow();
         let c = i.client();
-        (c.0, c.1.saturating_sub(i.strip_px()))
+        (c.0.saturating_sub(i.list_px()), c.1.saturating_sub(i.strip_px()))
     }
 
     fn show(&mut self) {
@@ -432,6 +446,10 @@ impl NativeWindow for DockedWindow {
         let _ = self.inner.borrow().frame.set_position(PhysicalPosition::new(x, y));
     }
 
+    fn set_title(&mut self, title: &str) {
+        let _ = self.inner.borrow().frame.set_title(title);
+    }
+
     fn set_area_visible(&mut self, visible: bool) {
         let mut i = self.inner.borrow_mut();
         i.area_visible = visible;
@@ -473,8 +491,8 @@ impl WindowSystem for DockedSystem {
         app.run_on_main_thread(move || {
             let built = WebviewWindowBuilder::new(&app2, label, WebviewUrl::App(url.into()))
                 .title(title2)
-                .inner_size(client.0 as f64, client.1 as f64 + TOP_CSS)
-                .min_inner_size(300.0, 200.0)
+                .inner_size(client.0 as f64 + LIST_CSS, client.1 as f64 + TOP_CSS)
+                .min_inner_size(300.0 + LIST_CSS, 200.0)
                 .resizable(resizable)
                 .visible(false)
                 .build();
@@ -493,7 +511,8 @@ impl WindowSystem for DockedSystem {
                 flag.store(true, Ordering::Relaxed);
             }
         });
-        let popup = if native {
+        // La zone native existe toujours (cachée si le plugin n'a pas d'interface) : la fenêtre peut passer à un plugin qui en a une.
+        let popup = {
             ensure_class()?;
             let state = Box::new(State { close_requested: Cell::new(false), user_resize: Cell::new(None), last_client: Cell::new(client) });
             let (class_name, empty) = (wide(CLASS_NAME), wide(""));
@@ -508,10 +527,8 @@ impl WindowSystem for DockedSystem {
                 return Err("Windows n'a pas créé la zone de l'interface".into());
             }
             Some(Popup { hwnd: popup_hwnd, _state: state })
-        } else {
-            None
         };
-        let inner = Rc::new(RefCell::new(Inner { popup, frame, frame_hwnd, area_visible: true, shown: false, close, last_client: (0, 0), pending: None, user_resize: None, placed: None }));
+        let inner = Rc::new(RefCell::new(Inner { popup, frame, frame_hwnd, area_visible: native, shown: false, close, last_client: (0, 0), pending: None, user_resize: None, placed: None, logged: false }));
         self.windows.push(Rc::downgrade(&inner));
         let mut win = DockedWindow { inner };
         win.set_client_size(client.0, client.1); // à l'échelle réelle de l'écran de la fenêtre
