@@ -515,26 +515,38 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
     Ok(())
 }
 
-/// macOS : le moteur joue par CoreAudio (périphérique de sortie par défaut du système, toutes ses sorties jusqu'à 32). **Écrit sans Mac, jamais
-/// essayé** (voir `CLAUDE.md`). Aucune entrée audio pour l'instant : en demander une déclenche l'autorisation du micro, et une application sans
-/// `NSMicrophoneUsageDescription` y est terminée par le système. Pas encore : entrées MIDI (CoreMIDI), compensation de latence d'entrée.
+/// macOS : le moteur joue par CoreAudio (périphérique par défaut du système : toutes ses sorties jusqu'à 32 et toutes ses entrées). **Écrit
+/// sans Mac, jamais essayé** (voir `CLAUDE.md`). Ouvrir les entrées déclenche la demande d'autorisation du micro : `Info.plist` (à la racine de
+/// ce crate, intégré à l'exécutable par `tauri-build`) porte `NSMicrophoneUsageDescription`, sans quoi le système terminerait l'application.
+/// Un refus de l'utilisateur donne du silence en entrée, pas une erreur ; si l'ouverture avec entrées échoue, nouvel essai sans entrée.
+/// Pas encore : entrées MIDI (CoreMIDI), compensation de latence d'entrée mesurée sur ce matériel.
 #[cfg(target_os = "macos")]
 fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<(), String> {
     use daw_audio_io::coreaudio_backend::{run_playback_ex, PlayOptions};
+    use daw_audio_io::playback::PlaybackReport;
     let eff = effective();
     let buffer = eff.buffer;
-    log(&format!("ouverture de CoreAudio (sortie par défaut), tampon {buffer}"));
-    let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
-    let opts = PlayOptions { seconds: 24 * 3600, device: None, buffer: Some(buffer), input_count: 0, output_count: u32::MAX };
-    let report = run_playback_ex(&opts, move |info| {
-        log(&format!("CoreAudio ouvert : « {} », {} Hz, tampon {}, {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.outputs));
-        let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
-        host.set_audio_outputs(info.outputs);
-        host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
-        let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
-        (EngineProc(engine), control)
-    })?;
+    let attempt = |with_inputs: bool| -> Result<PlaybackReport, String> {
+        log(&format!("ouverture de CoreAudio (périphérique par défaut), tampon {buffer}, {}", if with_inputs { "toutes les entrées" } else { "sans entrée" }));
+        let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
+        let opts = PlayOptions { seconds: 24 * 3600, device: None, buffer: Some(buffer), input_count: if with_inputs { u32::MAX } else { 0 }, output_count: u32::MAX };
+        run_playback_ex(&opts, move |info| {
+            log(&format!("CoreAudio ouvert : « {} », {} Hz, tampon {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs));
+            let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
+            host.set_audio_outputs(info.outputs);
+            host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
+            (EngineProc(engine), control)
+        })
+    };
+    let report = match attempt(true) {
+        Ok(r) => r,
+        Err(e) => {
+            log(&format!("ouverture avec les entrées impossible ({e}) : nouvel essai sans entrée"));
+            attempt(false)?
+        }
+    };
     log(&format!("CoreAudio arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
     Ok(())
 }

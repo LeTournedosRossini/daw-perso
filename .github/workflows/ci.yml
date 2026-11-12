@@ -95,6 +95,11 @@ jobs:
         run: cargo build --manifest-path crates/app/Cargo.toml
       - name: Tests de l'application (fichiers des scripts)
         run: cargo test --manifest-path crates/app/Cargo.toml
+      # L'exécutable doit porter NSMicrophoneUsageDescription (Info.plist intégré), sinon macOS le termine à la première demande du micro.
+      - name: Info.plist intégré à l'exécutable
+        run: |
+          otool -s __TEXT __info_plist crates/app/target/debug/daw-app | head -5
+          strings -a crates/app/target/debug/daw-app | grep -q NSMicrophoneUsageDescription
 
   page:
     name: Page (tests Node)
