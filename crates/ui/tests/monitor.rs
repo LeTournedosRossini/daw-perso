@@ -12,16 +12,38 @@ use daw_ui::{Event, Host};
 
 const SR: u32 = 48_000;
 
-fn try_http(port: u16, method: &str, path: &str, body: &str) -> Option<(u16, String)> {
+fn try_http_once(port: u16, method: &str, path: &str, body: &str) -> Option<(u16, String)> {
     let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     // Le serveur peut refuser et fermer avant la fin d'un très gros corps : une écriture coupée n'est pas une erreur du test.
     let _ = write!(s, "{method} {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len());
-    let mut raw = String::new();
-    let _ = s.read_to_string(&mut raw);
+    // Lecture par morceaux : si la connexion est coupée (RST sous Windows) on garde ce qui est déjà arrivé.
+    let mut bytes = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        match s.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => bytes.extend_from_slice(&buf[..n]),
+        }
+    }
+    let raw = String::from_utf8_lossy(&bytes).into_owned();
     let status = raw.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
     let body = raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
     Some((status, body))
+}
+
+/// Un GET sans réponse (connexion coupée avant tout octet) est rejoué : il est sans effet, et les exécuteurs de CI lents le provoquent.
+fn try_http(port: u16, method: &str, path: &str, body: &str) -> Option<(u16, String)> {
+    let mut r = try_http_once(port, method, path, body);
+    if method == "GET" {
+        for _ in 0..3 {
+            if matches!(r, Some((0, _))) {
+                std::thread::sleep(Duration::from_millis(200));
+                r = try_http_once(port, method, path, body);
+            }
+        }
+    }
+    r
 }
 
 fn http(port: u16, method: &str, path: &str, body: &str) -> (u16, String) {
