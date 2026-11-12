@@ -81,6 +81,21 @@ jobs:
         continue-on-error: true
         run: ./target/debug/daw-cli play-demo --seconds 2
 
+  macos-app:
+    name: macOS ARM (application Tauri, compilation et tests)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/app
+      # L'application est un espace de travail à part (voir le Cargo.toml racine) : ni Linux ni Windows ne la compilent en CI.
+      - name: Compilation de l'application
+        run: cargo build --manifest-path crates/app/Cargo.toml
+      - name: Tests de l'application (fichiers des scripts)
+        run: cargo test --manifest-path crates/app/Cargo.toml
+
   page:
     name: Page (tests Node)
     runs-on: ubuntu-latest
