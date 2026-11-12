@@ -2002,3 +2002,7 @@ Demandes de Jean après l'essai de la pastille de tâches (« ça marche bien »
 ### CI du 12 novembre 2026 (tranches 86 à 142)
 
 Première CI depuis la tranche 85 (commit `f15a4e8`, lancée sur ordre de Jean) : Linux, macOS ARM (crates portables et espace de travail complet) et tests Node verts ; **Windows : 2 tests de `crates/ui/tests/monitor.rs` ont échoué** (réponse HTTP vide au premier GET sur le runner, jamais reproduit sur la machine Windows de Jean, même limitée à 2 cœurs). Correctif **du test seulement** (lecture qui garde les octets reçus, nouvel essai d'un GET sans réponse) ; seconde CI (run 43179828373) : **les cinq jobs verts**. Cause réelle non établie (le correctif ne la prouve pas). `crates/app` (Tauri) n'est toujours pas compilé en CI.
+
+### Voix de référence retirées du dépôt (12 novembre 2026)
+
+Les enregistrements `crates/align/tests/ref/` (`guide.wav`, `double.wav`, `onsets.txt`, voix de test venant de Neptune) ont été retirés du dépôt public (droits de publication incertains). Les 14 tests du calage qui en dépendent (`crates/align/tests/align_reference.rs`, `crates/ui/tests/align.rs`) **s'ignorent quand les fichiers sont absents** : ils ne tournent donc plus en CI ni sur un clone public ; en local, remettre les fichiers dans `crates/align/tests/ref/` (copie chez Neptune : `FlibusteSuite/flibuste-align/ref/`) les réactive. Ils restent dans l'historique git.
