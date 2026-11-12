@@ -21,3 +21,7 @@ pub mod asio_backend;
 // Entrée MIDI Windows (WinMM).
 #[cfg(target_os = "windows")]
 pub mod winmm_midi;
+
+// Backend CoreAudio (macOS). `--cfg coreaudio_check` permet de le compiler (sans le lier) sous Linux pour en vérifier les types.
+#[cfg(any(target_os = "macos", coreaudio_check))]
+pub mod coreaudio_backend;

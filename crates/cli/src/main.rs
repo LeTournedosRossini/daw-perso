@@ -735,7 +735,57 @@ mod backend {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+mod backend {
+    use super::*;
+    use daw_audio_io::coreaudio_backend::{self, PlayOptions};
+
+    pub fn devices(_: &[String]) -> Result<i32, String> {
+        let list = coreaudio_backend::list_devices()?;
+        println!("Périphériques CoreAudio ({}) :", list.len());
+        for d in &list {
+            println!("  {}{} : {} entrées, {} sorties, {} Hz", d.name, if d.default_output { " (sortie par défaut)" } else { "" }, d.inputs, d.outputs, d.sample_rate);
+        }
+        Ok(0)
+    }
+
+    pub fn play_demo(args: &[String]) -> Result<i32, String> {
+        let a = Args::parse(args, &["--seconds", "--buffer", "--device"])?;
+        let o = PlayOptions { seconds: a.num("--seconds")?.unwrap_or(16), device: a.get("--device").map(str::to_owned), buffer: a.num("--buffer")?, input_count: 0, output_count: 0 };
+        match coreaudio_backend::run_playback(&o, crate::demo::make) {
+            Ok(r) => Ok(print_playback(&r)),
+            Err(e) => {
+                eprintln!("erreur : {e}");
+                Ok(1)
+            }
+        }
+    }
+
+    fn not_yet(what: &str) -> Result<i32, String> {
+        eprintln!("{what} : pas encore écrit pour CoreAudio (seuls `devices` et `play-demo` le sont).");
+        Ok(1)
+    }
+    pub fn latency_test(_: &[String]) -> Result<i32, String> {
+        not_yet("latency-test")
+    }
+    pub fn load_test(_: &[String]) -> Result<i32, String> {
+        not_yet("load-test")
+    }
+    pub fn midi_record(_: &[String]) -> Result<i32, String> {
+        not_yet("midi-record")
+    }
+    pub fn record(_: &[String]) -> Result<i32, String> {
+        not_yet("record")
+    }
+    pub fn sync_test(_: &[String]) -> Result<i32, String> {
+        not_yet("sync-test")
+    }
+    pub fn return_latency_test(_: &[String]) -> Result<i32, String> {
+        not_yet("return-latency-test")
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 mod backend {
     pub fn devices(_: &[String]) -> Result<i32, String> {
         eprintln!("aucun backend audio sur ce système");

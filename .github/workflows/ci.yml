@@ -53,13 +53,33 @@ jobs:
   macos-workspace:
     name: macOS ARM (espace de travail complet, informatif)
     runs-on: macos-latest
-    continue-on-error: true # la couche CoreAudio n'existe pas : ne bloque pas
+    continue-on-error: true # informatif : certains tests supposent Windows ou des plugins absents
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Tests
         run: cargo test --workspace --no-fail-fast
+
+  macos-coreaudio:
+    name: macOS ARM (backend CoreAudio, compilation et liste des périphériques)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Le code CoreAudio (crates/audio-io/src/coreaudio_backend.rs) a été écrit sans Mac : ce job est sa seule vérification.
+      - name: Tests du backend (tailles des structures C, codes)
+        run: cargo test -p daw-audio-io --lib coreaudio
+      - name: Compilation du CLI
+        run: cargo build -p daw-cli
+      # Un exécuteur n'a pas de carte son : la liste peut être vide ou ne contenir qu'un périphérique virtuel, mais l'appel ne doit pas échouer.
+      - name: Liste des périphériques
+        run: ./target/debug/daw-cli devices
+      # Informatif : sans périphérique de sortie réel, l'échec est attendu.
+      - name: Lecture de 2 secondes (si un périphérique existe)
+        continue-on-error: true
+        run: ./target/debug/daw-cli play-demo --seconds 2
 
   page:
     name: Page (tests Node)

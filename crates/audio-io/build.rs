@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(daw_asio)");
+    println!("cargo:rustc-check-cfg=cfg(coreaudio_check)");
     println!("cargo:rerun-if-env-changed=ASIO_SDK_DIR");
     println!("cargo:rerun-if-changed=native");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
