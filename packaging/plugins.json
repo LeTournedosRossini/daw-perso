@@ -1,0 +1,13 @@
+{
+  "_commentaire": "Plugins livrés avec l'application. Chaque source est un dépôt GitHub dont la dernière Release (ou `tag`) contient une archive .zip / .tar.gz par système. `match` : expression régulière (insensible à la casse) sur le nom de l'archive, par système. Les archives sont dépaquetées et tous les `.clap` trouvés sont copiés dans le dossier `plugins` de l'application.",
+  "sources": [
+    { "repo": "LeTournedosRossini/flibuste-neptune", "tag": "latest" },
+    { "repo": "LeTournedosRossini/LowLatConv", "tag": "latest" },
+    { "repo": "LeTournedosRossini/flibuste-align", "tag": "latest" }
+  ],
+  "match": {
+    "macos": "mac",
+    "linux": "linux",
+    "windows": "win"
+  }
+}

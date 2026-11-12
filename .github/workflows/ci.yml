@@ -31,7 +31,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Sans le SDK ASIO le backend ASIO échoue proprement (il n'est pas dans le dépôt).
+      # Le SDK ASIO n'est pas dans le dépôt (redistribution interdite sous la licence Steinberg) : on le télécharge depuis le site de
+      # Steinberg, qui le publie sous double licence Steinberg ASIO / GPLv3 (version 2025, même contenu que celui utilisé en local).
+      # Il sert ici sous les termes de la GPLv3, comme ce dépôt. Sans lui le backend ASIO échoue proprement.
+      - name: SDK ASIO (téléchargement)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://www.steinberg.net/asiosdk -OutFile "$env:RUNNER_TEMP\asiosdk.zip"
+          Expand-Archive "$env:RUNNER_TEMP\asiosdk.zip" -DestinationPath "$env:RUNNER_TEMP\asiosdk"
+          $sdk = Get-ChildItem "$env:RUNNER_TEMP\asiosdk" -Directory | Select-Object -First 1
+          if (-not (Test-Path "$($sdk.FullName)\common\iasiodrv.h")) { throw "SDK ASIO : common/iasiodrv.h introuvable" }
+          "ASIO_SDK_DIR=$($sdk.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Tests
         run: cargo test --workspace --no-fail-fast
 

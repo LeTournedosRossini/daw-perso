@@ -74,8 +74,11 @@ pub struct Bundle {
 impl Bundle {
     pub fn open(path: &Path) -> Result<Bundle, LoadError> {
         let cpath = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| LoadError::BadPath)?;
+        // Sous macOS un `.clap` est un dossier (bundle) : on charge l'exécutable qu'il contient, et on garde le chemin du bundle
+        // pour `init`, comme l'exige la spécification.
+        let binary = bundle_executable(path).unwrap_or_else(|| path.to_owned());
         // SAFETY: charger une bibliothèque exécute son code d'initialisation ; c'est inhérent à un hôte de plugins.
-        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| LoadError::Load(e.to_string()))?;
+        let lib = unsafe { libloading::Library::new(&binary) }.map_err(|e| LoadError::Load(e.to_string()))?;
         // SAFETY: `clap_entry` est, par la spécification CLAP, une variable statique de type `clap_plugin_entry` ;
         // le symbole est donc l'adresse de cette structure, valide tant que la bibliothèque est chargée.
         let entry: *const clap_plugin_entry = unsafe {
@@ -171,6 +174,10 @@ impl Drop for Bundle {
 /// Dossiers où chercher des plugins CLAP selon les conventions du système.
 pub fn default_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    // Plugins livrés avec l'application (voir `packaging/LISEZMOI.md`).
+    if let Ok(exe) = std::env::current_exe() {
+        dirs.extend(bundled_plugin_dirs(&exe));
+    }
     if cfg!(target_os = "windows") {
         if let Some(common) = std::env::var_os("CommonProgramFiles") {
             dirs.push(PathBuf::from(common).join("CLAP"));
@@ -193,6 +200,48 @@ pub fn default_search_dirs() -> Vec<PathBuf> {
         dirs.extend(std::env::split_paths(&extra));
     }
     dirs
+}
+
+/// Dossiers où l'application livre ses propres plugins, d'après le chemin de son exécutable : macOS `Monappli.app/Contents/Resources/plugins`
+/// (l'exécutable est dans `Contents/MacOS`) ; ailleurs un dossier `plugins` à côté de l'exécutable.
+pub fn bundled_plugin_dirs(exe: &Path) -> Vec<PathBuf> {
+    let Some(dir) = exe.parent() else { return Vec::new() };
+    let mut dirs = vec![dir.join("plugins")];
+    if dir.file_name().is_some_and(|n| n == "MacOS") {
+        if let Some(contents) = dir.parent() {
+            dirs.push(contents.join("Resources").join("plugins"));
+        }
+    }
+    dirs
+}
+
+/// Exécutable d'un bundle `.clap` macOS (`Contents/MacOS/<CFBundleExecutable>`) ; `None` si `path` n'est pas un dossier.
+/// `CFBundleExecutable` est lu dans `Contents/Info.plist` (recherche textuelle, format XML) ; à défaut, le fichier du même nom que le
+/// bundle, sinon l'unique fichier de `Contents/MacOS`.
+pub fn bundle_executable(path: &Path) -> Option<PathBuf> {
+    if !path.is_dir() {
+        return None;
+    }
+    let macos = path.join("Contents").join("MacOS");
+    if let Ok(plist) = std::fs::read_to_string(path.join("Contents").join("Info.plist")) {
+        if let Some(i) = plist.find("<key>CFBundleExecutable</key>") {
+            let rest = &plist[i + "<key>CFBundleExecutable</key>".len()..];
+            if let (Some(a), Some(b)) = (rest.find("<string>"), rest.find("</string>")) {
+                if a < b {
+                    let name = rest[a + "<string>".len()..b].trim();
+                    if !name.is_empty() && !name.contains('/') && macos.join(name).is_file() {
+                        return Some(macos.join(name));
+                    }
+                }
+            }
+        }
+    }
+    let by_stem = path.file_stem().map(|s| macos.join(s));
+    if let Some(p) = by_stem.filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    let files: Vec<PathBuf> = std::fs::read_dir(&macos).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+    (files.len() == 1).then(|| files[0].clone())
 }
 
 /// Fichiers `.clap` d'un dossier, parcours récursif (Reaper et d'autres hôtes font de même), triés par chemin.
@@ -233,6 +282,50 @@ mod tests {
         assert!(matches!(Bundle::open(&fake), Err(LoadError::Load(_))));
         assert!(matches!(Bundle::open(&dir.join("absent.clap")), Err(LoadError::Load(_))));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn fake_bundle(root: &Path, name: &str, plist_exec: Option<&str>, files: &[&str]) -> PathBuf {
+        let b = root.join(format!("{name}.clap"));
+        std::fs::create_dir_all(b.join("Contents/MacOS")).unwrap();
+        for f in files {
+            std::fs::write(b.join("Contents/MacOS").join(f), b"x").unwrap();
+        }
+        if let Some(e) = plist_exec {
+            std::fs::write(b.join("Contents/Info.plist"), format!("<plist><dict><key>CFBundleExecutable</key>\n<string>{e}</string></dict></plist>")).unwrap();
+        }
+        b
+    }
+
+    #[test]
+    fn a_macos_bundle_is_resolved_to_its_executable() {
+        let root = std::env::temp_dir().join(format!("daw-clap-bundle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        // 1. nom donné par Info.plist, différent du nom du bundle
+        let a = fake_bundle(&root, "Alpha", Some("AlphaBin"), &["AlphaBin", "autre"]);
+        assert_eq!(bundle_executable(&a).unwrap(), a.join("Contents/MacOS/AlphaBin"));
+        // 2. sans plist : le fichier du même nom que le bundle
+        let b = fake_bundle(&root, "Beta", None, &["Beta", "x"]);
+        assert_eq!(bundle_executable(&b).unwrap(), b.join("Contents/MacOS/Beta"));
+        // 3. sans plist ni nom reconnu : l'unique fichier
+        let c = fake_bundle(&root, "Gamma", None, &["seul"]);
+        assert_eq!(bundle_executable(&c).unwrap(), c.join("Contents/MacOS/seul"));
+        // 4. ambigu ou plist qui désigne un fichier absent, chemin hors du dossier refusé : rien
+        let d = fake_bundle(&root, "Delta", Some("../../evil"), &["un", "deux"]);
+        assert!(bundle_executable(&d).is_none());
+        // 5. un simple fichier n'est pas un bundle
+        let f = root.join("plat.clap");
+        std::fs::write(&f, b"x").unwrap();
+        assert!(bundle_executable(&f).is_none());
+        // ... et un bundle est bien trouvé par le balayage des dossiers
+        assert!(find_plugins(&root).contains(&a));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_applications_own_plugin_folders_follow_the_executable() {
+        assert_eq!(bundled_plugin_dirs(Path::new("/x/DAW.app/Contents/MacOS/daw-app")), vec![PathBuf::from("/x/DAW.app/Contents/MacOS/plugins"), PathBuf::from("/x/DAW.app/Contents/Resources/plugins")]);
+        assert_eq!(bundled_plugin_dirs(Path::new("/opt/daw/daw-app")), vec![PathBuf::from("/opt/daw/plugins")]);
     }
 
     #[test]
