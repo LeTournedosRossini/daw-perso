@@ -18,8 +18,8 @@ function fakeWorker(source) {
   return w;
 }
 
-const PROJET = "C:/Users/lcj/Musique/Chanson.daw";
-const SCRIPTS = "C:/Users/lcj/AppData/Local/DAW/scripts";
+const PROJET = "C:/Users/test/Musique/Chanson.daw";
+const SCRIPTS = "C:/Users/test/AppData/Local/DAW/scripts";
 
 function setup({ confirm = async () => true, projectDir = PROJET } = {}) {
   const engine = new MockEngine();
@@ -38,13 +38,13 @@ function setup({ confirm = async () => true, projectDir = PROJET } = {}) {
 }
 
 test("chemins : normalisation, appartenance à une racine, jonction, empreinte", () => {
-  assert.equal(normalizePath("C:\\Users\\LCJ\\a\\..\\b\\.\\c"), "c:/users/lcj/b/c");
-  assert.equal(normalizePath("/home/jean//x/"), "/home/jean/x");
-  assert.ok(inRoots("C:/Users/lcj/Musique/Chanson.daw/export/x.txt", [PROJET]));
-  assert.ok(inRoots("c:\\users\\lcj\\musique\\chanson.daw", [PROJET]), "la racine elle-même, sans tenir compte de la casse sous Windows");
-  assert.ok(!inRoots("C:/Users/lcj/Musique/Chanson.daw-bis/x.txt", [PROJET]), "un préfixe commun n'est pas « dedans »");
-  assert.ok(!inRoots("C:/Users/lcj/Musique/Chanson.daw/../Autre/x.txt", [PROJET]), "« .. » ne sort pas de la racine");
-  assert.ok(!inRoots("/home/jean/Secret", ["/home/jean/secret"]), "sous Linux la casse compte");
+  assert.equal(normalizePath("C:\\Users\\TEST\\a\\..\\b\\.\\c"), "c:/users/test/b/c");
+  assert.equal(normalizePath("/home/alice//x/"), "/home/alice/x");
+  assert.ok(inRoots("C:/Users/test/Musique/Chanson.daw/export/x.txt", [PROJET]));
+  assert.ok(inRoots("c:\\users\\test\\musique\\chanson.daw", [PROJET]), "la racine elle-même, sans tenir compte de la casse sous Windows");
+  assert.ok(!inRoots("C:/Users/test/Musique/Chanson.daw-bis/x.txt", [PROJET]), "un préfixe commun n'est pas « dedans »");
+  assert.ok(!inRoots("C:/Users/test/Musique/Chanson.daw/../Autre/x.txt", [PROJET]), "« .. » ne sort pas de la racine");
+  assert.ok(!inRoots("/home/alice/Secret", ["/home/alice/secret"]), "sous Linux la casse compte");
   assert.ok(!inRoots("/x", [null, ""]));
   assert.equal(joinPath("C:\\a\\", "/b/", "c.txt"), "C:\\a/b/c.txt");
   assert.equal(hashText("abc"), hashText("abc"));
