@@ -15,8 +15,7 @@ Sous macOS un `.clap` est un **dossier** (`Neptune.clap/Contents/MacOS/Neptune`)
 
 `plugins.json` liste des dépôts GitHub dont la **dernière Release** (ou un tag précis) contient une archive par système. Les dépôts des plugins
 (`flibuste-neptune`, `LowLatConv`, `flibuste-align`) construisent déjà ces archives (`Neptune-macOS.tar.gz`, `…-Linux.tar.gz`, `…-Windows.zip`) ;
-une Release est créée quand on pousse un tag `v*` dans le dépôt du plugin (`git tag v0.0.2 && git push --tags`). **Aucune Release n'existe encore** :
-tant qu'il n'y en a pas, rien n'est téléchargeable.
+une Release est créée quand on pousse un tag `v*` dans le dépôt du plugin (`git tag v0.0.2 && git push --tags`). Les Releases existent depuis le 13 novembre 2026 (Neptune et Sillage `v0.1.0`, LowLatConv `v0.1.1`) ; `plugins.json` a une liste `exclude` (`EssaiCarte`, plugin de test interne, jamais livré).
 
 ```bash
 python3 packaging/fetch_plugins.py --os macos --dest DOSSIER_PLUGINS              # depuis les Releases (outil gh)
@@ -29,7 +28,7 @@ Ajouter un plugin = l'ajouter à une Release d'un dépôt déjà listé, ou ajou
 ## À savoir pour macOS
 
 - Les plugins doivent avoir **la même architecture que l'application** (arm64 sur les exécuteurs `macos-latest`). `LowLatConv` est universel,
-  `Neptune` (archives locales) est arm64 seulement.
+  `Neptune` et `Sillage` (Releases v0.1.0) sont **arm64 seulement** : ils ne se chargent pas sur un Mac Intel.
 - L'application sera livrée signée « ad hoc » (gratuit, sans compte Apple) en **une seule passe sur tout le paquet, plugins compris**, après la
   copie des plugins : une signature faite avant serait invalidée par l'ajout de fichiers.
 - Non notarisé : au premier lancement, clic droit puis « Ouvrir » (ou `xattr -cr DAW.app`).

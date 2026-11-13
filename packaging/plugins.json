@@ -5,6 +5,7 @@
     { "repo": "LeTournedosRossini/LowLatConv", "tag": "latest" },
     { "repo": "LeTournedosRossini/flibuste-align", "tag": "latest" }
   ],
+  "exclude": ["EssaiCarte"],
   "match": {
     "macos": "mac",
     "linux": "linux",

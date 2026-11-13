@@ -41,6 +41,18 @@ def unpack(archive, into):
             t.extractall(into, filter="tar") if sys.version_info >= (3, 12) else t.extractall(into)
 
 
+def normalized(name):
+    """Nom comparable : sans casse, sans espaces, sans extension .clap / archive."""
+    name = re.sub(r"(\.clap|\.zip|\.tar\.gz|\.gz)$", "", name, flags=re.I)
+    return re.sub(r"[\s_-]+", "", name).lower()
+
+
+def is_excluded(name, excluded):
+    """Vrai si `name` (fichier .clap ou archive) commence par un nom exclu (ex. `EssaiCarte` : « Essai Carte.clap », `EssaiCarte-macOS.tar.gz`)."""
+    n = normalized(name)
+    return any(n.startswith(e) for e in excluded)
+
+
 def find_claps(root):
     claps = []
     for dirpath, dirnames, filenames in os.walk(root):
@@ -61,6 +73,7 @@ def main():
     args = ap.parse_args()
     manifest = json.load(open(args.manifest, encoding="utf-8"))
     pattern = manifest["match"][args.os]
+    excluded = [normalized(e) for e in manifest.get("exclude", [])]
     dest = Path(args.dest)
     dest.mkdir(parents=True, exist_ok=True)
     kept = {}
@@ -77,6 +90,9 @@ def main():
                 sources.append(archives_from_github(src, pattern, work))
         for n, archives in enumerate(sources):
             for a in archives:
+                if is_excluded(a.name, excluded):
+                    print(f"  - {a.name}  (exclu)")
+                    continue
                 out = tmp / f"x{n}-{a.name}"
                 try:
                     unpack(a, out)
@@ -84,7 +100,7 @@ def main():
                     print(f"  {a.name} : illisible ({e})", file=sys.stderr)
                     continue
                 for c in find_claps(out):
-                    if c.name in kept:
+                    if c.name in kept or is_excluded(c.name, excluded):
                         continue
                     target = dest / c.name
                     if target.exists():
