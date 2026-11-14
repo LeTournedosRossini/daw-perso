@@ -64,3 +64,26 @@ test("points de changement dans une fenêtre", () => {
   assert.deepEqual(breakpoints(track, 0.5, 2.5), [0.5, 1, 2]);
   assert.deepEqual(breakpoints({}, 0, 4), [0]);
 });
+
+import { fitEdits, outOfScale } from "../js/scale-model.js";
+
+test("forcer à la gamme : seules les notes hors gamme changent, selon la gamme à leur début", () => {
+  const notes = [
+    { index: 0, start: [0, 1], key: 60 }, // do : dans do majeur
+    { index: 1, start: [1, 4], key: 61 }, // do# : → do (60), à égalité la plus grave
+    { index: 2, start: [3, 2], key: 61 }, // do# dans ré majeur (1 à 3) : déjà permis
+    { index: 3, start: [7, 2], key: 61 }, // 3,5 : aucune gamme → inchangé
+  ];
+  const edits = fitEdits(notes, (n) => n.start[0] / n.start[1], track, "scale", catalog);
+  assert.deepEqual(edits, [{ index: 1, key: 60 }]);
+  assert.equal(outOfScale(notes, (n) => n.start[0] / n.start[1], track, catalog), 1);
+});
+
+test("forcer à l'accord : les notes de l'accord sont permises même hors gamme", () => {
+  const notes = [{ index: 0, start: [1, 2], key: 63 }]; // ré# sous do majeur et l'accord do (do mi sol)
+  assert.deepEqual(fitEdits(notes, (n) => n.start[0] / n.start[1], track, "chord", catalog), [{ index: 0, key: 64 }]);
+  assert.deepEqual(fitEdits(notes, (n) => n.start[0] / n.start[1], track, "scale", catalog), [{ index: 0, key: 62 }]);
+  const ok = [{ index: 0, start: [1, 2], key: 62 }]; // ré : dans la gamme, mais pas dans l'accord
+  assert.deepEqual(fitEdits(ok, (n) => n.start[0] / n.start[1], track, "scale", catalog), []);
+  assert.deepEqual(fitEdits(ok, (n) => n.start[0] / n.start[1], track, "chord", catalog), [{ index: 0, key: 60 }]);
+});

@@ -4,6 +4,7 @@
 // (événement `notes`) et la vue se redessine. Réglages de vue (portée, armure, grille, taille) : de l'affichage seulement, jamais dans le MIDI.
 
 import { createScoreView } from "../vendor/scorsaire-score-view/scorsaire-score-view.js";
+import { outOfScale } from "../scale-model.js";
 import { fifthsAt, keyChangesWithin, keyAt, markerAt, KEY_CHOICES, choiceOf, snapWhole } from "../chord-model.js";
 import { fadd, fsub, fcmp as fcmpAbs } from "../notes-model.js";
 import { scoreClipInput, scoreTiming, editToCommands, suggestStaff, defaultPresentation, playheadFraction, startInBarOf } from "../score-adapter.js";
@@ -852,10 +853,28 @@ export class ScoreWindow {
     }
   }
 
+  /** Notes de tous les clips affichés qui sortent de la gamme en vigueur à leur début (le module n'a pas de couleur par note : on les compte). */
+  #offScale() {
+    const track = this.state.chordTrack?.track;
+    if (!track?.scales?.length) return 0;
+    let n = 0;
+    for (const it of this.items.values()) {
+      const d = it.data;
+      if (!d) continue;
+      const base = d.start[0] / d.start[1] - d.offset[0] / d.offset[1];
+      n += outOfScale(d.notes, (x) => base + x.start[0] / x.start[1], track, this.state.chordCatalog);
+    }
+    return n;
+  }
+
   #showMsgs() {
     const lines = [...this.#msgs].map(([mid, m]) => `${this.#clip(this.#realOf(mid))?.clip.name ?? mid} : ${m.split("\n").slice(-1)[0].trim()}`);
-    this.msgEl.textContent = lines.length ? `La partition ne sait pas encore écrire : ${lines.join(" · ")}` : "";
-    this.msgEl.hidden = !lines.length;
+    const off = this.#offScale();
+    const parts = [];
+    if (lines.length) parts.push(`La partition ne sait pas encore écrire : ${lines.join(" · ")}`);
+    if (off) parts.push(`${off} note${off > 1 ? "s" : ""} hors de la gamme en vigueur (piano roll : « Forcer à la gamme »)`);
+    this.msgEl.textContent = parts.join(" — ");
+    this.msgEl.hidden = !parts.length;
   }
 
   #input(id) {

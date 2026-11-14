@@ -230,6 +230,7 @@ const importer = new ImportController(state, engine, files, makeDialogs(), timel
 const mixer = new Mixer(state, engine);
 mixer.onPlugins = (id) => pluginsPanel.open(id);
 const pianoRoll = new PianoRoll(state, engine);
+pianoRoll.onNotice = (m) => flash(m);
 timeline.onPianoRoll = (clipId) => pianoRoll.open(clipId);
 const scoreWindow = new ScoreWindow(state, engine);
 scoreWindow.onOpenRoll = (clipId) => pianoRoll.open(clipId);

@@ -125,6 +125,40 @@ export function scriptLib(daw, call) {
     },
     /** Aimante les débuts sur une grille (fraction de ronde, 1/16 par défaut), positions absolues. */
     quantize: (clip, grid = [1, 16]) => daw.send({ type: "quantize_notes", clip, grid }),
+    /**
+     * Ramène les notes (toutes, ou celles de `indices`) à la gamme en vigueur à leur début, d'après la piste d'accords et de gammes
+     * (`daw.state().chords`) : touche permise la plus proche, à égalité la plus grave. Les notes sans gamme à leur début ne changent pas.
+     * Rend le nombre de notes modifiées. (Pas de mode « accord » ici : l'aide se limite aux gammes.)
+     */
+    fitToScale: async (clip, { indices } = {}) => {
+      const track = (await daw.state()).chords;
+      const r = await notes.get(clip);
+      const NOTE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+      const pc = (name) => {
+        const m = /^([A-G])([#b]*)$/.exec(String(name ?? ""));
+        return m ? (NOTE[m[1]] + [...m[2]].reduce((a, c) => a + (c === "#" ? 1 : -1), 0) + 120) % 12 : null;
+      };
+      const edits = [];
+      for (const n of pick(r.notes, indices)) {
+        const whole = frac.value(r.start) - frac.value(r.offset) + frac.value(n.start);
+        let best = null;
+        for (const s of track?.scales ?? []) {
+          const at = s.at[0] / s.at[1];
+          if (at <= whole + 1e-9 && whole < at + s.dur[0] / s.dur[1] - 1e-9 && (!best || at >= best.at)) best = { at, s };
+        }
+        const root = best ? pc(best.s.root) : null;
+        if (root === null || !best.s.intervals?.length) continue;
+        const allowed = new Set(best.s.intervals.map((i) => (root + i) % 12));
+        let key = n.key;
+        for (let d = 0; d <= 12 && !allowed.has(key % 12); d++) {
+          const cand = [n.key - d, n.key + d].find((k) => k >= 0 && k <= 127 && allowed.has(k % 12));
+          if (cand !== undefined) key = cand;
+        }
+        if (key !== n.key) edits.push({ index: n.index, key });
+      }
+      if (edits.length) await daw.send({ type: "edit_notes", clip, edits, label: "Forcer à la gamme" });
+      return edits.length;
+    },
     /** Ajoute des notes `{ start: [n, d], len: [n, d], key, velocity }` (début depuis le début de la matière du clip). */
     add: (clip, list) => daw.send({ type: "add_notes", clip, notes: list }),
     /** Supprime des notes par indice (ceux de `notes.get`). */

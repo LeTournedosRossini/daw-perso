@@ -142,3 +142,20 @@ test("les exemples de notes se lancent et se défont en un coup", async () => {
     assert.deepEqual(readNotes(), before, `${file} : un seul annuler`);
   }
 });
+
+test("daw.notes.fitToScale ramène les notes à la gamme de la piste, en un seul pas d'annulation", async () => {
+  const { engine, state, runner, midi, readNotes } = setup();
+  state.chordTrack = { revision: 1, track: { scales: [{ at: [0, 1], dur: [64, 1], root: "C", intervals: [0, 2, 4, 5, 7, 9, 11] }], chords: [], keys: [] } };
+  engine.send({ type: "add_notes", clip: midi.id, notes: [{ start: [0, 1], len: [1, 16], key: 61, velocity: 0.8 }] });
+  const before = readNotes();
+  const out = before.filter((n) => ![0, 2, 4, 5, 7, 9, 11].includes(n.key % 12)).length;
+  assert.ok(out > 0, "le clip de démonstration contient une note hors do majeur après l'ajout");
+  const r = await runner.run(`return await daw.notes.fitToScale(${midi.id});`);
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.result, out);
+  assert.equal(readNotes().filter((n) => ![0, 2, 4, 5, 7, 9, 11].includes(n.key % 12)).length, 0);
+  engine.send({ type: "undo" });
+  assert.equal(readNotes().filter((n) => ![0, 2, 4, 5, 7, 9, 11].includes(n.key % 12)).length, out, "une annulation rend tout");
+  const none = await runner.run(`return await daw.notes.fitToScale(${midi.id});`);
+  assert.equal(none.result, out); // les notes sont revenues hors gamme : la même quantité est de nouveau modifiée
+});

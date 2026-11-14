@@ -38,6 +38,7 @@ Toutes sont construites sur `daw.state()` / `daw.send()` (rien d'autre) et se d�
 | `await daw.notes.humanize(clip, { timing, velocity, seed, indices? })` | décale chaque début d'au plus `timing` ticks et la vélocité d'au plus `velocity`, **reproductible** (même `seed`, même résultat) ; un début ne passe jamais avant 0 |
 | `await daw.notes.shift(clip, ticks, { indices? })` | décale les débuts ; une note qui passerait avant 0 reste en place |
 | `await daw.notes.quantize(clip, [1, 16])` | aimante les débuts sur la grille (positions absolues) |
+| `await daw.notes.fitToScale(clip, { indices? })` | ramène les notes à la gamme de la piste d'accords en vigueur à leur début (touche la plus proche, la plus grave à égalité) ; rend le nombre de notes modifiées ; pas de mode « accord » |
 | `await daw.notes.add(clip, [{ start, len, key, velocity }])` / `remove(clip, indices)` | ajoute / supprime des notes (indices de `notes.get`) |
 | `daw.frac.ticks(t)` / `toTicks(f)` / `add(a, b)` / `value(f)` | calculs sur les fractions |
 

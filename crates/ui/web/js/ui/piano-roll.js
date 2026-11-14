@@ -11,7 +11,7 @@ import { canvasPoint, pixelRatio } from "../ui-scale.js";
 import { sampleToX, xToSample } from "../time.js";
 import { getScale } from "../ui-scale.js";
 import { makeFloatable } from "./float-frame.js";
-import { SCALE_MODES, toneAt, snapKey, stepKey, breakpoints } from "../scale-model.js";
+import { SCALE_MODES, toneAt, snapKey, stepKey, breakpoints, fitEdits } from "../scale-model.js";
 import { pinchFactors, pinchMode, GRIDS, gridById, snapAbs, matToAbs, absToMat, moveGroup, resizeGroup, diffEdits, keyName, isBlack, noteId, fnum, fadd, fsub, fcmp } from "../notes-model.js";
 
 const KEYS_W = 56;
@@ -69,6 +69,7 @@ export class PianoRoll {
     this.scaleSel.value = this.scaleMode;
     this.scaleSel.addEventListener("change", () => this.setScaleMode(this.scaleSel.value));
     document.getElementById("pr-quantize").addEventListener("click", () => this.quantize());
+    document.getElementById("pr-fit").addEventListener("click", () => this.fitToScale());
     document.getElementById("pr-zoom-in").addEventListener("click", () => this.zoom(1.25));
     document.getElementById("pr-zoom-out").addEventListener("click", () => this.zoom(0.8));
     document.getElementById("pr-zoomy-in").addEventListener("click", () => this.zoomY(1.2));
@@ -108,7 +109,7 @@ export class PianoRoll {
         <div class="rh-title"></div>
         <select class="rh-grid" aria-label="Grille de magnétisme"></select>
         <select class="rh-scale" aria-label="Contrainte de hauteur" title="Libre, gamme ou accord en vigueur (piste d'accords)"></select>
-        <div class="rh-row"><button class="rh-q" title="Aimante le début de toutes les notes du clip sur la grille">Quantifier</button></div>
+        <div class="rh-row"><button class="rh-q" title="Aimante le début de toutes les notes du clip sur la grille">Quantifier</button><button class="rh-fit" title="Ramène les notes sélectionnées (ou tout le clip) à la gamme en vigueur — à l'accord en mode Accord">Gamme</button></div>
         <div class="rh-row"><span aria-hidden="true">↕</span><button class="rh-zy-out" aria-label="Zoom vertical arrière">−</button><button class="rh-zy-in" aria-label="Zoom vertical avant">＋</button></div>
         <div class="rh-row"><span title="Hauteur du piano roll, en lignes de la timeline">Haut.</span><button class="rh-h-out" aria-label="Moins haut" title="Moins haut">−</button><button class="rh-h-in" aria-label="Plus haut" title="Plus haut">＋</button></div>
         <div class="rh-row"><button class="rh-float" title="Détacher en fenêtre flottante">⇱ Fenêtre</button><button class="rh-close" aria-label="Fermer le piano roll">✕</button></div>
@@ -128,6 +129,7 @@ export class PianoRoll {
     ssel.value = this.scaleMode;
     ssel.addEventListener("change", () => this.setScaleMode(ssel.value));
     head.querySelector(".rh-q").addEventListener("click", () => this.quantize());
+    head.querySelector(".rh-fit").addEventListener("click", () => this.fitToScale());
     head.querySelector(".rh-zy-in").addEventListener("click", () => this.zoomY(1.2));
     head.querySelector(".rh-zy-out").addEventListener("click", () => this.zoomY(1 / 1.2));
     head.querySelector(".rh-h-in").addEventListener("click", () => this.setRows(this.state.rollRows + 1));
@@ -1406,6 +1408,18 @@ export class PianoRoll {
   quantize() {
     if (!this.data) return;
     this.client.send({ type: "quantize_notes", clip: this.clipId, grid: this.grid.f });
+  }
+
+  /** Ramène les notes sélectionnées (ou tout le clip) à la gamme en vigueur à leur début (à l'accord si le mode est « Accord »). Une action annulable. */
+  fitToScale() {
+    if (!this.data) return;
+    const c = this.#cm();
+    const mode = this.scaleMode === "chord" ? "chord" : "scale";
+    const picked = this.sel.size ? new Set(this.#indicesOf(this.sel)) : null;
+    const notes = this.data.notes.map((n, index) => ({ ...n, index })).filter((n) => !picked || picked.has(n.index));
+    const edits = fitEdits(notes, (n) => fnum(fadd(fsub(c.start, c.offset), n.start)), this.state.chordTrack?.track, mode, this.state.chordCatalog);
+    if (!edits.length) return this.onNotice?.(`Aucune note à ramener : tout est déjà dans ${mode === "chord" ? "l'accord" : "la gamme"} (ou il n'y en a pas à cet endroit).`);
+    this.#send(edits, mode === "chord" ? "Forcer à l'accord" : "Forcer à la gamme");
   }
 
   deleteSelected() {

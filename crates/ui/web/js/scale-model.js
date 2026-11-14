@@ -87,3 +87,28 @@ export function breakpoints(track, from, to) {
   }
   return [...pts].sort((a, b) => a - b);
 }
+
+/**
+ * Modifications de touche qui ramènent des notes à la gamme (mode « scale ») ou à l'accord (« chord ») en vigueur à leur début.
+ * `notes` : `[{ index, start, key }]` ; `absWhole(note)` : début absolu en rondes. Les notes déjà permises, ou sans gamme / accord à leur
+ * début, ne changent pas. Rend `[{ index, key }]`.
+ */
+export function fitEdits(notes, absWhole, track, mode, catalog) {
+  const edits = [];
+  for (const n of notes) {
+    const allowed = toneAt(track, absWhole(n), mode, catalog).allowed;
+    const key = snapKey(n.key, allowed);
+    if (key !== n.key) edits.push({ index: n.index, key });
+  }
+  return edits;
+}
+
+/** Nombre de notes hors de la gamme en vigueur à leur début (les notes sans gamme à cet endroit ne comptent pas). */
+export function outOfScale(notes, absWhole, track, catalog) {
+  let count = 0;
+  for (const n of notes) {
+    const sc = toneAt(track, absWhole(n), "scale", catalog).allowed;
+    if (sc && !sc.has(n.key % 12)) count++;
+  }
+  return count;
+}
