@@ -746,6 +746,11 @@ mod backend {
         for d in &list {
             println!("  {}{} : {} entrées, {} sorties, {} Hz", d.name, if d.default_output { " (sortie par défaut)" } else { "" }, d.inputs, d.outputs, d.sample_rate);
         }
+        let midi = daw_audio_io::coremidi::list_inputs();
+        println!("Entrées MIDI ({}) :", midi.len());
+        for (i, m) in midi.iter().enumerate() {
+            println!("  {i} : {m}");
+        }
         Ok(0)
     }
 

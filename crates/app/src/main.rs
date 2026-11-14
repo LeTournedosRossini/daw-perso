@@ -14,7 +14,11 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use daw_audio_io::playback::ControlFn;
+#[cfg(target_os = "macos")]
+use daw_audio_io::coremidi as midi_sys;
 use daw_audio_io::playback::{StereoProcessor, StreamLatency};
+#[cfg(target_os = "windows")]
+use daw_audio_io::winmm_midi as midi_sys;
 use daw_engine::Engine;
 use daw_ui::demo::demo_session_with_instruments;
 use daw_ui::prefs::{self, Effective, Prefs, Runtime};
@@ -393,8 +397,8 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     let (session, meta, note) = demo_session_with_instruments(rate);
     log(&note);
     let mut host = Host::new(handle, session, meta).map_err(|e| format!("graphe refusé : {e:?}"))?;
-    #[cfg(target_os = "windows")]
-    host.set_midi_devices(daw_audio_io::winmm_midi::list_inputs());
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    host.set_midi_devices(midi_sys::list_inputs());
     host.set_name("Démonstration");
     host.set_autosave(autosave_root(), Duration::from_secs(60));
     // Balayage des plugins installés dès le démarrage (fil à part, avec cache disque) : le sélecteur est prêt quand on l'ouvre.
@@ -433,10 +437,11 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     Ok((engine, host))
 }
 
-/// Entrées MIDI de tous les appareils (Windows : WinMM). Chaque message va aux pistes MIDI armées, au début du prochain bloc.
-#[cfg(target_os = "windows")]
-fn open_midi_inputs(route: &SharedRoute) -> Vec<daw_audio_io::winmm_midi::MidiInput> {
-    use daw_audio_io::winmm_midi::{list_inputs, MidiInput};
+/// Entrées MIDI de tous les appareils (Windows : WinMM ; macOS : CoreMIDI, jamais essayé sans Mac). Chaque message va aux pistes MIDI
+/// armées, au début du prochain bloc.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn open_midi_inputs(route: &SharedRoute) -> Vec<midi_sys::MidiInput> {
+    use midi_sys::{list_inputs, MidiInput};
     let mut open = Vec::new();
     for (i, name) in list_inputs().iter().enumerate() {
         let r = Arc::clone(route);
@@ -452,7 +457,7 @@ fn open_midi_inputs(route: &SharedRoute) -> Vec<daw_audio_io::winmm_midi::MidiIn
     open
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn deliver_midi(route: &SharedRoute, device: &str, bytes: &[u8]) {
     let Some(msg) = daw_engine::parse_midi(bytes) else { return };
     // Canal du message (0 à 15) : l'octet d'état d'un message de canal (0x80 à 0xEF).
@@ -531,7 +536,7 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
 /// sans Mac, jamais essayé** (voir `CLAUDE.md`). Ouvrir les entrées déclenche la demande d'autorisation du micro : `Info.plist` (à la racine de
 /// ce crate, intégré à l'exécutable par `tauri-build`) porte `NSMicrophoneUsageDescription`, sans quoi le système terminerait l'application.
 /// Un refus de l'utilisateur donne du silence en entrée, pas une erreur ; si l'ouverture avec entrées échoue, nouvel essai sans entrée.
-/// Pas encore : entrées MIDI (CoreMIDI), compensation de latence d'entrée mesurée sur ce matériel.
+/// Entrées MIDI : CoreMIDI (`coremidi.rs`). Pas encore : compensation de latence d'entrée mesurée sur ce matériel.
 #[cfg(target_os = "macos")]
 fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<(), String> {
     use daw_audio_io::coreaudio_backend::{run_playback_ex, PlayOptions};
@@ -591,7 +596,7 @@ fn run_silent(app: &AppHandle, rx: SharedRx, route: &SharedRoute) {
 fn engine_thread(app: AppHandle, rx: SharedRx) {
     let route: SharedRoute = Arc::default();
     // Les entrées MIDI restent ouvertes tant que ce fil vit.
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     let _midi = open_midi_inputs(&route);
     #[cfg(target_os = "windows")]
     {
