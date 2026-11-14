@@ -21,6 +21,9 @@ use daw_ui::prefs::{self, Effective, Prefs, Runtime};
 use daw_ui::{Event, Host};
 #[cfg(target_os = "windows")]
 mod win32_window;
+// Fenêtres de plugin macOS : `cocoa_check` permet de la vérifier sous Linux (`cargo rustc … -- --cfg cocoa_check`, compilation seulement).
+#[cfg(any(target_os = "macos", cocoa_check))]
+mod cocoa_window;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -333,6 +336,11 @@ fn control_pages_path() -> Option<std::path::PathBuf> {
     data_dir().map(|d| d.join("control-pages.json"))
 }
 
+/// Liste des projets récents (`…/DAW/recent.json`).
+fn recent_path() -> Option<std::path::PathBuf> {
+    data_dir().map(|d| d.join("recent.json"))
+}
+
 /// Cache du balayage des plugins installés (`…/DAW/plugin-cache.json`).
 fn plugin_cache_path() -> Option<std::path::PathBuf> {
     data_dir().map(|d| d.join("plugin-cache.json"))
@@ -393,6 +401,7 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     host.set_plugin_cache(plugin_cache_path());
     host.start_plugin_scan();
     host.set_control_pages_path(control_pages_path());
+    host.set_recent_path(recent_path());
     host.set_audio_inputs(inputs);
     // Préférences (le métronome en reprend ses réglages) et description de ce qui tourne, pour la fenêtre des réglages.
     let (prefs, warning) = startup_prefs();
@@ -413,9 +422,12 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
         cores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
         audio,
     });
-    // Interfaces natives des plugins : fenêtres Win32 pompées par ce fil (celui des plugins). Pas encore écrit pour macOS et Linux.
+    // Interfaces natives des plugins : fenêtres Win32 pompées par ce fil (celui des plugins) ; macOS : `NSView` logées dans la fenêtre
+    // Tauri, appels de plugin envoyés au fil principal (voir `cocoa_window.rs`). Pas encore écrit pour Linux.
     #[cfg(target_os = "windows")]
     host.set_window_system(Box::new(win32_window::DockedSystem::new()));
+    #[cfg(target_os = "macos")]
+    host.set_window_system(Box::new(cocoa_window::DockedSystem::new()));
     // L'entrée MIDI du moteur est confiée au routeur : les fils des appareils y déposent leurs messages.
     route.lock().unwrap_or_else(|e| e.into_inner()).tx = host.take_midi_input();
     Ok((engine, host))
@@ -644,6 +656,13 @@ fn main() {
             log("fenêtre prête : démarrage du fil moteur");
             #[cfg(target_os = "windows")]
             win32_window::set_app(app.handle().clone());
+            #[cfg(target_os = "macos")]
+            {
+                cocoa_window::set_app(app.handle().clone());
+                // AppKit exige le fil principal : les appels d'interface des plugins y sont envoyés (le fil moteur attend la fin).
+                let app2 = app.handle().clone();
+                daw_clap_host::main_thread::set_runner(Box::new(move |job| app2.run_on_main_thread(job).is_ok()));
+            }
             let handle = app.handle().clone();
             std::thread::Builder::new().name("moteur".into()).spawn(move || engine_thread(handle, rx)).expect("fil moteur");
             Ok(())

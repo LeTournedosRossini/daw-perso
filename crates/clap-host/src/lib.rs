@@ -264,6 +264,7 @@ pub fn find_plugins(dir: &Path) -> Vec<PathBuf> {
 }
 
 mod insert;
+pub mod main_thread;
 mod plugin;
 pub use insert::{clap_insert_factory, ClapInsert};
 pub use plugin::{FrChordTrack, FrItem, GuiSupport, ParamInfo, ParamOut, Plugin, PluginError, PluginHandle, PortsInfo, ProcessStatus};

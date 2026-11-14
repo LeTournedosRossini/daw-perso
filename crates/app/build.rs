@@ -1,4 +1,5 @@
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(cocoa_check)");
     tauri_build::build();
     // macOS : intègre Info.plist à l'exécutable (section __TEXT,__info_plist), pour que le système y trouve
     // NSMicrophoneUsageDescription même sans paquet d'application. `tauri-build` ne le fait pas dans ce cas.

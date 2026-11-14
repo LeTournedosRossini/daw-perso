@@ -629,32 +629,68 @@ impl PluginHandle {
         self.core.gui_is_open()
     }
     pub fn gui_set_scale(&self, scale: f64) -> bool {
+        crate::main_thread::run(|| self.gui_set_scale_here(scale)).unwrap_or(false)
+    }
+
+    fn gui_set_scale_here(&self, scale: f64) -> bool {
         self.core.gui_set_scale(scale)
     }
     pub fn gui_size(&self) -> Option<(u32, u32)> {
+        crate::main_thread::run(|| self.gui_size_here()).unwrap_or(None)
+    }
+
+    fn gui_size_here(&self) -> Option<(u32, u32)> {
         self.core.gui_size()
     }
     pub fn gui_can_resize(&self) -> bool {
+        crate::main_thread::run(|| self.gui_can_resize_here()).unwrap_or(false)
+    }
+
+    fn gui_can_resize_here(&self) -> bool {
         self.core.gui_can_resize()
     }
     pub fn gui_adjust_size(&self, w: u32, h: u32) -> (u32, u32) {
+        crate::main_thread::run(|| self.gui_adjust_size_here(w, h)).unwrap_or((w, h))
+    }
+
+    fn gui_adjust_size_here(&self, w: u32, h: u32) -> (u32, u32) {
         self.core.gui_adjust_size(w, h)
     }
     pub fn gui_set_size(&self, w: u32, h: u32) -> bool {
+        crate::main_thread::run(|| self.gui_set_size_here(w, h)).unwrap_or(false)
+    }
+
+    fn gui_set_size_here(&self, w: u32, h: u32) -> bool {
         self.core.gui_set_size(w, h)
     }
     /// # Safety
     /// Voir `Core::gui_set_parent` : `handle` est une fenêtre native valide de l'API `api`, vivante jusqu'à `gui_destroy`.
     pub unsafe fn gui_set_parent(&self, api: &str, handle: usize) -> bool {
+        crate::main_thread::run(|| self.gui_set_parent_here(api, handle)).unwrap_or(false)
+    }
+
+    unsafe fn gui_set_parent_here(&self, api: &str, handle: usize) -> bool {
         self.core.gui_set_parent(api, handle)
     }
     pub fn gui_suggest_title(&self, title: &str) {
+        crate::main_thread::run(|| self.gui_suggest_title_here(title));
+    }
+
+    fn gui_suggest_title_here(&self, title: &str) {
         self.core.gui_suggest_title(title)
     }
     pub fn gui_show(&self) -> bool {
+        crate::main_thread::run(|| self.gui_show_here()).unwrap_or(false)
+    }
+
+    fn gui_show_here(&self) -> bool {
         self.core.gui_show()
     }
     pub fn gui_hide(&self) -> bool {
+        crate::main_thread::run(|| self.gui_hide_here()).unwrap_or(false)
+    }
+
+    fn gui_hide_here(&self) -> bool {
         self.core.gui_hide()
     }
     pub fn take_gui_resize_request(&self) -> Option<(u32, u32)> {
@@ -726,6 +762,10 @@ impl Core {    fn ext<T>(&self, id: &CStr) -> Option<&T> {
 
     /// Crée l'interface **intégrée** (non flottante) pour l'API de fenêtre `api` (`win32`, `cocoa`, `x11`). `false` : refusée.
     pub fn gui_create(&self, api: &str) -> bool {
+        crate::main_thread::run(|| self.gui_create_here(api)).unwrap_or(false)
+    }
+
+    fn gui_create_here(&self, api: &str) -> bool {
         let Some(gui) = self.ext::<clap_plugin_gui>(CLAP_EXT_GUI) else { return false };
         let (Some(create), Ok(c)) = (gui.create, std::ffi::CString::new(api)) else { return false };
         // SAFETY: `raw` valide, `c` chaîne C valide pendant l'appel.
@@ -741,6 +781,14 @@ impl Core {    fn ext<T>(&self, id: &CStr) -> Option<&T> {
 
     /// Cache puis détruit l'interface (sans effet si elle n'est pas créée).
     pub fn gui_destroy(&self) {
+        if !self.gui_open.load(Ordering::Acquire) {
+            return;
+        }
+        // Sur le fil principal (macOS) ; si la tâche n'a pas pu partir (application qui se ferme) l'interface n'est pas détruite ici.
+        crate::main_thread::run(|| self.gui_destroy_here());
+    }
+
+    fn gui_destroy_here(&self) {
         if !self.gui_open.swap(false, Ordering::AcqRel) {
             return;
         }
@@ -857,9 +905,14 @@ impl Core {    fn ext<T>(&self, id: &CStr) -> Option<&T> {
             }).collect()
         };
         let Some(f) = self.ext::<clap_plugin_timer_support>(CLAP_EXT_TIMER_SUPPORT).and_then(|t| t.on_timer) else { return 0 };
-        for id in &due {
-            // SAFETY: `raw` valide ; fil principal.
-            unsafe { f(self.raw, *id) }
+        if !due.is_empty() {
+            // Sur le fil principal du processus (macOS) : les interfaces des plugins y vivent.
+            crate::main_thread::run(|| {
+                for id in &due {
+                    // SAFETY: `raw` valide ; fil principal (au sens de CLAP : celui des interfaces).
+                    unsafe { f(self.raw, *id) }
+                }
+            });
         }
         due.len()
     }

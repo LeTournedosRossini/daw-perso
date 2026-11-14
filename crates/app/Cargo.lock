@@ -557,6 +557,7 @@ name = "daw-app"
 version = "0.1.0"
 dependencies = [
  "daw-audio-io",
+ "daw-clap-host",
  "daw-core-types",
  "daw-engine",
  "daw-session",
