@@ -108,6 +108,8 @@ pub struct NodeDesc {
     pub input_dyn: crate::dynamics::InputDynamics,
     /// Courbe de réponse de la vélocité des notes (pistes seulement) : appliquée entre les notes (en direct ou des clips) et les plugins.
     pub vel_curve: crate::velocity::VelocityCurve,
+    /// Verrou de gamme (pistes seulement) : ramène les notes jouées **en direct** à la gamme ou à l'accord en vigueur.
+    pub scale_lock: crate::scale_lock::ScaleLock,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +198,7 @@ impl GraphDesc {
                 automation: Vec::new(),
                 input_dyn: Default::default(),
                 vel_curve: Default::default(),
+                scale_lock: Default::default(),
             }],
             pdc: true,
             time_map: Default::default(),
@@ -221,6 +224,7 @@ impl GraphDesc {
             automation: Vec::new(),
             input_dyn: Default::default(),
             vel_curve: Default::default(),
+            scale_lock: Default::default(),
         }
     }
 

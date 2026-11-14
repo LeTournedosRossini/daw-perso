@@ -1120,6 +1120,23 @@ impl Host {
                 self.dirty = true;
                 vec![self.project_event()]
             }
+            Command::SetTrackScaleLock { node, mode } => {
+                let lock = match mode.as_str() {
+                    "scale" => daw_engine::ScaleLock::Scale,
+                    "chord" => daw_engine::ScaleLock::Chord,
+                    _ => daw_engine::ScaleLock::Off,
+                };
+                let old = self.session.scale_lock(NodeId(node));
+                if let Err(e) = self.session.set_scale_lock_untracked(NodeId(node), lock) {
+                    return error(explain(&e));
+                }
+                if let Err(e) = self.handle.load_graph(self.session.graph()) {
+                    let _ = self.session.set_scale_lock_untracked(NodeId(node), old);
+                    return error(format!("le moteur a refusé la modification : {e:?}"));
+                }
+                self.dirty = true;
+                vec![self.project_event()]
+            }
             Command::SetTrackMidiFilter { node, rules } => {
                 let rules: Vec<daw_session::midi_filter::MidiRule> = rules
                     .into_iter()
@@ -3003,6 +3020,7 @@ impl Host {
                     monitor: self.session.node_input(id).monitor,
                     dynamics: DynamicsSpec::from_engine(self.session.input_dynamics(id)),
                     velocity_curve: VelocityCurveSpec::from_engine(self.session.velocity_curve(id)),
+                    scale_lock: match self.session.scale_lock(id) { daw_engine::ScaleLock::Off => "off", daw_engine::ScaleLock::Scale => "scale", daw_engine::ScaleLock::Chord => "chord" }.into(),
                     midi_filter: self.session.midi_filter(id).iter().map(|r| MidiRuleSpec { device: r.device.clone(), channels: if r.channels == daw_session::midi_filter::ALL_CHANNELS { Vec::new() } else { (1..=16u8).filter(|c| r.channels & (1u16 << (c - 1)) != 0).collect() } }).collect(),
                     inserts: n
                         .inserts

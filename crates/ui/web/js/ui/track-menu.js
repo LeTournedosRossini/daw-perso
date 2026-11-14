@@ -113,6 +113,12 @@ function appendInput(m, node, project, client) {
   m.append(item("MIDI (clavier, pads…)", () => set({ kind: "midi" }), { checked: cur.kind === "midi" }));
   if (cur.kind === "midi") m.append(item(`Filtre d'entrée MIDI… (${describeFilter(node.midi_filter)})`, () => openMidiFilterDialog({ client, project, node })));
   m.append(item(`Courbe de vélocité… (${describeCurve(node.velocity_curve)})`, () => openVelocityDialog({ client, node })));
+  if (cur.kind === "midi") {
+    // Verrou de gamme : les notes jouées en direct sont ramenées à la gamme (ou à l'accord) en vigueur de la piste d'accords.
+    const lock = node.scale_lock ?? "off";
+    const pick = (mode, label, title) => ({ label, title, pressed: lock === mode, onClick: () => client.send({ type: "set_track_scale_lock", node: node.id, mode }) });
+    m.append(heading("Verrou de gamme (notes jouées)"), chips([pick("off", "Libre", "Les notes passent telles quelles"), pick("scale", "Gamme", "Ramène chaque note à la gamme en vigueur"), pick("chord", "Accord", "Ramène chaque note à l'accord en vigueur")]));
+  }
   if (cur.kind !== "midi") m.append(item(`Dynamique d'entrée… (${describeDynamics(node.dynamics)})`, () => openDynamicsDialog({ client, node })));
   m.append(item("Écoute directe de l'entrée", () => client.send({ type: "set_node", node: node.id, monitor: !node.monitor }), { checked: !!node.monitor }));
 }

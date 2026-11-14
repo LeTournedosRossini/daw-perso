@@ -262,6 +262,8 @@ pub enum Command {
     /// Courbe de réponse de la vélocité des débuts de note d'une piste (entre les notes, en direct ou des clips, et ses plugins ;
     /// l'enregistrement reste brut). Hors historique, enregistrée avec le projet.
     SetTrackVelocityCurve { node: u32, curve: VelocityCurveSpec },
+    /// Verrou de gamme des notes jouées en direct sur une piste : `off`, `scale` ou `chord`.
+    SetTrackScaleLock { node: u32, mode: String },
     /// Enregistre : lance la lecture à partir de la position courante et enregistre toutes les pistes armées. Refusé sans
     /// piste armée, sans dossier de projet (« Enregistrer sous » d'abord), ou si une boucle est active.
     Record,
@@ -562,6 +564,7 @@ impl Command {
             Command::SetTrackMidiFilter { .. } => "set_track_midi_filter",
             Command::SetTrackDynamics { .. } => "set_track_dynamics",
             Command::SetTrackVelocityCurve { .. } => "set_track_velocity_curve",
+            Command::SetTrackScaleLock { .. } => "set_track_scale_lock",
             Command::Record => "record",
             Command::StopRecord => "stop_record",
             Command::NewProject => "new_project",
@@ -826,6 +829,15 @@ impl Command {
                 }
                 if !dynamics.to_engine().is_valid() {
                     return Err("set_track_dynamics : porte −90 à −20 dB, seuil −60 à 0 dB, rapport 1 à 20, attaque 0,1 à 100 ms, relâchement 10 à 2 000 ms, compensation 0 à 24 dB".into());
+                }
+                Ok(())
+            }
+            Command::SetTrackScaleLock { node, mode } => {
+                if *node == 0 {
+                    return Err("set_track_scale_lock : la sortie principale n'a pas d'entrée".into());
+                }
+                if !matches!(mode.as_str(), "off" | "scale" | "chord") {
+                    return Err("set_track_scale_lock : mode « off », « scale » ou « chord »".into());
                 }
                 Ok(())
             }
@@ -1415,6 +1427,8 @@ pub struct NodeInfo {
     pub dynamics: DynamicsSpec,
     /// Courbe de réponse de la vélocité de la piste.
     pub velocity_curve: VelocityCurveSpec,
+    /// Verrou de gamme des notes jouées en direct : `off`, `scale` ou `chord`.
+    pub scale_lock: String,
     /// Chaîne de plugins, dans l'ordre de traitement.
     pub inserts: Vec<InsertInfo>,
     /// Envois (en plus de la sortie), dans l'ordre : destination (`0` = sortie principale), niveau, avant le fader.

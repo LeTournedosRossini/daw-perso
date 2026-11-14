@@ -157,6 +157,9 @@ export function validateCommand(m) {
       return m.threshold_ms === undefined || m.threshold_ms === null || (Number.isFinite(m.threshold_ms) && m.threshold_ms > 0 && m.threshold_ms <= 5000) ? null : "get_align : seuil de 0 à 5 000 ms";
     case "merge_align_settings":
       return typeof m.dst === "string" && typeof m.src === "string" ? null : "merge_align_settings : dst et src (textes JSON)";
+    case "set_track_scale_lock":
+      if (!Number.isInteger(m.node) || m.node <= 0) return "set_track_scale_lock : node (une piste)";
+      return ["off", "scale", "chord"].includes(m.mode) ? null : "set_track_scale_lock : mode « off », « scale » ou « chord »";
     case "set_track_velocity_curve": {
       const c = m.curve;
       const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;

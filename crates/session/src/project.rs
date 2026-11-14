@@ -27,7 +27,7 @@ pub type Migration = fn(&mut Value) -> Result<(), String>;
 /// Historique : v1 = premier format (clips de notes en échantillons) ; v2 = temps musical (cartes des tempos et des
 /// chiffrages, clips de notes et automation en fractions de ronde) ; v3 = événements de contrôle des clips de notes
 /// (contrôleurs, molette de hauteur, pressions) ; v4 = fenêtre visible (`offset`) et fondus de vélocité des clips de notes ; v5 = trois formes de fondu de plus (`s_curve`, `slow`, `fast`) ; v9 = mode des courbes d'automation (`read`, `trim`, `off`) et courbes de niveau d'envoi ; v8 = envois « avant le fader » (`pre`) et vers la sortie principale ; v6 = courbe de fondu continue (`bend`, `smooth`) : les formes de la v5 deviennent des réglages de la courbe de base.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20, v20_to_v21];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22];
 pub const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32 + 1;
 
 /// Fournit les données d'un fichier audio à partir du chemin inscrit dans le projet.
@@ -273,6 +273,9 @@ struct NodeDto {
     /// Courbe de réponse de la vélocité de la piste (format 20) : absente, désactivée.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     vel_curve: Option<VelCurveDto>,
+    /// Verrou de gamme des notes jouées en direct (format 22) : `"scale"` ou `"chord"` ; absent, aucun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scale_lock: Option<String>,
     sends: Vec<SendDto>,
     clips: Vec<ClipDto>,
     midi_clips: Vec<MidiClipDto>,
@@ -537,6 +540,11 @@ fn v11_to_v12(_: &mut Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Migration 21 → 22 : verrou de gamme d'une piste (`scale_lock` : `"scale"` ou `"chord"`), facultatif : absent = aucun.
+fn v21_to_v22(_: &mut Value) -> Result<(), String> {
+    Ok(())
+}
+
 /// Migration 20 → 21 : le retour de monitoring devient un type à part (`monitor` du nœud). Avant, un bus avec sortie physique **était**
 /// un retour : ces bus-là le restent.
 fn v20_to_v21(v: &mut Value) -> Result<(), String> {
@@ -673,6 +681,7 @@ impl Session {
                 group: self.node_group.get(n.id.0 as usize).copied().unwrap_or(0),
                 monitor_token: self.monitor_tokens.get(n.id.0 as usize).cloned().unwrap_or_default(),
                 monitor_role: self.monitor_roles.get(n.id.0 as usize).copied().unwrap_or(0),
+                scale_lock: match n.scale_lock { daw_engine::ScaleLock::Off => None, daw_engine::ScaleLock::Scale => Some("scale".into()), daw_engine::ScaleLock::Chord => Some("chord".into()) },
                 vel_curve: (n.vel_curve != daw_engine::VelocityCurve::default()).then(|| VelCurveDto { enabled: n.vel_curve.enabled, bend: n.vel_curve.bend, smooth: n.vel_curve.smooth, min: n.vel_curve.min, max: n.vel_curve.max, fixed: n.vel_curve.fixed }),
                 input_dyn: (n.input_dyn != daw_engine::InputDynamics::default()).then(|| DynDto { enabled: n.input_dyn.enabled, gate_db: n.input_dyn.gate_db, threshold_db: n.input_dyn.threshold_db, ratio: n.input_dyn.ratio, attack_ms: n.input_dyn.attack_ms, release_ms: n.input_dyn.release_ms, makeup_db: n.input_dyn.makeup_db, record: n.input_dyn.record }),
                 midi_filter: self.midi_filters.get(n.id.0 as usize).map(|v| v.iter().map(|r| MidiRuleDto { device: r.device.clone(), channels: r.channels }).collect()).unwrap_or_default(),
@@ -939,6 +948,14 @@ impl Session {
             if let Some(v) = &n.vel_curve {
                 let curve = daw_engine::VelocityCurve { enabled: v.enabled, bend: v.bend, smooth: v.smooth, min: v.min, max: v.max, fixed: v.fixed };
                 s.set_velocity_curve_untracked(NodeId(i as u32), curve).map_err(|e| ProjectError::BadGraph(format!("courbe de vélocité : {e:?}")))?;
+            }
+            if let Some(mode) = n.scale_lock.as_deref() {
+                let lock = match mode {
+                    "scale" => daw_engine::ScaleLock::Scale,
+                    "chord" => daw_engine::ScaleLock::Chord,
+                    other => return Err(ProjectError::BadGraph(format!("verrou de gamme inconnu : {other}"))),
+                };
+                s.set_scale_lock_untracked(NodeId(i as u32), lock).map_err(|e| ProjectError::BadGraph(format!("verrou de gamme : {e:?}")))?;
             }
             if !n.midi_filter.is_empty() {
                 let rules = n.midi_filter.iter().map(|r| crate::midi_filter::MidiRule { device: r.device.clone(), channels: r.channels }).collect();

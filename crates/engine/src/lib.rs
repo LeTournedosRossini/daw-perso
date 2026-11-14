@@ -19,6 +19,7 @@ mod parallel;
 mod record;
 mod smoother;
 mod time;
+mod scale_lock;
 mod velocity;
 
 pub use audio::{crossfade, AudioData, AudioDataError, Clip, EditError, Fade, FadeShape};
@@ -27,6 +28,7 @@ pub use compiled::{AheadConfig, AheadParams, AheadStats, AheadSystem, CompiledGr
 pub use engine::{Command, Engine, EngineHandle, LoadError};
 pub use dynamics::InputDynamics;
 pub use velocity::VelocityCurve;
+pub use scale_lock::ScaleLock;
 pub use graph::{GraphDesc, GraphError, NodeDesc, NodeKind, NodeParams, PhysOut, SendDesc, TrackFormat, MAX_OUT_CHANNELS};
 pub use metronome::{Click, ClickTrack, CountIn};
 pub use record::{RecordReceiver, RecordSource, RecordStatus, MAX_INPUTS};

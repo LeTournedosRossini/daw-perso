@@ -503,6 +503,37 @@ fn a_track_velocity_curve_is_set_through_the_protocol_refused_when_invalid_and_s
 }
 
 #[test]
+fn a_track_scale_lock_is_set_through_the_protocol_refused_when_invalid_and_saved() {
+    let (_engine, handle) = Engine::new(SR, 64);
+    let (session, meta) = demo_session(SR);
+    let mut h = Host::new(handle, session, meta).unwrap();
+    let synth = node(&state(&mut h), "Claviers").id;
+    assert_eq!(node(&state(&mut h), "Claviers").scale_lock, "off", "aucun verrou par défaut");
+    let ev = h.command_json(&format!(r#"{{"type":"set_track_scale_lock","node":{synth},"mode":"scale"}}"#));
+    assert!(errors(&ev).is_empty(), "{:?}", errors(&ev));
+    assert_eq!(node(&ev, "Claviers").scale_lock, "scale");
+    let ev = h.command_json(&format!(r#"{{"type":"set_track_scale_lock","node":{synth},"mode":"chord"}}"#));
+    assert_eq!(node(&ev, "Claviers").scale_lock, "chord");
+    for cmd in [
+        format!(r#"{{"type":"set_track_scale_lock","node":{synth},"mode":"tout"}}"#),
+        r#"{"type":"set_track_scale_lock","node":0,"mode":"scale"}"#.to_string(),
+        r#"{"type":"set_track_scale_lock","node":99,"mode":"scale"}"#.to_string(),
+    ] {
+        assert!(!errors(&h.command_json(&cmd)).is_empty(), "{cmd}");
+    }
+    assert_eq!(node(&state(&mut h), "Claviers").scale_lock, "chord", "un refus ne change rien");
+    let dir = std::env::temp_dir().join(format!("daw-scalelock-{}.daw", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let p = serde_json::to_string(&dir.to_string_lossy()).unwrap();
+    h.command_json(&format!(r#"{{"type":"save_project","path":{p}}}"#));
+    h.command_json(r#"{"type":"new_project"}"#);
+    let ev = h.command_json(&format!(r#"{{"type":"open_project","path":{p}}}"#));
+    assert!(errors(&ev).is_empty(), "{:?}", errors(&ev));
+    assert_eq!(node(&state(&mut h), "Claviers").scale_lock, "chord", "enregistré avec le projet");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_return_copies_the_groups_of_another_return_and_a_track_cannot_output_to_a_return() {
     let (mut h, marie) = with_return();
     let ev = h.command_json(r#"{"type":"add_track","kind":"return","name":"Retour Paul"}"#);

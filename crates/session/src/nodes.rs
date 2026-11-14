@@ -376,6 +376,22 @@ impl Session {
         Ok(())
     }
 
+    /// Verrou de gamme d'une piste (notes jouées en direct).
+    pub fn scale_lock(&self, node: NodeId) -> daw_engine::ScaleLock {
+        self.graph.nodes.get(node.0 as usize).map(|n| n.scale_lock).unwrap_or_default()
+    }
+
+    /// Règle le verrou de gamme d'une piste **sans historique** (réglage d'entrée, comme la courbe de vélocité ; l'appelant recharge le
+    /// graphe). Refusé si le nœud n'est pas une piste.
+    pub fn set_scale_lock_untracked(&mut self, node: NodeId, lock: daw_engine::ScaleLock) -> Result<(), SessionError> {
+        let i = self.node_index(node)?;
+        if !matches!(self.graph.nodes[i].kind, daw_engine::NodeKind::Track(_)) {
+            return Err(SessionError::NotATrack(node));
+        }
+        self.graph.nodes[i].scale_lock = lock;
+        Ok(())
+    }
+
     /// Filtre d'entrée MIDI d'une piste (liste vide : tout accepter).
     pub fn midi_filter(&self, node: NodeId) -> &[crate::midi_filter::MidiRule] {
         self.midi_filters.get(node.0 as usize).map_or(&[], Vec::as_slice)

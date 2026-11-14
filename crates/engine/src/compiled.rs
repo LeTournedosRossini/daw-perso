@@ -32,6 +32,8 @@ fn ramp_frames(sample_rate: u32) -> u32 {
 /// Événements de notes gardés par bloc et par piste (au-delà : perdus et comptés).
 const MAX_BLOCK_EVENTS: usize = 1024;
 /// Messages en attente (notes jouées en direct, coupures de notes bloquées) par piste.
+/// Bit posé sur le décalage d'un message de `live` qui vient du moteur lui-même (coupures de notes) : il ne passe pas par le verrou de gamme.
+const RAW_LIVE: u32 = 1 << 31;
 const MAX_PENDING: usize = 512;
 /// Balayage de la panique : une fin de note par touche et par canal (16 × 128), `PANIC_PER_BLOCK` par bloc (sans dépasser la
 /// capacité des listes d'événements).
@@ -216,6 +218,9 @@ struct NodeC {
     panic_cursor: u32,
     /// Courbe de réponse de la vélocité des débuts de note (`None` : désactivée, les notes passent telles quelles).
     vel_table: Option<Box<[u8; 128]>>,
+    /// Verrou de gamme des notes jouées en direct, et touche émise pour chaque touche jouée (pistes seulement ; alloué à la compilation).
+    scale_lock: crate::scale_lock::ScaleLock,
+    lock_map: Option<Box<crate::scale_lock::LockMap>>,
     /// Types de messages en direct reçus pendant le bloc (bits `meters::MIDI_*`), remis à zéro après publication.
     midi_seen: u8,
     /// Vélocité brute (1 à 127) de la dernière note jouée en direct pendant le bloc (0 : aucune).
@@ -425,7 +430,9 @@ impl NodeC {
         }
         for k in 0..self.live.len() {
             let (off, m) = self.live[k];
-            let time = (off as usize).min(n.saturating_sub(1)) as u32;
+            let raw = off & RAW_LIVE != 0;
+            let time = ((off & !RAW_LIVE) as usize).min(n.saturating_sub(1)) as u32;
+            let m = if raw { m } else { self.lock_live(m, pos + u64::from(time)) };
             if self.events.len() < MAX_BLOCK_EVENTS {
                 self.events.push(MidiEvent { time, msg: shape_note(&self.vel_table, m) });
                 self.active.apply(m);
@@ -468,6 +475,39 @@ impl NodeC {
         dropped
     }
 
+    /// Applique le verrou de gamme à un message joué en direct à l'échantillon `at` : débuts de note ramenés à la gamme ou à l'accord en
+    /// vigueur ; la fin (et la pression par touche) suit la touche **réellement** émise, même si le verrou a été coupé entre-temps.
+    fn lock_live(&mut self, m: MidiMsg, at: u64) -> MidiMsg {
+        let lock = self.scale_lock;
+        let Some(map) = self.lock_map.as_mut() else { return m };
+        match m {
+            MidiMsg::NoteOn { channel, key, velocity } => {
+                let beat = self.time.map.beats_at(at, self.sr);
+                let out = crate::scale_lock::allowed(&self.chords, beat, lock).map_or(key, |set| crate::scale_lock::snap_key(key, set));
+                if let Some(slot) = map.get_mut(usize::from(channel)).and_then(|c| c.get_mut(usize::from(key))) {
+                    *slot = out;
+                }
+                MidiMsg::NoteOn { channel, key: out, velocity }
+            }
+            MidiMsg::NoteOff { channel, key, velocity } => {
+                let slot = map.get_mut(usize::from(channel)).and_then(|c| c.get_mut(usize::from(key)));
+                match slot {
+                    Some(s) if *s != crate::scale_lock::NONE => {
+                        let out = *s;
+                        *s = crate::scale_lock::NONE;
+                        MidiMsg::NoteOff { channel, key: out, velocity }
+                    }
+                    _ => m,
+                }
+            }
+            MidiMsg::PolyPressure { channel, key, value } => match map.get(usize::from(channel)).and_then(|c| c.get(usize::from(key))) {
+                Some(&out) if out != crate::scale_lock::NONE => MidiMsg::PolyPressure { channel, key: out, value },
+                _ => m,
+            },
+            _ => m,
+        }
+    }
+
     /// Messages d'entrée datés dans le bloc : tri stable (insertion, sans allocation) par instant.
     fn sort_events(&mut self, needed: bool) {
         if !needed {
@@ -507,7 +547,7 @@ impl NodeC {
         let NodeC { active, live, .. } = self;
         active.for_each(|channel, key| {
             if live.len() < MAX_PENDING {
-                live.push((0, MidiMsg::NoteOff { channel, key, velocity: 0.0 }));
+                live.push((RAW_LIVE, MidiMsg::NoteOff { channel, key, velocity: 0.0 }));
             } else {
                 dropped += 1;
             }
@@ -1061,6 +1101,8 @@ impl CompiledGraph {
                 midi_seen: 0,
                 vel_in: 0,
                 vel_table: d.vel_curve.table().filter(|_| matches!(d.kind, NodeKind::Track(_))),
+                scale_lock: if matches!(d.kind, NodeKind::Track(_)) { d.scale_lock } else { Default::default() },
+                lock_map: matches!(d.kind, NodeKind::Track(_)).then(crate::scale_lock::new_map),
                 dyn_cfg: d.input_dyn,
                 dyn_state: (d.input_dyn.enabled && matches!(d.kind, NodeKind::Track(_))).then(|| crate::dynamics::DynState::new(d.input_dyn, sample_rate)),
                 dyn_a: if d.input_dyn.enabled && matches!(d.kind, NodeKind::Track(_)) { vec![0.0; max_block] } else { Vec::new() },
@@ -1170,6 +1212,10 @@ impl CompiledGraph {
                 new.source = o.source;
                 new.tap = o.tap.take();
                 new.midi_tap = o.midi_tap.take();
+                // Les touches émises par le verrou de gamme suivent la piste (copie : rien n'est alloué ni libéré ici).
+                if let (Some(a), Some(b)) = (new.lock_map.as_mut(), o.lock_map.as_ref()) {
+                    **a = **b;
+                }
                 // Notes en cours et messages en attente suivent leur piste. Si les notes de la piste ont changé (clip déplacé,
                 // rogné, supprimé...), les fins de notes attendues dans l'ancien graphe n'arriveront peut-être jamais :
                 // on coupe ce qui sonne. Pour une modification étrangère à cette piste, rien n'est interrompu.

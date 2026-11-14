@@ -757,6 +757,17 @@ export class MockEngine extends EngineClient {
         this.#emitProject();
         break;
       }
+      case "set_track_scale_lock": {
+        const n = this.node(msg.node);
+        if (!n || n.kind === "master" || n.kind === "bus") {
+          this.emit("error", { command: msg.type, message: `${msg.node} n'est pas une piste` });
+          return false;
+        }
+        n.scale_lock = msg.mode;
+        this.#markDirty();
+        this.#emitProject();
+        break;
+      }
       case "set_track_velocity_curve": {
         const n = this.node(msg.node);
         if (!n || n.kind === "master" || n.kind === "bus") {
@@ -2243,6 +2254,7 @@ export class MockEngine extends EngineClient {
         is_return: !!n.is_return,
         group: n.group ?? 0,
         midi_filter: structuredClone(n.midi_filter ?? []),
+        scale_lock: n.scale_lock ?? "off",
         velocity_curve: { enabled: false, bend: 0, smooth: 0, min: 1, max: 127, fixed: 0, ...(n.velocity_curve ?? {}) },
         dynamics: { enabled: false, gate_db: -90, threshold_db: -18, ratio: 3, attack_ms: 10, release_ms: 120, makeup_db: 0, record: false, ...(n.dynamics ?? {}) },
         return_groups: n.return_groups ? structuredClone(n.return_groups) : null,

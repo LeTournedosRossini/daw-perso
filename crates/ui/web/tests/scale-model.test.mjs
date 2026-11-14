@@ -87,3 +87,24 @@ test("forcer à l'accord : les notes de l'accord sont permises même hors gamme"
   assert.deepEqual(fitEdits(ok, (n) => n.start[0] / n.start[1], track, "scale", catalog), []);
   assert.deepEqual(fitEdits(ok, (n) => n.start[0] / n.start[1], track, "chord", catalog), [{ index: 0, key: 60 }]);
 });
+
+import { validateCommand as validate } from "../js/protocol.js";
+import { MockEngine } from "../js/mock-engine.js";
+
+test("verrou de gamme : validation du protocole et faux moteur", () => {
+  assert.equal(validate({ type: "set_track_scale_lock", node: 3, mode: "scale" }), null);
+  assert.match(validate({ type: "set_track_scale_lock", node: 3, mode: "tout" }), /mode/);
+  assert.match(validate({ type: "set_track_scale_lock", node: 0, mode: "off" }), /piste/);
+  const e = new MockEngine();
+  let project;
+  e.on("project", (p) => (project = p));
+  e.send({ type: "get_project" });
+  const synth = project.nodes.find((n) => n.name === "Claviers");
+  assert.equal(synth.scale_lock, "off");
+  e.send({ type: "set_track_scale_lock", node: synth.id, mode: "chord" });
+  assert.equal(project.nodes.find((n) => n.name === "Claviers").scale_lock, "chord");
+  let err;
+  e.on("error", (x) => (err = x));
+  e.send({ type: "set_track_scale_lock", node: 0, mode: "chord" });
+  assert.ok(err);
+});
