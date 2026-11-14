@@ -11,6 +11,7 @@ import { canvasPoint, pixelRatio } from "../ui-scale.js";
 import { sampleToX, xToSample } from "../time.js";
 import { getScale } from "../ui-scale.js";
 import { makeFloatable } from "./float-frame.js";
+import { SCALE_MODES, toneAt, snapKey, stepKey, breakpoints } from "../scale-model.js";
 import { pinchFactors, pinchMode, GRIDS, gridById, snapAbs, matToAbs, absToMat, moveGroup, resizeGroup, diffEdits, keyName, isBlack, noteId, fnum, fadd, fsub, fcmp } from "../notes-model.js";
 
 const KEYS_W = 56;
@@ -54,6 +55,8 @@ export class PianoRoll {
     this.sel = new Set();
     this.view = { x: 0, ppw: 240, top: 96, keyH: 14 };
     this.grid = gridById(localStorageGet("daw-pr-grid") ?? "1/16");
+    // Contrainte de hauteur : Libre / Gamme / Accord (la gamme en vigueur est teintée dans tous les cas).
+    this.scaleMode = SCALE_MODES.some((m) => m.id === localStorageGet("daw-pr-scale")) ? localStorageGet("daw-pr-scale") : "scale";
     this.drag = null;
     this.dirty = true;
     this.lastLen = null;
@@ -61,6 +64,10 @@ export class PianoRoll {
     for (const g of GRIDS) this.gridSel.append(new Option(`${g.id === "free" ? "Libre" : g.id} — ${g.label}`, g.id));
     this.gridSel.value = this.grid.id;
     this.gridSel.addEventListener("change", () => this.setGrid(this.gridSel.value));
+    this.scaleSel = document.getElementById("pr-scale");
+    for (const m of SCALE_MODES) this.scaleSel.append(new Option(m.label, m.id));
+    this.scaleSel.value = this.scaleMode;
+    this.scaleSel.addEventListener("change", () => this.setScaleMode(this.scaleSel.value));
     document.getElementById("pr-quantize").addEventListener("click", () => this.quantize());
     document.getElementById("pr-zoom-in").addEventListener("click", () => this.zoom(1.25));
     document.getElementById("pr-zoom-out").addEventListener("click", () => this.zoom(0.8));
@@ -100,6 +107,7 @@ export class PianoRoll {
       <div class="rh-ctl">
         <div class="rh-title"></div>
         <select class="rh-grid" aria-label="Grille de magnétisme"></select>
+        <select class="rh-scale" aria-label="Contrainte de hauteur" title="Libre, gamme ou accord en vigueur (piste d'accords)"></select>
         <div class="rh-row"><button class="rh-q" title="Aimante le début de toutes les notes du clip sur la grille">Quantifier</button></div>
         <div class="rh-row"><span aria-hidden="true">↕</span><button class="rh-zy-out" aria-label="Zoom vertical arrière">−</button><button class="rh-zy-in" aria-label="Zoom vertical avant">＋</button></div>
         <div class="rh-row"><span title="Hauteur du piano roll, en lignes de la timeline">Haut.</span><button class="rh-h-out" aria-label="Moins haut" title="Moins haut">−</button><button class="rh-h-in" aria-label="Plus haut" title="Plus haut">＋</button></div>
@@ -115,6 +123,10 @@ export class PianoRoll {
     for (const g of GRIDS) sel.append(new Option(`${g.id === "free" ? "Libre" : g.id} — ${g.label}`, g.id));
     sel.value = this.grid.id;
     sel.addEventListener("change", () => this.setGrid(sel.value));
+    const ssel = head.querySelector(".rh-scale");
+    for (const m of SCALE_MODES) ssel.append(new Option(`Hauteur : ${m.label}`, m.id));
+    ssel.value = this.scaleMode;
+    ssel.addEventListener("change", () => this.setScaleMode(ssel.value));
     head.querySelector(".rh-q").addEventListener("click", () => this.quantize());
     head.querySelector(".rh-zy-in").addEventListener("click", () => this.zoomY(1.2));
     head.querySelector(".rh-zy-out").addEventListener("click", () => this.zoomY(1 / 1.2));
@@ -158,6 +170,38 @@ export class PianoRoll {
       this.state.dockRows = rows;
       this.#relayout();
     }
+  }
+
+  setScaleMode(id) {
+    if (!SCALE_MODES.some((m) => m.id === id)) return;
+    this.scaleMode = id;
+    this.scaleSel.value = id;
+    const dock = this.dockHead.querySelector(".rh-scale");
+    if (dock) dock.value = id;
+    localStorageSet("daw-pr-scale", id);
+    this.dirty = true;
+  }
+
+  /** Gamme / accord en vigueur à une position de la matière (rondes, flottant). */
+  #tone(m, mode = this.scaleMode) {
+    return toneAt(this.state.chordTrack?.track, this.#absF(m), mode, this.state.chordCatalog);
+  }
+
+  /** Touche ramenée à la gamme (ou à l'accord) en vigueur à la position `m` de la matière ; `Alt` ou mode libre : inchangée. */
+  /** Ramène un groupe de notes déplacé à la gamme : la note saisie (indice `ref`) prend la touche permise la plus proche, les autres suivent du même écart. */
+  #fitGroup(after, ref, free) {
+    if (free || this.scaleMode === "off" || ref < 0 || !after[ref]) return after;
+    const dk = this.#fitKey(after[ref].key, fnum(after[ref].start)) - after[ref].key;
+    if (!dk) return after;
+    const lo = Math.min(...after.map((n) => n.key));
+    const hi = Math.max(...after.map((n) => n.key));
+    const d = Math.max(-lo, Math.min(127 - hi, dk));
+    return after.map((n) => ({ ...n, key: n.key + d }));
+  }
+
+  #fitKey(key, m, free = false) {
+    if (free || this.scaleMode === "off") return key;
+    return snapKey(key, this.#tone(m).allowed);
   }
 
   setGrid(id) {
@@ -541,9 +585,60 @@ export class PianoRoll {
         g.fillText(keyName(k), 4, y + this.view.keyH / 2);
       }
     }
+    const tone = this.#tone(this.#xm(0));
+    if (tone.scale) {
+      for (let k = Math.min(127, Math.ceil(this.view.top)); k >= 0; k--) {
+        const y = this.#ky(k);
+        if (y > H) break;
+        if (!tone.scale.has(k % 12)) {
+          g.fillStyle = "rgba(0,0,0,.38)";
+          g.fillRect(0, y, W, this.view.keyH);
+        } else if (k % 12 === tone.root) {
+          g.fillStyle = css("--accent");
+          g.fillRect(W - 4, y + 1, 3, this.view.keyH - 2);
+        }
+      }
+    }
     if (this.heldKey !== undefined) {
       g.fillStyle = css("--accent");
       g.fillRect(0, this.#ky(this.heldKey), W, this.view.keyH - 1);
+    }
+  }
+
+  /** Teinte les rangées d'après la gamme (hors gamme : sombre, fondamentale : accent) et l'accord (notes de l'accord : jaune) en vigueur. */
+  #drawTone(g, W, H) {
+    const track = this.state.chordTrack?.track;
+    if (!track || (!track.scales?.length && !track.chords?.length)) return;
+    const from = Math.max(0, this.#absF(this.#xm(0)));
+    const to = this.#absF(this.#xm(W));
+    const pts = breakpoints(track, from, to);
+    const accent = css("--accent");
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = i + 1 < pts.length ? pts[i + 1] : to;
+      const xa = Math.max(0, this.#mx(this.#matF(a)));
+      const xb = Math.min(W, i + 1 < pts.length ? this.#mx(this.#matF(b)) : W);
+      if (xb <= xa) continue;
+      const t = toneAt(track, (a + b) / 2, "off", this.state.chordCatalog);
+      if (!t.scale && !t.chord) continue;
+      for (let k = Math.min(127, Math.ceil(this.view.top)); k >= 0; k--) {
+        const y = this.#ky(k);
+        if (y > H) break;
+        const pc = k % 12;
+        if (t.scale && !t.scale.has(pc)) {
+          g.fillStyle = "rgba(0,0,0,.28)";
+          g.fillRect(xa, y, xb - xa, this.view.keyH);
+        } else if (t.scale && pc === t.root) {
+          g.globalAlpha = 0.16;
+          g.fillStyle = accent;
+          g.fillRect(xa, y, xb - xa, this.view.keyH);
+          g.globalAlpha = 1;
+        }
+        if (t.chord?.has(pc)) {
+          g.fillStyle = "rgba(255,209,102,.20)";
+          g.fillRect(xa, y, xb - xa, this.view.keyH);
+        }
+      }
     }
   }
 
@@ -566,6 +661,7 @@ export class PianoRoll {
         g.fillRect(0, y + this.view.keyH - 1, W, 1);
       }
     }
+    this.#drawTone(g, W, H);
     // Hors de la partie visible du clip : assombri.
     const x0 = this.#mx(fnum(c.offset));
     const x1 = this.#mx(fnum(c.offset) + fnum(c.len));
@@ -1073,12 +1169,13 @@ export class PianoRoll {
         return;
       }
       // Clic dans le vide : une note neuve (début aimanté vers le bas, durée de la grille ou de la dernière note).
-      const key = this.#yk(y);
-      if (key < 0 || key > 127) return;
+      const rawKey = this.#yk(y);
+      if (rawKey < 0 || rawKey > 127) return;
       const g = this.grid.f;
       const absSnap = e.altKey ? snapAbs(abs, [1, 3840], "floor") : snapAbs(abs, g, "floor");
       const c = this.#cm();
       const start = absToMat({ start: c.start, offset: c.offset }, absSnap);
+      const key = this.#fitKey(rawKey, fnum(start), e.altKey);
       this.sel = new Set();
       this.lastLen = this.lastLen ?? g;
       const add = { type: "add_notes", clip: this.clipId, notes: [{ start, len: this.lastLen, key, velocity: this.lastVel }] };
@@ -1119,7 +1216,8 @@ export class PianoRoll {
       if (d.type === "move") {
         const key = d.grabbed.key + (this.#yk(y) - d.pointerKey);
         const grabAbs = abs - d.pointerAbs + matAbsF(clip, d.grabbed.start);
-        const after = moveGroup(clip, notesBefore, d.grabbed, grabAbs, key, this.grid.f, !e.altKey);
+        let after = moveGroup(clip, notesBefore, d.grabbed, grabAbs, key, this.grid.f, !e.altKey);
+        after = this.#fitGroup(after, notesBefore.indexOf(d.grabbed), e.altKey);
         d.preview = d.indices.map((index, i) => ({ index, note: after[i] }));
         if (after.some((n, i) => fcmp(n.start, notesBefore[i].start) !== 0 || n.key !== notesBefore[i].key)) d.moved = true;
         const grabbedAfter = after[notesBefore.indexOf(d.grabbed)];
@@ -1346,7 +1444,12 @@ export class PianoRoll {
         const t = sign > 0 ? fadd(before[0].start, step) : fsub(before[0].start, step);
         after = moveGroup(c, before, before[0], fnum(matToAbs(c, t)), before[0].key, this.grid.f, false);
       } else {
-        const dk = (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1);
+        const dir = e.key === "ArrowUp" ? 1 : -1;
+        let dk = dir * (e.shiftKey ? 12 : 1);
+        if (!e.shiftKey && !e.altKey && this.scaleMode !== "off") {
+          const allowed = this.#tone(fnum(before[0].start)).allowed;
+          if (allowed) dk = stepKey(before[0].key, dir, allowed) - before[0].key;
+        }
         after = moveGroup(c, before, before[0], fnum(matToAbs(c, before[0].start)), before[0].key + dk, this.grid.f, false);
       }
       this.#send(diffEdits(indices, before, after), "Déplacer des notes");
