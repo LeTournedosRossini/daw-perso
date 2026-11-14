@@ -13,6 +13,7 @@ pub mod plugin_cache;
 pub mod plugin_window;
 pub mod prefs;
 pub mod project_io;
+pub mod recent;
 pub mod protocol;
 
 pub use host::{Host, ProjectMeta};

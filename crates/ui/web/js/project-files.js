@@ -74,6 +74,14 @@ export class ProjectFiles {
     });
     // Une sauvegarde automatique plus récente que le projet (ou d'un projet sans titre) : on propose de la reprendre.
     engine.on("autosave", (a) => this.#offerRecovery(a));
+    // Projets récents (menu Fichier) et rassemblement des fichiers.
+    engine.on("recent", (r) => this.#renderRecent(r.projects ?? []));
+    engine.on("gathered", (g) => {
+      const n = g.copied?.length ?? 0;
+      const head = n ? `${n} fichier${n > 1 ? "s" : ""} copié${n > 1 ? "s" : ""} dans le projet — enregistre-le pour terminer.` : "Aucun fichier à rassembler : tout est déjà dans le projet.";
+      this.hooks.onWarnings?.([head, ...(g.warnings ?? [])]);
+    });
+    document.getElementById("btn-gather")?.addEventListener("click", () => engine.send({ type: "gather_files" }));
     for (const [id, action] of [["btn-new", () => this.newProject()], ["btn-open", () => this.open()], ["btn-save", () => this.save()], ["btn-saveas", () => this.saveAs()]]) {
       document.getElementById(id)?.addEventListener("click", action);
     }
@@ -125,6 +133,42 @@ export class ProjectFiles {
 
   async newProject() {
     if (await this.#discard()) this.engine.send({ type: "new_project" });
+  }
+
+  /** Rend la liste des projets récents dans le menu Fichier. Un dossier disparu est grisé. */
+  #renderRecent(projects) {
+    const box = document.getElementById("fm-recent");
+    if (!box) return;
+    box.replaceChildren();
+    box.hidden = projects.length === 0;
+    if (!projects.length) return;
+    const head = document.createElement("div");
+    head.className = "fm-head";
+    head.textContent = "Récents";
+    box.append(head);
+    for (const p of projects) {
+      const b = document.createElement("button");
+      b.className = "fm-item";
+      b.setAttribute("role", "menuitem");
+      b.title = p.exists ? p.path : `${p.path} — dossier introuvable`;
+      b.disabled = !p.exists;
+      const label = document.createElement("span");
+      label.textContent = p.name;
+      b.append(label);
+      b.addEventListener("click", () => this.openPath(p.path));
+      box.append(b);
+    }
+    const clear = document.createElement("button");
+    clear.className = "fm-item fm-clear";
+    clear.setAttribute("role", "menuitem");
+    clear.innerHTML = "<span>Vider la liste</span>";
+    clear.addEventListener("click", () => this.engine.send({ type: "clear_recent" }));
+    box.append(clear);
+  }
+
+  /** Ouvre un projet de la liste des récents (confirmation d'abord s'il y a des modifications). */
+  async openPath(path) {
+    if (await this.#discard()) this.engine.send({ type: "open_project", path });
   }
 
   async open() {

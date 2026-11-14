@@ -193,6 +193,13 @@ pub enum Command {
     },
     /// Supprime la sauvegarde automatique du dossier `path` (refus de la reprise).
     DiscardAutosave { path: String },
+    /// Projets récents (événement `recent`) ; `clear_recent` vide la liste.
+    GetRecent,
+    ClearRecent,
+    /// Copie dans le dossier du projet (`audio/`) les fichiers audio référencés en place, et les y référence. Le projet doit avoir un
+    /// dossier (déjà enregistré) ; les originaux ne sont pas touchés ; un fichier introuvable est signalé et laissé tel quel. Réponse :
+    /// événement `gathered`. Le projet est ensuite « modifié » : l'enregistrer.
+    GatherFiles,
     /// Enregistre le projet. `path` : dossier choisi (« Enregistrer sous ») ; sans `path`, le dossier du projet ouvert.
     SaveProject { path: Option<String> },
     /// Demande l'inventaire des plugins CLAP installés. Le balayage se fait en arrière-plan la première fois ; la réponse est
@@ -560,6 +567,9 @@ impl Command {
             Command::NewProject => "new_project",
             Command::OpenProject { .. } => "open_project",
             Command::DiscardAutosave { .. } => "discard_autosave",
+            Command::GetRecent => "get_recent",
+            Command::ClearRecent => "clear_recent",
+            Command::GatherFiles => "gather_files",
             Command::SaveProject { .. } => "save_project",
             Command::OpenPluginUi { .. } => "open_plugin_ui",
             Command::SetPluginView { .. } => "set_plugin_view",
@@ -1468,6 +1478,14 @@ pub struct LoopRange {
     pub end: u64,
 }
 
+/// Un projet de la liste des récents.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RecentInfo {
+    pub path: String,
+    pub name: String,
+    pub exists: bool,
+}
+
 /// Événement (moteur → page).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -1513,6 +1531,10 @@ pub enum Event {
     /// ou l'oubli (`discard_autosave`).
     Autosave { path: String, untitled: bool, modified: u64 },
     File { name: String, path: Option<String>, dirty: bool, generation: u64, warnings: Vec<String> },
+    /// Les projets récents, du plus récent au plus ancien ; `exists` faux : le dossier n'est plus là (la page le grise).
+    Recent { projects: Vec<RecentInfo> },
+    /// Fin d'un rassemblement de fichiers : chemins (relatifs au projet) des copies faites, avertissements (fichiers introuvables…).
+    Gathered { copied: Vec<String>, warnings: Vec<String> },
     /// État de l'enregistrement : `active` pendant la prise ; `stopping` entre l'ordre d'arrêt et la fin de l'écriture sur le
     /// disque ; `overruns` : blocs perdus (le disque ne suit pas : la prise est abîmée) ; `warnings` à la fin.
     /// `start` : position (échantillons) où les prises commencent ; `nodes` : les pistes qui enregistrent : la page dessine un conteneur

@@ -272,6 +272,7 @@ mod align;
 mod clips;
 mod convert;
 mod export;
+mod gather;
 mod groups;
 mod import;
 mod monitoring;
@@ -374,6 +375,12 @@ pub struct Host {
     autosave_every: Duration,
     last_autosave: Instant,
     recovery_offer: Option<Event>,
+    /// Projets récents (du plus récent au plus ancien), leur fichier, et le dernier projet noté (pour ne réécrire que sur un changement).
+    recent: Vec<String>,
+    recent_path: Option<std::path::PathBuf>,
+    recent_noted: Option<String>,
+    /// La réouverture du dernier projet au démarrage n'a lieu qu'à la première demande du projet.
+    startup_done: bool,
     /// Dernier refus d'une commande de télécommande (montré sur la tablette quelques secondes).
     remote_msg: Option<(Instant, String)>,
     /// Le transport vient d'être mis en pause (arrêt pendant la lecture) : reprendre la lecture reprend là, sans pré-roll. Un déplacement de la tête l'annule.
@@ -416,7 +423,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, audio_status: None, driver_latency: None, audio_status_dirty: false, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, audio_status: None, driver_latency: None, audio_status_dirty: false, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, recent: Vec::new(), recent_path: None, recent_noted: None, startup_done: false, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -450,6 +457,7 @@ impl Host {
             events = lead;
         }
         self.refresh_click();
+        self.note_recent(&mut events);
         // Les modifications non enregistrées apparaissent ou disparaissent : la page doit le savoir (titre, confirmation).
         if self.dirty != before && !events.iter().any(|e| matches!(e, Event::File { .. })) {
             events.push(self.file_event(Vec::new()));
@@ -465,7 +473,17 @@ impl Host {
         let error = |message: String| vec![Event::Error { command: name.into(), message }];
         match cmd {
             Command::GetProject => {
-                let mut events = vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.prefs_event(), self.control_pages_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event()];
+                // Option « rouvrir le dernier projet » : une seule fois, au démarrage, et seulement si rien d'autre n'est en attente
+                // (une sauvegarde automatique à reprendre passe avant) et que le dossier existe encore.
+                let mut events = Vec::new();
+                if !std::mem::replace(&mut self.startup_done, true) && self.prefs.startup.reopen_last && self.recovery_offer.is_none() && self.project_dir.is_none() && !self.dirty {
+                    if let Some(last) = self.recent.first().cloned() {
+                        if std::path::Path::new(&last).join(project_io::PROJECT_FILE).exists() {
+                            events.extend(self.open_project(&last, false));
+                        }
+                    }
+                }
+                events.extend(vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.prefs_event(), self.control_pages_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event(), self.recent_event()]);
                 events.extend(self.recovery_offer.take());
                 events
             }
@@ -498,6 +516,14 @@ impl Host {
                 vec![self.punch_event(), self.loop_record_event()]
             }
             Command::GetPrefs => vec![self.prefs_event()],
+            Command::GetRecent => vec![self.recent_event()],
+            Command::ClearRecent => {
+                self.recent.clear();
+                self.recent_noted = self.project_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
+                self.save_recent();
+                vec![self.recent_event()]
+            }
+            Command::GatherFiles => self.gather_files(),
             Command::SetPrefs { prefs } => {
                 let m = prefs.metronome;
                 self.prefs = prefs;
@@ -1596,6 +1622,7 @@ impl Host {
         events.extend(self.align_tick());
         events.extend(self.stretch_tick());
         events.extend(self.convert_tick());
+        self.note_recent(&mut events);
         // Un plugin qui a demandé à être relancé (latence changée...) l'est maintenant : la latence totale a pu changer.
         if matches!(self.handle.poll_restarts(self.session.graph()), Ok(n) if n > 0) {
             events.push(self.project_event());
@@ -1661,6 +1688,50 @@ impl Host {
     /// Poignée de contrôle d'un plugin CLAP vivant (paramètres, état, latence), si `insert` en est un.
     /// Charge la banque de pages de contrôle (fichier de l'utilisateur) : à appeler au démarrage. Un fichier abîmé laisse la banque vide et l'erreur
     /// est montrée à la page ; il n'est réécrit que quand l'utilisateur change une page.
+    /// Fichier de la liste des projets récents (`…/DAW/recent.json`) ; la liste est lue tout de suite.
+    pub fn set_recent_path(&mut self, path: Option<std::path::PathBuf>) {
+        self.recent = path.as_deref().map(crate::recent::load).unwrap_or_default();
+        self.recent_path = path;
+    }
+
+    fn save_recent(&self) {
+        if let Some(p) = &self.recent_path {
+            // Un confort : un échec d'écriture ne doit jamais gêner le travail.
+            crate::recent::save(p, &self.recent).ok();
+        }
+    }
+
+    fn recent_event(&self) -> Event {
+        let projects = self
+            .recent
+            .iter()
+            .map(|p| {
+                let dir = std::path::Path::new(p);
+                crate::protocol::RecentInfo { path: p.clone(), name: project_io::project_name(dir), exists: dir.join(project_io::PROJECT_FILE).exists() }
+            })
+            .collect();
+        Event::Recent { projects }
+    }
+
+    /// Quand le dossier du projet change (ouverture, « Enregistrer sous », copie convertie), il passe en tête des récents.
+    fn note_recent(&mut self, events: &mut Vec<Event>) {
+        let Some(path) = events.iter().rev().find_map(|e| match e {
+            Event::File { path, .. } => Some(path.clone()),
+            _ => None,
+        }) else {
+            return;
+        };
+        if path == self.recent_noted {
+            return;
+        }
+        self.recent_noted = path.clone();
+        if let Some(p) = path {
+            crate::recent::push(&mut self.recent, p);
+            self.save_recent();
+            events.push(self.recent_event());
+        }
+    }
+
     pub fn set_control_pages_path(&mut self, path: Option<std::path::PathBuf>) {
         self.bank = crate::control_pages::Bank::new();
         self.bank_error = None;

@@ -62,6 +62,8 @@ export function validatePrefs(p) {
   if (rm !== undefined && (!rm || !(Number.isInteger(rm.elevated_hours) && rm.elevated_hours >= 0 && rm.elevated_hours <= 168))) return "droits de la télécommande : de 0 (illimité) à 168 heures";
   const tp = p.transport;
   if (tp !== undefined && (!tp || typeof tp.play_pre_roll !== "boolean" || typeof tp.return_on_stop !== "boolean")) return "transport : deux cases à cocher";
+  const su = p.startup;
+  if (su !== undefined && (!su || typeof su.reopen_last !== "boolean")) return "démarrage : une case à cocher";
   const m = p.metronome;
   if (!m || !(m.volume >= 0 && m.volume <= 1.5) || !(Number.isInteger(m.count_in_bars) && m.count_in_bars >= 0 && m.count_in_bars <= 2) || !(m.pre_roll >= 0 && m.pre_roll <= 10) || !(m.post_roll >= 0 && m.post_roll <= 10) || !(m.pre_roll_bars == null || (Number.isInteger(m.pre_roll_bars) && m.pre_roll_bars >= 0 && m.pre_roll_bars <= 8)) || !(m.pre_roll_unit == null || ["seconds", "bars"].includes(m.pre_roll_unit))) {
     return "métronome : volume 0 à 1,5, pré-compte 0 à 2 mesures, pré-roll et post-roll 0 à 10 s";
@@ -81,6 +83,9 @@ export function validateCommand(m) {
     }
     case "get_chords":
     case "get_chord_catalog":
+    case "get_recent":
+    case "clear_recent":
+    case "gather_files":
       return null;
     case "set_chords":
       return m.track && typeof m.track === "object" && !Array.isArray(m.track) ? null : "set_chords : track (objet flibuste-carte) requis";

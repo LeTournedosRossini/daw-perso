@@ -88,8 +88,10 @@
       <button id="btn-new" class="fm-item" role="menuitem" title="Nouveau projet (Ctrl+N)"><span>Nouveau</span><kbd>Ctrl+N</kbd></button>
       <button id="btn-open" class="fm-item" role="menuitem" title="Ouvrir un projet (Ctrl+O)"><span>Ouvrir…</span><kbd>Ctrl+O</kbd></button>
       <button id="btn-saveas" class="fm-item" role="menuitem" title="Enregistrer sous… (Ctrl+Maj+S)"><span>Enregistrer sous…</span><kbd>Ctrl+Maj+S</kbd></button>
+      <div id="fm-recent" class="fm-recent" role="group" aria-label="Projets récents" hidden></div>
       <hr>
       <button id="btn-import" class="fm-item" role="menuitem" title="Importer des fichiers audio (WAV, FLAC, MP3) — ou les glisser sur la timeline"><span>Importer de l'audio…</span></button>
+      <button id="btn-gather" class="fm-item" role="menuitem" title="Copie dans le dossier du projet les fichiers audio qui n'y sont que référencés : le projet devient autonome (déplaçable, envoyable)"><span>Rassembler les fichiers</span></button>
       <button id="btn-export" class="fm-item" role="menuitem" title="Exporter le mixage ou les stems en WAV / FLAC (Ctrl+E)"><span>Exporter…</span><kbd>Ctrl+E</kbd></button>
       <button id="btn-align" class="fm-item" role="menuitem" title="Caler des prises sur un guide (une prise de plus dans le groupe de prises)"><span>Caler des prises…</span></button>
       <hr>
@@ -201,6 +203,11 @@
         <label class="st-field"><span>Pré-compte</span><select id="st-m-count"><option value="0">Aucun</option><option value="1">1 mesure</option><option value="2">2 mesures</option></select></label>
         <div class="st-field"><span>Pré-roll</span><span><input type="number" id="st-m-pre" min="0" max="10" step="0.5"> <select id="st-m-pre-unit" aria-label="Unité du pré-roll"><option value="seconds">secondes</option><option value="bars">mesures</option></select></span></div>
         <label class="st-field"><span>Post-roll (s)</span><input type="number" id="st-m-post" min="0" max="10" step="0.5"></label>
+      </fieldset>
+      <fieldset class="st-group">
+        <legend>Démarrage</legend>
+        <label class="st-field"><span>Rouvrir le dernier projet au démarrage</span><input type="checkbox" id="st-su-reopen"></label>
+        <p class="st-note">Désactivé par défaut : l'application démarre sur un projet vide. Une sauvegarde automatique à reprendre passe toujours avant.</p>
       </fieldset>
       <fieldset class="st-group">
         <legend>Transport</legend>

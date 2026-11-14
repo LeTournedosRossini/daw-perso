@@ -75,16 +75,27 @@ export class MockEngine extends EngineClient {
     this.redoStack = [];
     // Fichiers : le faux moteur n'écrit rien sur le disque, il garde en mémoire ce qu'il « enregistre » (chemin → projet).
     this.disk = new Map();
+    this.recent = [];
     this.plugins = new Map(); // identifiant d'insert → { def, values } (gardé même quand le plugin est retiré : l'annulation le retrouve)
     this.nextInsert = 1;
     this.metronome = { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0, post_roll: 0, pre_roll_bars: 0, pre_roll_unit: "seconds" };
     // Préférences : le faux moteur « tourne » avec les valeurs par défaut ; un redémarrage n'a pas de sens ici (voir `#prefsEvent`).
-    this.prefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms: 0, ahead_threads: 2, transport: { play_pre_roll: false, return_on_stop: true }, remote: { elevated_hours: 12 }, metronome: { ...this.metronome } };
+    this.prefs = { version: 1, driver: null, buffer: null, threads: 1, ahead_ms: 0, ahead_threads: 2, transport: { play_pre_roll: false, return_on_stop: true }, startup: { reopen_last: false }, remote: { elevated_hours: 12 }, metronome: { ...this.metronome } };
     this.running = { effective: { driver: "UMC", buffer: 64, threads: 1, ahead_ms: 0, ahead_threads: 2, forced: [] }, sample_rate: 44100, inputs: 10, drivers: ["UMC ASIO Driver", "ASIO4ALL v2"], cores: 4, audio: true };
     this.recording = null; // enregistrement en cours : { start, nodes }
     this.openUis = new Set(); // identifiants des plugins dont l'interface native est « ouverte »
     this.catalogSent = false;
     this.file = { name: "Démonstration", path: null, dirty: false, generation: 0 };
+  }
+
+  /** Projets récents : en tête, sans doublon, dix au plus ; `exists` : le faux moteur ne connaît que ce qu'il a enregistré. */
+  #noteRecent(path) {
+    this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, 10);
+    this.#emitRecent();
+  }
+
+  #emitRecent() {
+    this.emit("recent", { projects: this.recent.map((path) => ({ path, name: path.replace(/^.*[\\/]/, "").replace(/\.daw$/i, ""), exists: this.disk.has(path) })) });
   }
 
   #emitFile(warnings = []) {
@@ -1062,6 +1073,7 @@ export class MockEngine extends EngineClient {
         this.emit("error", { command: msg.type, message: "l'aperçu sans l'application ne lit ni n'écrit de fichier de carte" });
         return false;
       case "get_project":
+        this.#emitRecent();
         this.#emitControlPages();
         this.emit("metronome", { ...this.metronome });
         this.#emitChords();
@@ -1489,6 +1501,22 @@ export class MockEngine extends EngineClient {
         this.disk.set(path, structuredClone({ nodes: this.project.nodes, autoCrossfade: this.autoCrossfade, rate: SR, punchOn: this.punchOn }));
         this.file = { ...this.file, name: path.replace(/^.*[\\/]/, "").replace(/\.daw$/i, ""), path, dirty: false };
         this.#emitFile();
+        this.#noteRecent(path);
+        break;
+      }
+      case "get_recent":
+        this.#emitRecent();
+        break;
+      case "clear_recent":
+        this.recent = [];
+        this.#emitRecent();
+        break;
+      case "gather_files": {
+        if (!this.file.path) {
+          this.emit("error", { command: "gather_files", message: "enregistre d'abord le projet (« Enregistrer sous… ») : les fichiers sont copiés dans son dossier" });
+          return false;
+        }
+        this.emit("gathered", { copied: [], warnings: [] });
         break;
       }
       case "open_project": {
@@ -1504,6 +1532,7 @@ export class MockEngine extends EngineClient {
         this.#replaceProject(structuredClone(saved.nodes), saved.autoCrossfade, msg.path);
         this.punchOn = !!saved.punchOn;
         this.#emitPunch();
+        this.#noteRecent(msg.path);
         break;
       }
       case "convert_project": {

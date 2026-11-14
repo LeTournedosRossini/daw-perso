@@ -54,6 +54,8 @@ le moteur doit connaître.
 | `remove_meter` | `at_bar` (≥ 2) | supprime un changement de chiffrage ; annulable |
 | `open_project` avec `recover: true` | `path` | charge `projet.autosave.json` du dossier au lieu de `projet.json` ; le projet est marqué modifié (un projet sans titre reste « Sans titre ») |
 | `discard_autosave` | `path` | supprime la sauvegarde automatique du dossier |
+| `get_recent` / `clear_recent` | — | liste des **projets récents** (réponse : événement `recent`) / vidée. La liste (dix au plus, du plus récent au plus ancien, sans doublon) vit dans `…/DAW/recent.json` : un projet y entre quand son dossier devient celui du projet ouvert (ouverture, « Enregistrer sous », copie convertie). Elle est aussi envoyée avec `get_project` |
+| `gather_files` | — | **rassemble les fichiers** : copie dans `audio/` du projet les fichiers audio référencés en place (chemins absolus) et les y référence ; événement `gathered`. Refusé sans dossier de projet (« Enregistrer sous » d'abord), pendant un enregistrement, un import ou une conversion. Les originaux ne sont jamais touchés ; un fichier introuvable est signalé et laissé tel quel. Le projet devient « modifié » (l'enregistrer termine l'opération) ; sans historique d'annulation |
 | `get_notes` | `clip` | détail des notes d'un clip de notes en fractions de ronde : événement `notes` |
 | `add_notes` | `clip`, `notes[{start:[n,d], len:[n,d], key, velocity, voice? (1 à 4)}]` | ajoute des notes (début depuis le début de la matière du clip, dans la partie visible) ; une action annulable |
 | `edit_notes` | `clip`, `edits[{index, start?, len?, key?, velocity?, channel? (0 à 15), voice? (1 à 4)}]`, `label?` | modifie plusieurs notes en **un** pas d'annulation ; événement `notes` avec `selection` = nouveaux indices |
@@ -131,6 +133,8 @@ Une commande invalide est **refusée** : le moteur répond par l'événement `er
 |---|---|---|
 | `project` | `sample_rate`, `tempo_map`, `meters`, `latency_samples`, `auto_crossfade`, `nodes` (voir ci-dessous) | à la demande et après chaque modification |
 | `plugin_ui` | `insert`, `open` | l'interface native d'un plugin vient de s'ouvrir ou de se fermer : par `open_plugin_ui` / `close_plugin_ui`, par la croix de la fenêtre, par le plugin lui-même (il demande à se cacher), ou parce que le plugin ou le projet a disparu (retrait, annulation, nouveau projet, ouverture). Toujours suivi d'un `project` |
+| `recent` | `projects[{ path, name, exists }]` | les projets récents ; `exists` faux : le dossier n'est plus là (la page le grise) |
+| `gathered` | `copied[]` (chemins relatifs au projet), `warnings[]` | fin d'un `gather_files` |
 | `rate_mismatch` | `path`, `project_rate`, `engine_rate` | réponse à `open_project` quand le projet n'est pas à la fréquence du moteur : **rien n'a changé**. La page propose `convert_project`. (Une sauvegarde automatique à une autre fréquence, ouverte avec `recover`, donne une erreur qui dit d'ouvrir d'abord le projet.) |
 | `convert` | `active`, `progress` (0 à 1), `done`, `total`, `current`, `path`, `warnings`, `cancelled`, `error` | avancement de la conversion ; à la fin (`active: false`) `path` = le nouveau dossier, qui vient d'être ouvert : les événements `file`, `project`… de l'ouverture suivent dans le même lot |
 | `audio_info` | `files[{path, name, format, sample_rate, channels, frames, needs_conversion, error}]` | réponse à `probe_audio` |

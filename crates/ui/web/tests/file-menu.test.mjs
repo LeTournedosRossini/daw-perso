@@ -14,7 +14,7 @@ test("menu Fichier : chaque bouton garde son identifiant, une seule fois (les é
 });
 
 test("menu Fichier : le panneau contient les sept actions, le bandeau garde Fichier, Enregistrer et Scripts", () => {
-  for (const id of ["btn-new", "btn-open", "btn-saveas", "btn-import", "btn-export", "btn-align", "btn-settings"]) {
+  for (const id of ["btn-new", "btn-open", "btn-saveas", "btn-import", "btn-export", "btn-align", "btn-gather", "btn-settings"]) {
     assert.ok(panel.includes(`id="${id}"`), `${id} dans le menu`);
     assert.ok(!bar.includes(`id="${id}"`), `${id} plus dans le bandeau`);
   }
@@ -24,5 +24,5 @@ test("menu Fichier : le panneau contient les sept actions, le bandeau garde Fich
 test("menu Fichier : accessible (menu, éléments de menu, état déplié) et caché au départ", () => {
   assert.match(html, /id="btn-file"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
   assert.match(html, /id="file-menu"[^>]*role="menu"[^>]*hidden/);
-  assert.equal((panel.match(/role="menuitem"/g) ?? []).length, 7);
+  assert.equal((panel.match(/role="menuitem"/g) ?? []).length, 8);
 });

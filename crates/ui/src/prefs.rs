@@ -95,6 +95,13 @@ impl Default for TransportPrefs {
     }
 }
 
+/// Au démarrage de l'application : rouvrir le dernier projet (désactivé par défaut).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StartupPrefs {
+    pub reopen_last: bool,
+}
+
 /// Sécurité de la télécommande : un droit « transport » ou « régie » donné à une adresse expire au bout de `elevated_hours` heures (0 : jamais) ;
 /// l'adresse règle alors de nouveau son seul retour jusqu'à ce qu'on renouvelle les droits (fenêtre du QR). Le compte repart à chaque démarrage du
 /// serveur des retours, à chaque changement de droits et à chaque nouvelle adresse.
@@ -127,12 +134,13 @@ pub struct Prefs {
     pub metronome: MetroPrefs,
     pub auto_stop: AutoStopPrefs,
     pub transport: TransportPrefs,
+    pub startup: StartupPrefs,
     pub remote: RemotePrefs,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), remote: RemotePrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), startup: StartupPrefs::default(), remote: RemotePrefs::default() }
     }
 }
 

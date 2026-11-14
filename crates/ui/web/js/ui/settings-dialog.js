@@ -164,6 +164,7 @@ export class SettingsDialog {
     const as = p.auto_stop ?? { enabled: false, after_end_secs: 120, recording_secs: 300 };
     const tp = p.transport ?? { play_pre_roll: false, return_on_stop: true };
     $("st-t-return").checked = !!tp.return_on_stop;
+    $("st-su-reopen").checked = !!(p.startup ?? {}).reopen_last;
     $("st-t-preplay").checked = !!tp.play_pre_roll;
     $("st-rm-hours").value = String((p.remote ?? { elevated_hours: 12 }).elevated_hours);
     $("st-as-on").checked = !!as.enabled;
@@ -197,6 +198,7 @@ export class SettingsDialog {
       ahead_ms: Number($("st-ahead").value),
       ahead_threads: Number($("st-ahead-threads").value),
       remote: { elevated_hours: Math.max(0, Math.min(168, Math.round(Number($("st-rm-hours").value) || 0))) },
+      startup: { reopen_last: $("st-su-reopen").checked },
       transport: { play_pre_roll: $("st-t-preplay").checked, return_on_stop: $("st-t-return").checked },
       auto_stop: { enabled: $("st-as-on").checked, after_end_secs: Number($("st-as-end").value), recording_secs: Number($("st-as-rec").value) },
     };

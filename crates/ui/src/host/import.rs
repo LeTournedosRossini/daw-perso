@@ -68,12 +68,12 @@ pub(super) struct ImportJob {
     project_dir: Option<PathBuf>,
 }
 
-fn stem_of(path: &Path) -> String {
+pub(super) fn stem_of(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().into_owned()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Audio".into())
 }
 
 /// `audio/<nom>.wav`, ou `audio/<nom>-2.wav`… : ni un fichier du dossier ni un chemin déjà pris par le projet.
-fn unique_audio_path(dir: &Path, stem: &str, taken: &[String]) -> String {
+pub(super) fn unique_audio_path(dir: &Path, stem: &str, taken: &[String]) -> String {
     let base = project_io::sanitize(stem);
     let free = |rel: &String| !taken.contains(rel) && !dir.join(rel).exists();
     let first = format!("audio/{base}.wav");

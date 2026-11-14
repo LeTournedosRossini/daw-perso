@@ -1006,3 +1006,23 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .info dd.audio-info { display: grid; line-height: 1.15; text-align: center; }
 .info dd.audio-info #disp-audio-main { font-size: 11px; }
 .info dd.audio-info #disp-audio-sub { font-size: 9px; opacity: .7; white-space: nowrap; }
+
+/* En-tête de piste : la ligne du titre ne doit jamais déborder (témoin MIDI N C P + fx + boutons sur une piste armée en MIDI).
+   Le nom cède d'abord de la place, puis les boutons se resserrent (jusqu'à 16 px) au lieu de sortir de l'en-tête. */
+.track-head .title { gap: 3px; }
+.track-head .title > * { flex-shrink: 0; }
+.track-head .title > .name { flex-shrink: 1; min-width: 0; }
+.track-head .btns { flex: 0 1 auto; min-width: 0; gap: 2px; }
+.track-head .btns button { flex: 0 1 22px; min-width: 16px; }
+.track-head .btns .rin { flex-basis: 14px; min-width: 12px; }
+.track-head .body { position: relative; }
+/* Le témoin MIDI (N C P) sort de la ligne du titre : il se pose à droite du vumètre, sur la dernière ligne de l'en-tête, qui a de la place. */
+.track-head .midiw { position: absolute; right: 10px; bottom: 5px; margin: 0; z-index: 2; }
+
+/* Menu Fichier : projets récents */
+.file-menu .fm-recent { display: flex; flex-direction: column; border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; }
+.file-menu .fm-recent[hidden] { display: none; }
+.file-menu .fm-head { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 3px 10px 1px; }
+.file-menu .fm-recent .fm-item span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-menu .fm-recent .fm-item:disabled { opacity: 0.45; cursor: default; }
+.file-menu .fm-clear { color: var(--muted); }
