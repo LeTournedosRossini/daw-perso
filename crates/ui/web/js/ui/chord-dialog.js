@@ -13,7 +13,7 @@ const h = (tag, cls, text) => {
 
 /**
  * @param {{catalog:{qualities:[string,number[]][],aliases:[string,string][]}|null, initial?:string, title:string,
- *   onOk:(text:string)=>void, onCancel?:()=>void}} o
+ *   onOk:(text:string)=>void, onCancel?:()=>void, onDelete?:()=>void}} o
  * @returns {{el:HTMLElement, close:()=>void}}
  */
 export function createChordDialog(o) {
@@ -105,7 +105,10 @@ export function createChordDialog(o) {
   cancel.type = "button";
   const ok = h("button", "cd-ok", "OK");
   ok.type = "button";
-  foot.append(nc, h("span", "grow"), cancel, ok);
+  // « Supprimer » seulement pour un accord qui existe déjà (modification) : indispensable sans clavier (pas de touche Suppr).
+  const del = o.onDelete ? h("button", "cd-delete", "Supprimer") : null;
+  if (del) del.type = "button";
+  foot.append(nc, h("span", "grow"), ...(del ? [del] : []), cancel, ok);
   root.append(head, cols, foot);
 
   let closed = false;
@@ -124,6 +127,10 @@ export function createChordDialog(o) {
     close();
     o.onCancel?.();
   };
+  del?.addEventListener("click", () => {
+    close();
+    o.onDelete();
+  });
   ok.addEventListener("click", validate);
   cancel.addEventListener("click", abort);
 

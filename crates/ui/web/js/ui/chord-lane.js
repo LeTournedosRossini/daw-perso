@@ -527,6 +527,7 @@ export class ChordLane {
       initial: cur ? chordLabel(cur) : "",
       onOk: (text) => this.#applyChord(index, at, text),
       onCancel: () => this.closeEditors(),
+      ...(cur ? { onDelete: () => this.#deleteAt("chord", index) } : {}),
     });
     this.dlg = dlg;
     this.#place(dlg.el, e, 440);
@@ -600,7 +601,9 @@ export class ChordLane {
       this.#send(t, index === null ? "Ajouter une gamme" : "Changer une gamme");
     });
     const cancel = mk("Annuler", () => this.closeEditors());
-    pop.append(label("Fondamentale", rootSel), label("Gamme", sel), label("Durée (noires)", lenIn), ok, cancel);
+    const remove = cur ? mk("Supprimer", () => this.#deleteAt("scale", index)) : null;
+    if (remove) remove.className = "chord-del";
+    pop.append(label("Fondamentale", rootSel), label("Gamme", sel), label("Durée (noires)", lenIn), ...(remove ? [remove] : []), ok, cancel);
     pop.addEventListener("keydown", (k) => {
       k.stopPropagation();
       if (k.key === "Escape") this.closeEditors();
@@ -898,6 +901,12 @@ export class ChordLane {
       pop.append(label("Ajouter à la tête de lecture", add));
     }
     if (kind === "keys") pop.append(mk("Poser une tonalité à la mesure de la tête de lecture…", () => this.placeKeyAtPlayhead(anchor)));
+    const clearKind = { chords: "chords", keys: "keys", scales: "scales", structure: "structure", lyrics: "lyrics" }[kind];
+    if (clearKind) {
+      const clear = mk("Effacer la voie…", () => this.#clearLane(clearKind));
+      clear.className = "chord-del";
+      pop.append(clear);
+    }
     pop.append(mk("Fermer les voies", () => this.toggle()));
     pop.addEventListener("keydown", (k) => {
       k.stopPropagation();
@@ -910,6 +919,31 @@ export class ChordLane {
 
   #send(track, label) {
     this.client.send({ type: "set_chords", track, label });
+  }
+
+  /** Supprime l'accord ou la gamme `index` (une action annulable) : les boutons des fenêtres de saisie, comme la touche Suppr. */
+  #deleteAt(kind, index) {
+    this.closeEditors();
+    const t = structuredClone(this.track);
+    (kind === "chord" ? t.chords : t.scales).splice(index, 1);
+    if (this.sel?.kind === kind) this.sel = null;
+    this.#send(t, kind === "scale" ? "Supprimer une gamme" : "Supprimer un accord");
+  }
+
+  /** Efface toute une voie après confirmation (une seule action annulable) : accords, tonalités, gammes (et appels de motifs), sections, paroles. */
+  async #clearLane(kind) {
+    const names = { chords: "les accords", keys: "les tonalités", scales: "les gammes", structure: "les sections", lyrics: "les paroles (tous les couplets)" };
+    const count = { chords: this.track.chords?.length, keys: this.track.keys?.length, scales: this.track.scales?.length, structure: this.state.structure?.length, lyrics: this.state.lyrics?.length }[kind] ?? 0;
+    if (!count) return this.say("Cette voie est déjà vide.");
+    const ok = await this.dialogs.confirm(`Effacer ${names[kind]} (${count}) ? Tu peux l'annuler avec Ctrl+Z.`, { ok: "Effacer", cancel: "Annuler" });
+    if (!ok) return;
+    if (kind === "structure") return this.#sendStructure([], "Effacer les sections");
+    if (kind === "lyrics") return this.#sendLyrics([], "Effacer les paroles");
+    const t = structuredClone(this.track);
+    if (kind === "chords") t.chords = [];
+    else if (kind === "keys") t.keys = [];
+    else t.scales = [];
+    this.#send(t, kind === "chords" ? "Effacer les accords" : kind === "keys" ? "Effacer les tonalités" : "Effacer les gammes");
   }
 
   // ---- fichiers -------------------------------------------------------------------------------------------------

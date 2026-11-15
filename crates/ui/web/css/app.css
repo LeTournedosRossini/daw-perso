@@ -620,6 +620,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .chord-dlg .cd-foot { display: flex; gap: 6px; align-items: center; }
 .chord-dlg .cd-foot .grow { flex: 1; }
 .chord-dlg .cd-foot button { padding: 5px 12px; }
+.chord-dlg .cd-delete, .chord-pop .chord-del { border-color: #c0504d; color: #ff8a8a; }
 .chord-dlg .cd-ok { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 @media (pointer: coarse) { .chord-dlg button { min-height: 34px; } }
 
