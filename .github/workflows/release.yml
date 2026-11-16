@@ -93,22 +93,33 @@ jobs:
           path: DAW-*-Linux-x64.tar.gz
 
   macos:
-    name: Paquet macOS (Apple Silicon)
+    name: Paquet macOS (universel arm64 + x86_64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/app
-      - name: Compilation (release)
-        run: cargo build --release --manifest-path crates/app/Cargo.toml
+      # Deux compilations (une par architecture) fusionnées par lipo en un seul exécutable universel.
+      - name: Compilation (release, deux architectures)
+        run: |
+          cargo build --release --manifest-path crates/app/Cargo.toml --target aarch64-apple-darwin
+          cargo build --release --manifest-path crates/app/Cargo.toml --target x86_64-apple-darwin
+          mkdir -p universal
+          lipo -create -output universal/daw-app \
+            crates/app/target/aarch64-apple-darwin/release/daw-app \
+            crates/app/target/x86_64-apple-darwin/release/daw-app
+          lipo -info universal/daw-app
+          strings -a universal/daw-app | grep -q NSMicrophoneUsageDescription
       - name: Assemblage de DAW.app
         run: |
           VERSION="${{ inputs.tag }}"; VERSION="${VERSION#v}"; VERSION="${VERSION%%-*}"
           APP="DAW.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/plugins"
-          cp crates/app/target/release/daw-app "$APP/Contents/MacOS/"
+          cp universal/daw-app "$APP/Contents/MacOS/"
           sed "s/@VERSION@/$VERSION/g" packaging/Info.plist.template > "$APP/Contents/Info.plist"
           # Icône provisoire (PNG 1024) -> icon.icns
           mkdir icon.iconset
@@ -123,7 +134,7 @@ jobs:
           # une signature faite avant serait invalidée par l'ajout de fichiers.
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          D="DAW-${{ inputs.tag }}-macOS-arm64"
+          D="DAW-${{ inputs.tag }}-macOS-universal"
           mkdir "$D"
           cp -R "$APP" "$D/"
           cp packaging/LISEZMOI-paquet.md "$D/LISEZMOI.md"
@@ -131,7 +142,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: paquet-macos
-          path: DAW-*-macOS-arm64.zip
+          path: DAW-*-macOS-universal.zip
 
   release:
     name: Publication de la Release
@@ -153,10 +164,10 @@ jobs:
           | Système | Fichier | Remarques |
           |---|---|---|
           | Windows x64 | `…-Windows-x64.zip` | décompresser, lancer `daw-app.exe` (WebView2 requis, présent sous Windows 11) |
-          | macOS Apple Silicon (arm64) | `…-macOS-arm64.zip` | non notarisé : clic droit sur `DAW.app` puis « Ouvrir », ou `xattr -cr DAW.app` |
+          | macOS universel (Apple Silicon + Intel) | `…-macOS-universal.zip` | non notarisé : clic droit sur `DAW.app` puis « Ouvrir », ou `xattr -cr DAW.app` |
           | Linux x64 | `…-Linux-x64.tar.gz` | WebKitGTK 4.1 requis ; `./lancer.sh` (son via JACK / PipeWire) |
 
-          Contient 21 plugins CLAP de l'auteur (dossier `plugins`). Neptune et Sillage sont arm64 seulement sous macOS. Voir `LISEZMOI.md` dans chaque paquet.
+          Contient 21 plugins CLAP de l'auteur (dossier `plugins`). Sous macOS, Neptune et Sillage sont arm64 seulement (ils ne se chargent pas sur un Mac Intel). Voir `LISEZMOI.md` dans chaque paquet.
           Licences : DAW GPLv3 ; plugins Neptune et Sillage AGPLv3, LowLatConv GPLv3+ (détail dans `THIRD-PARTY-LICENSES.md`).
           NOTES
           FLAGS=""

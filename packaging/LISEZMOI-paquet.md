@@ -7,7 +7,7 @@ Station de travail audio écrite de zéro (moteur Rust, interface web dans Tauri
 
 - **Windows** : décompresser le dossier, lancer `daw-app.exe`. Nécessite WebView2 (déjà présent sous Windows 11). Pilote audio : ASIO si un pilote
   « UMC » est installé (réglable dans Réglages), sinon l'application démarre sans son.
-- **macOS (Apple Silicon)** : glisser `DAW.app` dans Applications. L'application n'est ni signée par un compte Apple ni notarisée : au premier
+- **macOS (universel : Apple Silicon et Intel)** : glisser `DAW.app` dans Applications. L'application n'est ni signée par un compte Apple ni notarisée : au premier
   lancement, **clic droit sur l'icône puis « Ouvrir »**, ou dans un terminal : `xattr -cr /Applications/DAW.app`. Le son passe par CoreAudio
   (le micro demande une autorisation). **Jamais essayée sur un vrai Mac par l'auteur** : les retours sont précieux.
 - **Linux** : `./lancer.sh`. Nécessite WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`) ; le son passe par JACK (`pw-jack` sous PipeWire).
