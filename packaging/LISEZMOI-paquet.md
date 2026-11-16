@@ -15,8 +15,8 @@ Station de travail audio écrite de zéro (moteur Rust, interface web dans Tauri
 ## Plugins fournis (dossier `plugins`)
 
 21 plugins CLAP de l'auteur : Neptune (instrument), AnalogSynth, FM6Op, Orgamon, Compresseur, Egaliseur, Delai, Choeur, Microdecale, Convolution,
-LaFleche, Fournaise, Trident, Digue, Moussaillon, Diapason, Mirador, Carte, Arpege, Sillage, LowLatConv. **Sous macOS, Neptune et Sillage sont arm64
-seulement** (pas de Mac Intel). Neptune et Orgamon se lancent muets tant qu'on ne leur donne pas d'échantillons.
+LaFleche, Fournaise, Trident, Digue, Moussaillon, Diapason, Mirador, Carte, Arpege, Sillage, LowLatConv. **Sous macOS, les plugins sont universels (arm64 + x86_64)**
+mais aucun n'a été chargé sur un vrai Mac. Neptune et Orgamon se lancent muets tant qu'on ne leur donne pas d'échantillons.
 
 ## Licences
 

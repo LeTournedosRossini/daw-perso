@@ -27,8 +27,8 @@ Ajouter un plugin = l'ajouter à une Release d'un dépôt déjà listé, ou ajou
 
 ## À savoir pour macOS
 
-- Les plugins doivent avoir **la même architecture que l'application** (arm64 sur les exécuteurs `macos-latest`). `LowLatConv` est universel,
-  `Neptune` et `Sillage` (Releases v0.1.0) sont **arm64 seulement** : ils ne se chargent pas sur un Mac Intel.
+- Les plugins doivent avoir **la même architecture que l'application** (arm64 sur les exécuteurs `macos-latest`). Depuis les Releases v0.1.1,
+  tous les plugins (Neptune, Sillage, LowLatConv…) sont **universels** (arm64 + x86_64) ; les v0.1.0 de Neptune et Sillage étaient arm64 seulement.
 - L'application sera livrée signée « ad hoc » (gratuit, sans compte Apple) en **une seule passe sur tout le paquet, plugins compris**, après la
   copie des plugins : une signature faite avant serait invalidée par l'ajout de fichiers.
 - Non notarisé : au premier lancement, clic droit puis « Ouvrir » (ou `xattr -cr DAW.app`).
