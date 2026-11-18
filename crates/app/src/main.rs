@@ -271,10 +271,17 @@ struct Pump {
     /// Latences du pilote : connues une fois le flux démarré ; on en déduit alors le décalage à retirer des prises.
     latency: Option<Arc<StreamLatency>>,
     latency_done: bool,
+    started: Instant,
+    debug_played: bool,
 }
 
 impl Pump {
     fn step(&mut self) -> bool {
+        // Aide au diagnostic : `DAW_DEBUG_PLAY=1` lance la lecture 3 s après le démarrage (sans toucher à l'interface).
+        if !self.debug_played && std::env::var_os("DAW_DEBUG_PLAY").is_some() && self.started.elapsed() > Duration::from_secs(3) {
+            self.debug_played = true;
+            let _ = self.host.command_json(r#"{"type":"transport","action":"play"}"#);
+        }
         // Messages des fenêtres de plugins, minuteurs de leurs interfaces : à chaque tour (~10 ms), pas seulement au `tick` de 30 Hz.
         for e in self.host.pump_windows() {
             self.publish(&e);
@@ -403,6 +410,16 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
             let _ = daw_audio_io::rt_priority::promote_current_thread();
         })) });
         log(&format!("calcul en avance : {ms} ms, {} fil(s) de rendu", n.max(1)));
+        // Aide au diagnostic : `DAW_DEBUG_AUDIO=1` affiche chaque seconde les compteurs du calcul en avance (sur la sortie d'erreur).
+        if std::env::var_os("DAW_DEBUG_AUDIO").is_some() {
+            if let Some(st) = engine.ahead_stats() {
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                    use std::sync::atomic::Ordering::Relaxed;
+                    eprintln!("avance diag : blocs rendus {}, coupures (silence faute de données) {}, désaccords {}, époques {}", st.produced_blocks.load(Relaxed), st.underruns.load(Relaxed), st.desyncs.load(Relaxed), st.epochs.load(Relaxed));
+                });
+            }
+        }
     }
     let (session, meta, note) = demo_session_with_instruments(rate);
     log(&note);
@@ -539,7 +556,7 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             let (engine, mut host) = build_host(info.sample_rate, buffer as usize, info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(driver2, info.sample_rate, info.buffer_size as u32);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -579,7 +596,7 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         let (engine, mut host) = build_host(rate, 1024, 2, &route2, &eff, true).expect("projet de démonstration valide");
         host.set_audio_outputs(2);
         host.set_audio_status("JACK".into(), rate, 0);
-        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true };
+        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false };
         let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
         (EngineProc(engine), control)
     })?;
@@ -607,7 +624,7 @@ fn run_with_wasapi(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -647,7 +664,7 @@ fn run_with_alsa(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
             let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -687,7 +704,7 @@ fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Re
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
             let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -719,7 +736,7 @@ fn run_silent(app: &AppHandle, rx: SharedRx, route: &SharedRoute) {
     let block = 256usize;
     let eff = effective();
     let Ok((mut engine, host)) = build_host(rate, block, 0, route, &eff, false) else { return };
-    let mut pump = Pump { host, rx, app: app.clone(), last_tick: Instant::now(), route: Arc::clone(route), last_armed: Vec::new(), latency: None, latency_done: true };
+    let mut pump = Pump { host, rx, app: app.clone(), last_tick: Instant::now(), route: Arc::clone(route), last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false };
     let (mut l, mut r) = (vec![0.0f32; block], vec![0.0f32; block]);
     let period = Duration::from_secs_f64(block as f64 / rate as f64);
     let mut next = Instant::now();

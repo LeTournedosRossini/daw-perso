@@ -195,6 +195,8 @@ struct Play<P> {
     right: jack::Port<AudioOut>,
     midi: Option<jack::Port<jack::MidiIn>>,
     tp: TimedProcessor<P>,
+    /// Aide au diagnostic (`DAW_DEBUG_AUDIO`) : cycles faits et crête de sortie (bits d'un `f32`) depuis la dernière lecture.
+    debug: Option<(Arc<std::sync::atomic::AtomicU64>, Arc<AtomicU32>)>,
 }
 
 impl<P: StereoProcessor> jack::ProcessHandler for Play<P> {
@@ -210,6 +212,11 @@ impl<P: StereoProcessor> jack::ProcessHandler for Play<P> {
             let l = self.left.as_mut_slice(ps);
             let r = self.right.as_mut_slice(ps);
             self.tp.process(il, ir, l, r);
+            if let Some((cycles, peak)) = &self.debug {
+                cycles.fetch_add(1, Ordering::Relaxed);
+                let m = l.iter().chain(r.iter()).fold(0.0f32, |a, v| a.max(v.abs()));
+                peak.fetch_max(m.to_bits(), Ordering::Relaxed);
+            }
         }))
         .is_ok();
         if !ok {
@@ -250,8 +257,9 @@ pub fn run_playback<P: StereoProcessor>(
     let (processor, mut control) = make(sample_rate);
     let xruns = Arc::new(AtomicU32::new(0));
     alloc_guard::reset_violations();
+    let debug = std::env::var_os("DAW_DEBUG_AUDIO").is_some().then(|| (Arc::new(std::sync::atomic::AtomicU64::new(0)), Arc::new(AtomicU32::new(0))));
     let active = client
-        .activate_async(Notifications { xruns: Arc::clone(&xruns) }, Play { in_left, in_right, left, right, midi: midi_port, tp: TimedProcessor::new(processor, sample_rate) })
+        .activate_async(Notifications { xruns: Arc::clone(&xruns) }, Play { in_left, in_right, left, right, midi: midi_port, tp: TimedProcessor::new(processor, sample_rate), debug: debug.clone() })
         .map_err(|e| e.to_string())?;
     if !opts.no_connect {
         let (dl, dr) = (dest_l.ok_or("aucune sortie physique trouvée (voir `devices`)")?, dest_r.ok_or("aucune sortie physique trouvée")?);
@@ -281,8 +289,15 @@ pub fn run_playback<P: StereoProcessor>(
 
     let start = Instant::now();
     let end = Duration::from_secs(opts.seconds.max(1) as u64);
+    let mut next_debug = Duration::from_secs(1);
     loop {
         let elapsed = start.elapsed();
+        if let Some((cycles, peak)) = &debug {
+            if elapsed >= next_debug {
+                eprintln!("JACK diag {:>4.0} s : cycles {}, dépassements {}, crête de sortie {:.3}", elapsed.as_secs_f64(), cycles.load(Ordering::Relaxed), xruns.load(Ordering::Relaxed), f32::from_bits(peak.swap(0, Ordering::Relaxed)));
+                next_debug += Duration::from_secs(1);
+            }
+        }
         if elapsed >= end || !control(elapsed) {
             break;
         }

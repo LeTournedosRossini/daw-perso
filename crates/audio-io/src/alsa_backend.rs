@@ -273,7 +273,12 @@ pub fn run_playback_ex<P: StereoProcessor>(opts: &PlayOptions, make: impl FnOnce
 
     let stop = Arc::new(AtomicBool::new(false));
     let xruns = Arc::new(AtomicU32::new(0));
+    let cycles = Arc::new(std::sync::atomic::AtomicU64::new(0));
     alloc_guard::reset_violations();
+    let cycles2 = Arc::clone(&cycles);
+    let peak = Arc::new(AtomicU32::new(0));
+    let peak2 = Arc::clone(&peak);
+    let debug_on = std::env::var_os("DAW_DEBUG_AUDIO").is_some();
     let (stop2, xruns2, latency2) = (Arc::clone(&stop), Arc::clone(&xruns), Arc::clone(&latency));
     let worker = std::thread::Builder::new()
         .name("daw-alsa".into())
@@ -309,6 +314,7 @@ pub fn run_playback_ex<P: StereoProcessor>(opts: &PlayOptions, make: impl FnOnce
             let out_delay = play.pcm.delay().unwrap_or(0).max(0) as u32;
             latency2.set(if capture.is_some() { period as u32 * 2 } else { 0 }, out_delay);
             while !stop2.load(Ordering::Relaxed) {
+                cycles2.fetch_add(1, Ordering::Relaxed);
                 let _rt = RtScope::enter();
                 // Capture : tout ce qui est déjà arrivé, sans attendre (EAGAIN : rien de prêt) ; puis une période de la file. Si la file
                 // n'a pas encore de quoi faire une période, on joue du silence en entrée ; si elle déborde, on rattrape en jetant le plus ancien.
@@ -342,6 +348,10 @@ pub fn run_playback_ex<P: StereoProcessor>(opts: &PlayOptions, make: impl FnOnce
                     };
                     tp.process_outputs(&ins[..n_ins], &mut outs[..n_out]);
                 }
+                if debug_on {
+                    let m = out_planar.iter().take(2).flat_map(|p| p.iter()).fold(0.0f32, |a, v| a.max(v.abs()));
+                    peak2.fetch_max(m.to_bits(), Ordering::Relaxed);
+                }
                 if let Err(e) = write_period(&play_io, &mut play_bufs, n_out, &out_planar) {
                     xruns2.fetch_add(1, Ordering::Relaxed);
                     if play.pcm.try_recover(e, true).is_ok() {
@@ -365,8 +375,15 @@ pub fn run_playback_ex<P: StereoProcessor>(opts: &PlayOptions, make: impl FnOnce
 
     let start = Instant::now();
     let end = Duration::from_secs(opts.seconds.max(1) as u64);
+    // Aide au diagnostic : `DAW_DEBUG_AUDIO=1` affiche chaque seconde le nombre de cycles faits et de dépassements (sur la sortie d'erreur).
+    let debug = std::env::var_os("DAW_DEBUG_AUDIO").is_some();
+    let mut next_debug = Duration::from_secs(1);
     loop {
         let elapsed = start.elapsed();
+        if debug && elapsed >= next_debug {
+            eprintln!("ALSA diag {:>4.0} s : cycles {} (attendus {}), dépassements {}, crête de sortie {:.3}", elapsed.as_secs_f64(), cycles.load(Ordering::Relaxed), (elapsed.as_secs_f64() * rate as f64 / period as f64) as u64, xruns.load(Ordering::Relaxed), f32::from_bits(peak.swap(0, Ordering::Relaxed)));
+            next_debug += Duration::from_secs(1);
+        }
         if elapsed >= end || !control(elapsed) || worker.is_finished() {
             break;
         }
