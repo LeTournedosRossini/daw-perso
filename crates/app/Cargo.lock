@@ -599,6 +599,7 @@ dependencies = [
  "cc",
  "daw-core-types",
  "jack",
+ "windows",
 ]
 
 [[package]]

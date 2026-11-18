@@ -120,3 +120,14 @@ test("phrase « En cours » pour ALSA", () => {
   const r = { audio: true, system: "alsa", sample_rate: 48000, inputs: 2, effective: { buffer: 64, threads: 1, ahead_ms: 0, device: "" } };
   assert.match(runningText(r), /ALSA \(default\)/);
 });
+
+test("Windows : ASIO ou WASAPI, appareils et pilote enregistrés ensemble", () => {
+  const f = { system: "windows", driver: "UMC ASIO Driver", audio_system: "wasapi", device: "Haut-parleurs (Realtek)", capture_device: "", out_ports: ["", ""], in_ports: ["", ""], buffer: 128, threads: 1, ahead_ms: 0, ahead_threads: 2 };
+  const p = prefsFromForm(f, {}, {});
+  assert.equal(p.driver, "UMC ASIO Driver", "le pilote ASIO reste enregistré même si WASAPI est choisi");
+  assert.equal(p.audio_system, "wasapi");
+  assert.equal(p.device, "Haut-parleurs (Realtek)");
+  assert.equal(validatePrefs(p), null);
+  assert.equal(validatePrefs({ ...p, audio_system: "asio" }), null);
+  assert.match(runningText({ audio: true, system: "wasapi", sample_rate: 48000, inputs: 2, effective: { buffer: 128, threads: 1, ahead_ms: 0, device: "" } }), /WASAPI partagé/);
+});

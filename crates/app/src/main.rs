@@ -429,11 +429,16 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     #[cfg(not(target_os = "windows"))]
     let drivers: Vec<String> = Vec::new();
     let system: &'static str = OPENED_SYSTEM.lock().map(|g| *g).unwrap_or("");
-    let systems: Vec<String> = if cfg!(target_os = "linux") { vec!["jack".into(), "alsa".into()] } else { Vec::new() };
+    let systems: Vec<String> = if cfg!(target_os = "linux") { vec!["jack".into(), "alsa".into()] } else if cfg!(target_os = "windows") { vec!["asio".into(), "wasapi".into()] } else { Vec::new() };
     #[cfg(target_os = "linux")]
-    let alsa_devices: Vec<daw_ui::prefs::AlsaDevice> = daw_audio_io::alsa_backend::list_devices().into_iter().map(|d| daw_ui::prefs::AlsaDevice { name: d.name, description: d.description, playback: d.playback, capture: d.capture }).collect();
+    let alsa_devices: Vec<daw_ui::prefs::AudioDevice> = daw_audio_io::alsa_backend::list_devices().into_iter().map(|d| daw_ui::prefs::AudioDevice { name: d.name, description: d.description, playback: d.playback, capture: d.capture }).collect();
     #[cfg(not(target_os = "linux"))]
-    let alsa_devices: Vec<daw_ui::prefs::AlsaDevice> = Vec::new();
+    let alsa_devices: Vec<daw_ui::prefs::AudioDevice> = Vec::new();
+    // Windows : appareils audio actifs (WASAPI), lecture et capture.
+    #[cfg(target_os = "windows")]
+    let wasapi_devices: Vec<daw_ui::prefs::AudioDevice> = daw_audio_io::wasapi_backend::list_devices().into_iter().map(|d| daw_ui::prefs::AudioDevice { name: d.name, description: if d.default { "par défaut du système".into() } else { String::new() }, playback: d.playback, capture: d.capture }).collect();
+    #[cfg(not(target_os = "windows"))]
+    let wasapi_devices: Vec<daw_ui::prefs::AudioDevice> = Vec::new();
     // macOS : périphériques CoreAudio qui ont au moins deux sorties.
     #[cfg(target_os = "macos")]
     let devices: Vec<String> = daw_audio_io::coreaudio_backend::list_devices().map(|l| l.into_iter().filter(|d| d.outputs >= 2).map(|d| d.name).collect()).unwrap_or_default();
@@ -457,6 +462,7 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
         system: system.into(),
         systems,
         alsa_devices,
+        wasapi_devices,
         devices,
         ports,
         effective: eff.clone(),
@@ -538,20 +544,11 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             (EngineProc(engine), control)
         })
     };
-    // Le périphérique choisi (préférences) d'abord ; introuvable ou refusé, retour au périphérique par défaut du système.
-    let wanted = Some(eff.device.clone()).filter(|d| !d.trim().is_empty());
-    let report = match attempt(true, wanted.clone()) {
+    let report = match attempt(true) {
         Ok(r) => r,
         Err(e) => {
             log(&format!("ouverture avec les entrées impossible ({e}) : nouvel essai sans entrée"));
-            match attempt(false, wanted.clone()) {
-                Ok(r) => r,
-                Err(e2) if wanted.is_some() => {
-                    log(&format!("périphérique « {} » indisponible ({e2}) : périphérique par défaut", wanted.as_deref().unwrap_or("")));
-                    attempt(false, None)?
-                }
-                Err(e2) => return Err(e2),
-            }
+            attempt(false)?
         }
     };
     log(&format!("pilote arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
@@ -587,6 +584,45 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         (EngineProc(engine), control)
     })?;
     log(&format!("JACK arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
+    Ok(())
+}
+
+/// Windows : le moteur joue par WASAPI en mode **partagé** (le mélangeur du système) : pour les machines sans pilote ASIO. Périphériques de
+/// lecture et de capture choisis dans les réglages (ceux par défaut du système sinon) ; un périphérique choisi qui ne s'ouvre pas est remplacé
+/// par celui par défaut. Pas de basse latence (ASIO est fait pour ça) ; sortie principale seulement (deux canaux), toutes les entrées du
+/// périphérique de capture. Pas encore : entrées MIDI déjà prises en charge par WinMM (inchangées), compensation de latence d'entrée mesurée.
+#[cfg(target_os = "windows")]
+fn run_with_wasapi(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<(), String> {
+    use daw_audio_io::playback::PlaybackReport;
+    use daw_audio_io::wasapi_backend::{run_playback_ex, PlayOptions};
+    let eff = effective();
+    let buffer = eff.buffer;
+    let attempt = |device: Option<String>, capture: Option<String>| -> Result<PlaybackReport, String> {
+        log(&format!("ouverture de WASAPI partagé (lecture « {} », capture « {} »), période demandée {buffer}", device.as_deref().unwrap_or("par défaut"), capture.as_deref().unwrap_or("par défaut")));
+        let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
+        let opts = PlayOptions { seconds: 24 * 3600, device, capture_device: capture, buffer: Some(buffer), capture: true };
+        run_playback_ex(&opts, move |info| {
+            set_opened_system("wasapi");
+            log(&format!("{} : {} Hz, période {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs));
+            let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
+            host.set_audio_outputs(info.outputs);
+            host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let control: ControlFn = Box::new(move |_| pump.step());
+            (EngineProc(engine), control)
+        })
+    };
+    let wanted = Some(eff.device.clone()).filter(|d| !d.trim().is_empty());
+    let capture = Some(eff.capture_device.clone()).filter(|d| !d.trim().is_empty());
+    let report = match attempt(wanted.clone(), capture.clone()) {
+        Ok(r) => r,
+        Err(e) if wanted.is_some() || capture.is_some() => {
+            log(&format!("appareil WASAPI choisi indisponible ({e}) : appareils par défaut"));
+            attempt(None, None)?
+        }
+        Err(e) => return Err(e),
+    };
+    log(&format!("WASAPI arrêté : {} dépassements signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
     Ok(())
 }
 
@@ -656,11 +692,20 @@ fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Re
             (EngineProc(engine), control)
         })
     };
-    let report = match attempt(true) {
+    // Le périphérique choisi (préférences) d'abord ; introuvable ou refusé, retour au périphérique par défaut du système.
+    let wanted = Some(eff.device.clone()).filter(|d| !d.trim().is_empty());
+    let report = match attempt(true, wanted.clone()) {
         Ok(r) => r,
         Err(e) => {
             log(&format!("ouverture avec les entrées impossible ({e}) : nouvel essai sans entrée"));
-            attempt(false)?
+            match attempt(false, wanted.clone()) {
+                Ok(r) => r,
+                Err(e2) if wanted.is_some() => {
+                    log(&format!("périphérique « {} » indisponible ({e2}) : périphérique par défaut", wanted.as_deref().unwrap_or("")));
+                    attempt(false, None)?
+                }
+                Err(e2) => return Err(e2),
+            }
         }
     };
     log(&format!("CoreAudio arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
@@ -699,9 +744,32 @@ fn engine_thread(app: AppHandle, rx: SharedRx) {
     let _midi = open_midi_inputs(&route);
     #[cfg(target_os = "windows")]
     {
-        if let Err(e) = run_with_driver(&app, &rx, &route) {
-            log(&format!("pilote ASIO indisponible : {e} — moteur sans son"));
-            let _ = app.emit(EVENT, &Event::Error { command: "audio".into(), message: format!("pilote ASIO indisponible ({e}) : moteur sans son") });
+        // Automatique : ASIO d'abord (comme toujours) ; **WASAPI partagé seulement si ASIO ne s'ouvre pas** (aucun pilote installé, pilote
+        // absent...). « asio » ou « wasapi » dans les réglages forcent le choix. ASIO réussi, le chemin est exactement celui d'avant.
+        let choice = effective().audio_system;
+        let mut problems: Vec<String> = Vec::new();
+        let mut done = false;
+        if choice != "wasapi" {
+            match run_with_driver(&app, &rx, &route) {
+                Ok(()) => done = true,
+                Err(e) => {
+                    log(&format!("pilote ASIO indisponible : {e}"));
+                    problems.push(format!("ASIO ({e})"));
+                }
+            }
+        }
+        if !done && choice != "asio" {
+            match run_with_wasapi(&app, &rx, &route) {
+                Ok(()) => done = true,
+                Err(e) => {
+                    log(&format!("WASAPI indisponible : {e}"));
+                    problems.push(format!("WASAPI ({e})"));
+                }
+            }
+        }
+        if !done {
+            log("aucun système audio disponible : moteur sans son");
+            let _ = app.emit(EVENT, &Event::Error { command: "audio".into(), message: format!("aucun système audio disponible : {} — moteur sans son", problems.join(" ; ")) });
             run_silent(&app, rx, &route);
         }
     }

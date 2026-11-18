@@ -123,12 +123,13 @@ pub struct Prefs {
     pub version: u32,
     /// Nom du pilote ASIO ; `None` : `UMC`.
     pub driver: Option<String>,
-    /// Linux : système audio, « jack » ou « alsa » ; `None` : automatique (JACK s'il est joignable — sous PipeWire, avec `pw-jack` —, sinon ALSA).
+    /// Système audio : Linux « jack » ou « alsa » (`None` : JACK s'il est joignable — sous PipeWire, avec `pw-jack` —, sinon ALSA) ; Windows « asio » ou
+    /// « wasapi » (`None` : ASIO, et WASAPI partagé seulement si ASIO ne s'ouvre pas).
     pub audio_system: Option<String>,
-    /// macOS : morceau du nom du périphérique CoreAudio ; Linux (ALSA) : périphérique de lecture (`default`, `hw:CARD=…`) ; `None` : celui par
-    /// défaut du système.
+    /// macOS : morceau du nom du périphérique CoreAudio ; Linux (ALSA) : périphérique de lecture (`default`, `hw:CARD=…`) ; Windows (WASAPI) : nom
+    /// de l'appareil de lecture ; `None` : celui par défaut du système.
     pub device: Option<String>,
-    /// Linux (ALSA) : périphérique de capture ; `None` : le même que la lecture.
+    /// Linux (ALSA) ou Windows (WASAPI) : périphérique de capture ; `None` : celui par défaut du système (ALSA : le même que la lecture).
     pub capture_device: Option<String>,
     /// Linux (JACK) : ports de sortie gauche et droit où écrire (sinon les deux premières sorties physiques). Un port qui n'existe plus
     /// est ignoré à l'ouverture (retour à la valeur par défaut).
@@ -182,8 +183,8 @@ impl Prefs {
             }
         }
         if let Some(s) = &self.audio_system {
-            if !matches!(s.as_str(), "jack" | "alsa") {
-                return Err("système audio : « jack » ou « alsa »".into());
+            if !matches!(s.as_str(), "jack" | "alsa" | "asio" | "wasapi") {
+                return Err("système audio : « jack », « alsa », « asio » ou « wasapi »".into());
             }
         }
         for (what, list) in [("sorties", &self.out_ports), ("entrées", &self.in_ports)] {
@@ -224,7 +225,7 @@ pub fn same_driver(a: &str, b: &str) -> bool {
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Effective {
     pub driver: String,
-    /// Linux : « jack », « alsa » ou vide (automatique).
+    /// « jack » / « alsa » (Linux), « asio » / « wasapi » (Windows) ou vide (automatique).
     pub audio_system: String,
     /// macOS : morceau du nom du périphérique ; Linux (ALSA) : périphérique de lecture (vide : celui par défaut).
     pub device: String,
@@ -273,9 +274,9 @@ pub struct PortChoices {
     pub inputs: Vec<String>,
 }
 
-/// Un périphérique ALSA proposé dans les réglages (Linux).
+/// Un périphérique audio proposé dans les réglages (ALSA sous Linux, WASAPI sous Windows).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
-pub struct AlsaDevice {
+pub struct AudioDevice {
     pub name: String,
     pub description: String,
     pub playback: bool,
@@ -287,10 +288,12 @@ pub struct Runtime {
     pub effective: Effective,
     /// Système audio réellement ouvert : « asio » (Windows), « coreaudio » (macOS), « jack » ou « alsa » (Linux), ou vide (aucun).
     pub system: String,
-    /// Systèmes audio entre lesquels l'utilisateur peut choisir sur cette plateforme (Linux : jack et alsa ; ailleurs : vide).
+    /// Systèmes audio entre lesquels l'utilisateur peut choisir sur cette plateforme (Linux : jack et alsa ; Windows : asio et wasapi ; ailleurs : vide).
     pub systems: Vec<String>,
     /// Linux : périphériques ALSA utiles (`default`, `pipewire`, `hw:…`).
-    pub alsa_devices: Vec<AlsaDevice>,
+    pub alsa_devices: Vec<AudioDevice>,
+    /// Windows : appareils audio actifs du système (WASAPI), lecture et capture.
+    pub wasapi_devices: Vec<AudioDevice>,
     /// macOS : périphériques CoreAudio qui ont au moins deux sorties.
     pub devices: Vec<String>,
     /// Linux : ports JACK disponibles au démarrage (vide ailleurs ou si JACK n'est pas joignable).

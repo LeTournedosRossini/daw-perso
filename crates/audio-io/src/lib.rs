@@ -11,6 +11,10 @@ pub mod rt_priority;
 pub mod spsc;
 pub mod timing;
 
+// File des échantillons capturés (ALSA et WASAPI : la capture et la lecture ont chacune leur horloge).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod capture_ring;
+
 #[cfg(target_os = "linux")]
 pub mod jack_backend;
 
@@ -25,6 +29,10 @@ pub mod asio_backend;
 // Entrée MIDI Windows (WinMM).
 #[cfg(target_os = "windows")]
 pub mod winmm_midi;
+
+// Backend WASAPI (Windows), mode partagé : la carte son par le mélangeur du système, sans pilote ASIO.
+#[cfg(target_os = "windows")]
+pub mod wasapi_backend;
 
 // Backend CoreAudio (macOS). `--cfg coreaudio_check` permet de le compiler (sans le lier) sous Linux pour en vérifier les types.
 #[cfg(any(target_os = "macos", coreaudio_check))]

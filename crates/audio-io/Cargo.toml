@@ -17,3 +17,21 @@ cc = "1"
 jack = "0.13"
 # Liaison ALSA fine (MIT/Apache-2.0, maintenue) : backend Linux « carte son directe », sans serveur JACK. Demande libasound2-dev.
 alsa = "0.12"
+
+# Backend WASAPI (Windows) : liaisons Microsoft officielles (MIT/Apache-2.0), seulement les modules audio / COM nécessaires. Déjà tirée par
+# Tauri (même version : pas de doublon dans l'application).
+[target.'cfg(target_os = "windows")'.dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Security",
+  "Win32_Media_KernelStreaming",
+  "Win32_Media_Multimedia",
+  "Win32_Devices_FunctionDiscovery",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem",
+]

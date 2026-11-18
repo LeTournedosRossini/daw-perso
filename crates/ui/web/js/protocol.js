@@ -53,7 +53,7 @@ export function validatePrefs(p) {
   if (!p || typeof p !== "object") return "préférences absentes";
   if (p.driver != null && (typeof p.driver !== "string" || !p.driver.trim() || p.driver.length > 200)) return "pilote : nom vide ou trop long";
   for (const k of ["device", "capture_device"]) if (p[k] != null && (typeof p[k] !== "string" || !p[k].trim() || p[k].length > 200)) return `${k === "device" ? "périphérique" : "périphérique de capture"} : nom vide ou trop long`;
-  if (p.audio_system != null && !["jack", "alsa"].includes(p.audio_system)) return "système audio : « jack » ou « alsa »";
+  if (p.audio_system != null && !["jack", "alsa", "asio", "wasapi"].includes(p.audio_system)) return "système audio : « jack », « alsa », « asio » ou « wasapi »";
   for (const k of ["out_ports", "in_ports"]) if (p[k] !== undefined && (!Array.isArray(p[k]) || p[k].length > 2 || p[k].some((n) => typeof n !== "string" || !n.trim() || n.length > 300))) return `${k} : deux noms au plus, non vides`;
   if (p.buffer != null && !(Number.isInteger(p.buffer) && p.buffer >= 8 && p.buffer <= 2048)) return "tampon : de 8 à 2048 échantillons";
   if (!(Number.isInteger(p.threads) && p.threads >= 1 && p.threads <= 16)) return "fils de calcul : de 1 à 16";
