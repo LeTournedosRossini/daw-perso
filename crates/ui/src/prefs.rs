@@ -123,8 +123,13 @@ pub struct Prefs {
     pub version: u32,
     /// Nom du pilote ASIO ; `None` : `UMC`.
     pub driver: Option<String>,
-    /// macOS : morceau du nom du périphérique CoreAudio ; `None` : la sortie par défaut du système.
+    /// Linux : système audio, « jack » ou « alsa » ; `None` : automatique (JACK s'il est joignable — sous PipeWire, avec `pw-jack` —, sinon ALSA).
+    pub audio_system: Option<String>,
+    /// macOS : morceau du nom du périphérique CoreAudio ; Linux (ALSA) : périphérique de lecture (`default`, `hw:CARD=…`) ; `None` : celui par
+    /// défaut du système.
     pub device: Option<String>,
+    /// Linux (ALSA) : périphérique de capture ; `None` : le même que la lecture.
+    pub capture_device: Option<String>,
     /// Linux (JACK) : ports de sortie gauche et droit où écrire (sinon les deux premières sorties physiques). Un port qui n'existe plus
     /// est ignoré à l'ouverture (retour à la valeur par défaut).
     pub out_ports: Vec<String>,
@@ -147,7 +152,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, device: None, out_ports: Vec::new(), in_ports: Vec::new(), buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), startup: StartupPrefs::default(), remote: RemotePrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, audio_system: None, device: None, capture_device: None, out_ports: Vec::new(), in_ports: Vec::new(), buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), startup: StartupPrefs::default(), remote: RemotePrefs::default() }
     }
 }
 
@@ -169,9 +174,16 @@ impl Prefs {
                 return Err("pilote : nom vide ou trop long".into());
             }
         }
-        if let Some(d) = &self.device {
-            if d.trim().is_empty() || d.len() > 200 {
-                return Err("périphérique : nom vide ou trop long".into());
+        for (what, d) in [("périphérique", &self.device), ("périphérique de capture", &self.capture_device)] {
+            if let Some(d) = d {
+                if d.trim().is_empty() || d.len() > 200 {
+                    return Err(format!("{what} : nom vide ou trop long"));
+                }
+            }
+        }
+        if let Some(s) = &self.audio_system {
+            if !matches!(s.as_str(), "jack" | "alsa") {
+                return Err("système audio : « jack » ou « alsa »".into());
             }
         }
         for (what, list) in [("sorties", &self.out_ports), ("entrées", &self.in_ports)] {
@@ -212,8 +224,12 @@ pub fn same_driver(a: &str, b: &str) -> bool {
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Effective {
     pub driver: String,
-    /// macOS : morceau du nom du périphérique (vide : sortie par défaut).
+    /// Linux : « jack », « alsa » ou vide (automatique).
+    pub audio_system: String,
+    /// macOS : morceau du nom du périphérique ; Linux (ALSA) : périphérique de lecture (vide : celui par défaut).
     pub device: String,
+    /// Linux (ALSA) : périphérique de capture (vide : le même que la lecture).
+    pub capture_device: String,
     /// Linux : ports JACK demandés (vide : valeurs par défaut).
     pub out_ports: Vec<String>,
     pub in_ports: Vec<String>,
@@ -245,7 +261,7 @@ pub fn resolve(p: &Prefs, env: &dyn Fn(&str) -> Option<String>) -> Effective {
     let threads = num("DAW_THREADS", "threads", &mut forced).unwrap_or(p.threads).max(1);
     let ahead_ms = num("DAW_AHEAD", "ahead_ms", &mut forced).unwrap_or(p.ahead_ms);
     let ahead_threads = num("DAW_AHEAD_THREADS", "ahead_threads", &mut forced).unwrap_or(p.ahead_threads).max(1);
-    Effective { driver, device: p.device.clone().unwrap_or_default(), out_ports: p.out_ports.clone(), in_ports: p.in_ports.clone(), buffer, threads, ahead_ms, ahead_threads, forced }
+    Effective { driver, audio_system: p.audio_system.clone().unwrap_or_default(), device: p.device.clone().unwrap_or_default(), capture_device: p.capture_device.clone().unwrap_or_default(), out_ports: p.out_ports.clone(), in_ports: p.in_ports.clone(), buffer, threads, ahead_ms, ahead_threads, forced }
 }
 
 /// Ce qui tourne maintenant, pour la fenêtre des réglages (renseigné par l'application une fois le pilote ouvert).
@@ -257,11 +273,24 @@ pub struct PortChoices {
     pub inputs: Vec<String>,
 }
 
+/// Un périphérique ALSA proposé dans les réglages (Linux).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct AlsaDevice {
+    pub name: String,
+    pub description: String,
+    pub playback: bool,
+    pub capture: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Runtime {
     pub effective: Effective,
-    /// Système audio utilisé : « asio » (Windows), « coreaudio » (macOS), « jack » (Linux), ou vide (aucun).
+    /// Système audio réellement ouvert : « asio » (Windows), « coreaudio » (macOS), « jack » ou « alsa » (Linux), ou vide (aucun).
     pub system: String,
+    /// Systèmes audio entre lesquels l'utilisateur peut choisir sur cette plateforme (Linux : jack et alsa ; ailleurs : vide).
+    pub systems: Vec<String>,
+    /// Linux : périphériques ALSA utiles (`default`, `pipewire`, `hw:…`).
+    pub alsa_devices: Vec<AlsaDevice>,
     /// macOS : périphériques CoreAudio qui ont au moins deux sorties.
     pub devices: Vec<String>,
     /// Linux : ports JACK disponibles au démarrage (vide ailleurs ou si JACK n'est pas joignable).
@@ -352,6 +381,12 @@ mod tests {
         ] {
             assert!(bad.validate().is_err());
         }
+        let alsa = Prefs { audio_system: Some("alsa".into()), device: Some("hw:CARD=PCH,DEV=0".into()), capture_device: Some("default".into()), ..Prefs::default() };
+        alsa.validate().unwrap();
+        let e = resolve(&alsa, &|_| None);
+        assert_eq!((e.audio_system.as_str(), e.device.as_str(), e.capture_device.as_str()), ("alsa", "hw:CARD=PCH,DEV=0", "default"));
+        assert!(Prefs { audio_system: Some("oss".into()), ..Prefs::default() }.validate().is_err());
+        assert!(Prefs { capture_device: Some(" ".into()), ..Prefs::default() }.validate().is_err());
         // Un ancien fichier (sans ces champs) se relit avec les valeurs par défaut.
         let old: Prefs = serde_json::from_str(r#"{"version":1,"buffer":128}"#).unwrap();
         assert!(old.device.is_none() && old.out_ports.is_empty());

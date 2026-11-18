@@ -116,6 +116,8 @@ fn a_changed_device_or_port_asks_for_a_restart() {
     assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","device":"Haut-parleurs"}}"#)).2);
     assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","out_ports":["system:playback_3","system:playback_4"]}}"#)).2);
     assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","in_ports":["system:capture_2"]}}"#)).2);
+    assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","audio_system":"alsa"}}"#)).2);
+    assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","capture_device":"hw:CARD=HID,DEV=0"}}"#)).2);
     // Trois ports de sortie, ou un nom vide : refusés sans rien changer.
     let before = prefs_event(&host.command_json(r#"{"type":"get_prefs"}"#)).0;
     host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"out_ports":["a","b","c"]}}"#);

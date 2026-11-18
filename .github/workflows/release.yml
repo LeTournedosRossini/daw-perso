@@ -165,7 +165,7 @@ jobs:
           |---|---|---|
           | Windows x64 | `…-Windows-x64.zip` | décompresser, lancer `daw-app.exe` (WebView2 requis, présent sous Windows 11) |
           | macOS universel (Apple Silicon + Intel) | `…-macOS-universal.zip` | non notarisé : clic droit sur `DAW.app` puis « Ouvrir », ou `xattr -cr DAW.app` |
-          | Linux x64 | `…-Linux-x64.tar.gz` | WebKitGTK 4.1 requis ; `./lancer.sh` (son via JACK / PipeWire) |
+          | Linux x64 | `…-Linux-x64.tar.gz` | WebKitGTK 4.1 requis ; `./lancer.sh` (son via ALSA / PipeWire ou JACK) |
 
           Contient 21 plugins CLAP de l'auteur (dossier `plugins`). Les plugins macOS sont universels (arm64 + x86_64, vérifiés par `lipo` côté plugins), mais aucun n'a été chargé sur un vrai Mac. Voir `LISEZMOI.md` dans chaque paquet.
           Licences : DAW GPLv3 ; plugins Neptune et Sillage AGPLv3, LowLatConv GPLv3+ (détail dans `THIRD-PARTY-LICENSES.md`).

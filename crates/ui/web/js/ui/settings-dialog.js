@@ -68,9 +68,10 @@ export function prefsFromForm(f, metronome, base = {}) {
   return {
     ...base,
     version: 1,
-    ...(f.system === "jack" || f.system === "coreaudio" ? {} : { driver: f.driver || null }),
-    ...(f.system === "coreaudio" ? { device: f.device || null } : {}),
-    ...(f.system === "jack" ? { out_ports: (f.out_ports ?? []).filter(Boolean), in_ports: (f.in_ports ?? []).filter(Boolean) } : {}),
+    ...(f.system === "jack" || f.system === "linux" || f.system === "coreaudio" ? {} : { driver: f.driver || null }),
+    ...(f.system === "coreaudio" || f.system === "linux" ? { device: f.device || null } : {}),
+    ...(f.system === "linux" ? { audio_system: f.audio_system || null, capture_device: f.capture_device || null } : {}),
+    ...(f.system === "jack" || f.system === "linux" ? { out_ports: (f.out_ports ?? []).filter(Boolean), in_ports: (f.in_ports ?? []).filter(Boolean) } : {}),
     buffer: f.buffer ?? null,
     threads: f.threads,
     ahead_ms: f.ahead_ms,
@@ -88,7 +89,7 @@ export function runningText(r) {
   const e = r.effective;
   if (!r.audio) return "Aucun pilote audio n'est ouvert : le moteur tourne sans son.";
   const ms = bufferMs(e.buffer, r.sample_rate);
-  const what = r.system === "jack" ? "JACK (ports : " + ((e.out_ports ?? []).length ? e.out_ports.join(", ") : "sorties physiques par défaut") + ")" : r.system === "coreaudio" ? `CoreAudio (${e.device || "périphérique par défaut du système"})` : e.driver;
+  const what = r.system === "alsa" ? `ALSA (${e.device || "default"})` : r.system === "jack" ? "JACK (ports : " + ((e.out_ports ?? []).length ? e.out_ports.join(", ") : "sorties physiques par défaut") + ")" : r.system === "coreaudio" ? `CoreAudio (${e.device || "périphérique par défaut du système"})` : e.driver;
   return `En cours : ${what}, ${r.sample_rate} Hz, tampon ${e.buffer}${ms ? ` (${ms.toFixed(2).replace(".", ",")} ms)` : ""}, ${r.inputs} entrée(s), ${e.threads} fil(s) de calcul${e.ahead_ms ? `, avance ${e.ahead_ms} ms` : ""}.`;
 }
 
@@ -110,9 +111,10 @@ export class SettingsDialog {
       if (e.command === "set_prefs") this.#message(e.message, true);
     });
     $("btn-settings")?.addEventListener("click", () => this.open());
+    $("st-system").addEventListener("change", () => this.#audioLayout());
     $("st-save").addEventListener("click", () => this.#save());
     $("st-restart").addEventListener("click", () => this.#restart());
-    for (const id of ["st-threads", "st-ahead", "st-ahead-threads", "st-driver", "st-buffer", "st-out-l", "st-out-r", "st-in-l", "st-in-r"]) $(id).addEventListener("change", () => this.#refreshNotes());
+    for (const id of ["st-threads", "st-ahead", "st-ahead-threads", "st-driver", "st-buffer", "st-out-l", "st-out-r", "st-in-l", "st-in-r", "st-system", "st-alsa-out", "st-alsa-in"]) $(id).addEventListener("change", () => this.#refreshNotes());
     // Changer d'unité montre la valeur déjà réglée pour cette unité avant d'envoyer.
     $("st-m-pre-unit").addEventListener("change", () => this.#fillPre(this.state.metronome ?? this.#prefs().metronome));
     for (const id of ["st-m-only", "st-m-count", "st-m-pre", "st-m-pre-unit", "st-m-post"]) $(id).addEventListener("change", () => this.#sendMetronome());
@@ -138,13 +140,25 @@ export class SettingsDialog {
     $("st-running").textContent = runningText(r);
 
     const system = r?.system ?? "asio";
-    $("st-f-driver").hidden = system === "jack";
-    $("st-jack").hidden = system !== "jack";
+    // Linux : deux systèmes au choix (JACK, ALSA) ; ailleurs un seul.
+    const multi = (r?.systems?.length ?? 0) > 1;
+    $("st-f-system").hidden = !multi;
+    $("st-f-driver").hidden = multi;
     $("st-driver-label").textContent = system === "coreaudio" ? "Périphérique" : "Pilote";
-    if (system === "jack") this.#fillJack(p, r);
-    else if (system === "coreaudio") this.#fillDevices(p, r);
+    if (multi) {
+      $("st-system").value = p.audio_system ?? "";
+      this.#fillJack(p, r);
+      this.#fillAlsa(p, r);
+      this.#audioLayout();
+    } else if (system === "coreaudio") {
+      $("st-jack").hidden = true;
+      $("st-alsa").hidden = true;
+      this.#fillDevices(p, r);
+    }
     // Pilote ASIO : ceux qui sont installés, plus celui qui est enregistré s'il n'y est pas (autre machine).
     else {
+    $("st-jack").hidden = true;
+    $("st-alsa").hidden = true;
     const drivers = r?.drivers ?? [];
     const asked = p.driver ?? r?.effective.driver ?? DEFAULT_DRIVER;
     const wanted = matchDriver(asked, drivers) ?? asked;
@@ -210,6 +224,32 @@ export class SettingsDialog {
     $("st-driver-note").textContent = devices.length ? "Le périphérique choisi sert à la lecture et à l'enregistrement (toutes ses entrées). Pris en compte au prochain démarrage." : "Aucun périphérique de sortie trouvé.";
   }
 
+  /** Linux : n'affiche que ce qui concerne le système choisi (automatique : les deux). */
+  #audioLayout() {
+    const c = $("st-system").value;
+    $("st-jack").hidden = c === "alsa";
+    $("st-alsa").hidden = c === "jack";
+  }
+
+  /** Linux (ALSA) : périphériques de lecture et de capture. */
+  #fillAlsa(p, r) {
+    const all = r?.alsa_devices ?? [];
+    const label = (d) => (d.description ? `${d.name} — ${d.description}` : d.name);
+    const fill = (id, list, saved, none) => {
+      const sel = $(id);
+      const opts = [Object.assign(document.createElement("option"), { value: "", textContent: none })];
+      for (const d of list.filter((x) => x.name !== "default")) opts.push(Object.assign(document.createElement("option"), { value: d.name, textContent: label(d) }));
+      if (saved && saved !== "default" && !list.some((d) => d.name === saved)) opts.push(Object.assign(document.createElement("option"), { value: saved, textContent: `${saved} (introuvable)` }));
+      sel.replaceChildren(...opts);
+      sel.value = saved && saved !== "default" ? saved : "";
+    };
+    fill("st-alsa-out", all.filter((d) => d.playback), p.device, "Par défaut du système (default)");
+    fill("st-alsa-in", all.filter((d) => d.capture), p.capture_device, "Le même que la lecture");
+    $("st-alsa-note").textContent = all.length
+      ? "« default » et « pipewire » passent par PipeWire : ça marche sans pw-jack. Une carte « hw: » est ouverte directement : aucun autre programme (PipeWire compris) ne doit la tenir. Le tampon est la taille de la période. Pris en compte au prochain démarrage."
+      : "Aucun périphérique ALSA trouvé.";
+  }
+
   /** Linux (JACK) : ports de sortie et d'entrée du serveur, les ports physiques d'abord. */
   #fillJack(p, r) {
     const ports = r?.ports ?? null;
@@ -232,11 +272,14 @@ export class SettingsDialog {
   }
 
   #form() {
-    const system = this.last?.running?.system ?? "asio";
+    const r = this.last?.running;
+    const system = (r?.systems?.length ?? 0) > 1 ? "linux" : r?.system ?? "asio";
     return {
       system,
       driver: $("st-driver").value,
-      device: system === "coreaudio" ? $("st-driver").value : undefined,
+      audio_system: $("st-system").value,
+      device: system === "coreaudio" ? $("st-driver").value : system === "linux" ? $("st-alsa-out").value : undefined,
+      capture_device: $("st-alsa-in").value,
       out_ports: [$("st-out-l").value, $("st-out-r").value],
       in_ports: [$("st-in-l").value, $("st-in-r").value],
       buffer: Number($("st-buffer").value),

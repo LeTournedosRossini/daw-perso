@@ -15,3 +15,5 @@ cc = "1"
 # Liaison JACK fine (licence MIT, maintenue). Ne sert qu'au backend Linux : JACK/PipeWire.
 [target.'cfg(target_os = "linux")'.dependencies]
 jack = "0.13"
+# Liaison ALSA fine (MIT/Apache-2.0, maintenue) : backend Linux « carte son directe », sans serveur JACK. Demande libasound2-dev.
+alsa = "0.12"

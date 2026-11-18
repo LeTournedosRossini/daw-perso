@@ -174,8 +174,14 @@
       <p id="st-forced" class="st-note warn" hidden></p>
       <fieldset class="st-group">
         <legend>Audio</legend>
+        <label class="st-field" id="st-f-system" hidden title="Linux : JACK (sous PipeWire, avec pw-jack) ou ALSA, la carte son directement (marche sans pw-jack)."><span>Système audio</span><select id="st-system"><option value="">Automatique (JACK, sinon ALSA)</option><option value="jack">JACK</option><option value="alsa">ALSA</option></select></label>
         <label class="st-field" id="st-f-driver"><span id="st-driver-label">Pilote</span><select id="st-driver"></select></label>
         <p id="st-driver-note" class="st-note"></p>
+        <div id="st-alsa" hidden>
+          <label class="st-field"><span>ALSA : lecture</span><select id="st-alsa-out"></select></label>
+          <label class="st-field"><span>ALSA : capture</span><select id="st-alsa-in"></select></label>
+          <p id="st-alsa-note" class="st-note"></p>
+        </div>
         <div id="st-jack" hidden>
           <label class="st-field"><span>Sortie gauche</span><select id="st-out-l"></select></label>
           <label class="st-field"><span>Sortie droite</span><select id="st-out-r"></select></label>

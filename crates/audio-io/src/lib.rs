@@ -14,6 +14,10 @@ pub mod timing;
 #[cfg(target_os = "linux")]
 pub mod jack_backend;
 
+// Backend ALSA (Linux) : la carte son directement (ou via le greffon ALSA de PipeWire), sans serveur JACK.
+#[cfg(target_os = "linux")]
+pub mod alsa_backend;
+
 // Backend ASIO : Windows seulement ; réel si build.rs a trouvé le SDK Steinberg, sinon version qui échoue proprement.
 #[cfg(target_os = "windows")]
 pub mod asio_backend;

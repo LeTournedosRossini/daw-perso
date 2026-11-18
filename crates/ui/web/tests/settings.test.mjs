@@ -102,3 +102,21 @@ test("préférences : ports et périphérique invalides refusés", () => {
   assert.notEqual(validatePrefs({ ...ok, in_ports: [""] }), null);
   assert.notEqual(validatePrefs({ ...ok, device: "  " }), null);
 });
+
+test("Linux : système audio, périphériques ALSA et ports sont enregistrés ensemble, sans toucher au pilote ASIO", () => {
+  const f = { system: "linux", driver: "UMC", audio_system: "alsa", device: "hw:CARD=PCH,DEV=0", capture_device: "", out_ports: ["", ""], in_ports: ["", ""], buffer: 64, threads: 1, ahead_ms: 0, ahead_threads: 2 };
+  const p = prefsFromForm(f, {}, { driver: "Autre" });
+  assert.equal(p.driver, "Autre");
+  assert.equal(p.audio_system, "alsa");
+  assert.equal(p.device, "hw:CARD=PCH,DEV=0");
+  assert.equal(p.capture_device, null);
+  assert.equal(validatePrefs(p), null);
+  assert.equal(prefsFromForm({ ...f, audio_system: "" }, {}, {}).audio_system, null);
+  assert.notEqual(validatePrefs({ ...p, audio_system: "oss" }), null);
+  assert.notEqual(validatePrefs({ ...p, capture_device: " " }), null);
+});
+
+test("phrase « En cours » pour ALSA", () => {
+  const r = { audio: true, system: "alsa", sample_rate: 48000, inputs: 2, effective: { buffer: 64, threads: 1, ahead_ms: 0, device: "" } };
+  assert.match(runningText(r), /ALSA \(default\)/);
+});

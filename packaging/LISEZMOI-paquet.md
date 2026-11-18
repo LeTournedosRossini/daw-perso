@@ -10,7 +10,7 @@ Station de travail audio écrite de zéro (moteur Rust, interface web dans Tauri
 - **macOS (universel : Apple Silicon et Intel)** : glisser `DAW.app` dans Applications. L'application n'est ni signée par un compte Apple ni notarisée : au premier
   lancement, **clic droit sur l'icône puis « Ouvrir »**, ou dans un terminal : `xattr -cr /Applications/DAW.app`. Le son passe par CoreAudio
   (le micro demande une autorisation). **Jamais essayée sur un vrai Mac par l'auteur** : les retours sont précieux.
-- **Linux** : `./lancer.sh`. Nécessite WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`) ; le son passe par JACK (`pw-jack` sous PipeWire).
+- **Linux** : `./lancer.sh`. Nécessite WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`) ; le son passe par ALSA (sous PipeWire, le périphérique « default » marche tel quel) ou par JACK ; choix du système et du périphérique dans Réglages.
 
 ## Plugins fournis (dossier `plugins`)
 

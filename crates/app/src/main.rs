@@ -374,6 +374,16 @@ fn effective() -> Effective {
     prefs::resolve(&startup_prefs().0, &|k| std::env::var(k).ok())
 }
 
+/// Système audio réellement ouvert (« asio », « coreaudio », « jack », « alsa », ou vide sans pilote), renseigné par chaque `run_with_*` avant
+/// `build_host` : il est choisi à l'exécution sous Linux (JACK d'abord, ALSA en repli).
+static OPENED_SYSTEM: std::sync::Mutex<&'static str> = std::sync::Mutex::new("");
+
+fn set_opened_system(s: &'static str) {
+    if let Ok(mut g) = OPENED_SYSTEM.lock() {
+        *g = s;
+    }
+}
+
 fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &Effective, audio: bool) -> Result<(Engine, Host), String> {
     let (mut engine, mut handle) = Engine::new(rate, buffer.max(64));
     // Calcul des pistes en parallèle : réglage « fils de calcul » (ou `DAW_THREADS=N`), fil audio compris ; 1 = un seul cœur. Les
@@ -418,7 +428,12 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     let drivers: Vec<String> = daw_audio_io::asio_backend::list_drivers().into_iter().map(|d| d.name).collect();
     #[cfg(not(target_os = "windows"))]
     let drivers: Vec<String> = Vec::new();
-    let system = if cfg!(target_os = "windows") { "asio" } else if cfg!(target_os = "macos") { "coreaudio" } else if cfg!(target_os = "linux") { "jack" } else { "" };
+    let system: &'static str = OPENED_SYSTEM.lock().map(|g| *g).unwrap_or("");
+    let systems: Vec<String> = if cfg!(target_os = "linux") { vec!["jack".into(), "alsa".into()] } else { Vec::new() };
+    #[cfg(target_os = "linux")]
+    let alsa_devices: Vec<daw_ui::prefs::AlsaDevice> = daw_audio_io::alsa_backend::list_devices().into_iter().map(|d| daw_ui::prefs::AlsaDevice { name: d.name, description: d.description, playback: d.playback, capture: d.capture }).collect();
+    #[cfg(not(target_os = "linux"))]
+    let alsa_devices: Vec<daw_ui::prefs::AlsaDevice> = Vec::new();
     // macOS : périphériques CoreAudio qui ont au moins deux sorties.
     #[cfg(target_os = "macos")]
     let devices: Vec<String> = daw_audio_io::coreaudio_backend::list_devices().map(|l| l.into_iter().filter(|d| d.outputs >= 2).map(|d| d.name).collect()).unwrap_or_default();
@@ -433,12 +448,15 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     #[cfg(target_os = "linux")]
     match &ports {
         Some(p) => log(&format!("ports JACK : {} sortie(s), {} entrée(s) ; choix enregistrés : sorties {:?}, entrées {:?}", p.outputs.len(), p.inputs.len(), eff.out_ports, eff.in_ports)),
-        None => log("ports JACK : liste indisponible (serveur non joignable)"),
+        None if system == "jack" => log("ports JACK : liste indisponible"),
+        None => {}
     }
     #[cfg(not(target_os = "linux"))]
     let ports: Option<daw_ui::prefs::PortChoices> = None;
     host.set_runtime(Runtime {
         system: system.into(),
+        systems,
+        alsa_devices,
         devices,
         ports,
         effective: eff.clone(),
@@ -510,6 +528,7 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
         let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
         let driver2 = driver.clone();
         asio_backend::run_playback_ex(&opts, move |info| {
+            set_opened_system("asio");
             log(&format!("pilote ouvert : {} Hz, tampon {}, {} entrée(s) audio, {} sortie(s) audio", info.sample_rate, info.buffer_size, info.inputs, info.outputs));
             let (engine, mut host) = build_host(info.sample_rate, buffer as usize, info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
@@ -557,6 +576,7 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         ..PlayOptions::default()
     };
     let report = run_playback(&opts, move |rate| {
+        set_opened_system("jack");
         log(&format!("JACK ouvert : {rate} Hz, 2 entrées, 2 sorties"));
         // Taille maximale d'un bloc du moteur : un appel plus grand est découpé en blocs internes, sans allocation.
         let (engine, mut host) = build_host(rate, 1024, 2, &route2, &eff, true).expect("projet de démonstration valide");
@@ -567,6 +587,46 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         (EngineProc(engine), control)
     })?;
     log(&format!("JACK arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
+    Ok(())
+}
+
+/// Linux : le moteur joue directement par ALSA (carte son, ou greffon ALSA de PipeWire : le périphérique « default » marche sans `pw-jack`).
+/// Périphérique de lecture et de capture choisis dans les réglages (`default` si rien) ; un périphérique choisi qui ne s'ouvre pas (occupé,
+/// débranché) est remplacé par `default`. Les cartes en accès direct (`hw:`) ouvrent tous leurs canaux, les autres deux sorties et toutes
+/// les entrées. Pas encore : entrées MIDI, compensation de la latence d'entrée mesurée.
+#[cfg(target_os = "linux")]
+fn run_with_alsa(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<(), String> {
+    use daw_audio_io::alsa_backend::{run_playback_ex, PlayOptions};
+    use daw_audio_io::playback::PlaybackReport;
+    let eff = effective();
+    let buffer = eff.buffer;
+    let attempt = |device: Option<String>, capture: Option<String>| -> Result<PlaybackReport, String> {
+        let direct = device.as_deref().is_some_and(|d| d.starts_with("hw:") || d.starts_with("plughw:"));
+        log(&format!("ouverture d'ALSA (lecture « {} », capture « {} »), période {buffer}", device.as_deref().unwrap_or("default"), capture.as_deref().or(device.as_deref()).unwrap_or("default")));
+        let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
+        let opts = PlayOptions { seconds: 24 * 3600, device, capture_device: capture, buffer: Some(buffer), rate: None, input_count: if direct { u32::MAX } else { 2 }, output_count: if direct { u32::MAX } else { 2 } };
+        run_playback_ex(&opts, move |info| {
+            set_opened_system("alsa");
+            log(&format!("{} : {} Hz, période {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs));
+            let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
+            host.set_audio_outputs(info.outputs);
+            host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false };
+            let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
+            (EngineProc(engine), control)
+        })
+    };
+    let wanted = Some(eff.device.clone()).filter(|d| !d.trim().is_empty());
+    let capture = Some(eff.capture_device.clone()).filter(|d| !d.trim().is_empty());
+    let report = match attempt(wanted.clone(), capture.clone()) {
+        Ok(r) => r,
+        Err(e) if wanted.is_some() || capture.is_some() => {
+            log(&format!("périphérique ALSA choisi indisponible ({e}) : « default »"));
+            attempt(None, None)?
+        }
+        Err(e) => return Err(e),
+    };
+    log(&format!("ALSA arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
     Ok(())
 }
 
@@ -586,6 +646,7 @@ fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Re
         let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
         let opts = PlayOptions { seconds: 24 * 3600, device, buffer: Some(buffer), input_count: if with_inputs { u32::MAX } else { 0 }, output_count: u32::MAX };
         run_playback_ex(&opts, move |info| {
+            set_opened_system("coreaudio");
             log(&format!("CoreAudio ouvert : « {} », {} Hz, tampon {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs));
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
@@ -646,9 +707,31 @@ fn engine_thread(app: AppHandle, rx: SharedRx) {
     }
     #[cfg(target_os = "linux")]
     {
-        if let Err(e) = run_with_jack(&app, &rx, &route) {
-            log(&format!("JACK indisponible : {e} — moteur sans son"));
-            let _ = app.emit(EVENT, &Event::Error { command: "audio".into(), message: format!("JACK indisponible ({e}) : moteur sans son. Sous PipeWire, lance l'application avec « pw-jack ». ") });
+        // Automatique : JACK s'il est joignable (sous PipeWire : `pw-jack`), sinon ALSA. « jack » ou « alsa » dans les réglages forcent le choix.
+        let choice = effective().audio_system;
+        let mut problems: Vec<String> = Vec::new();
+        let mut done = false;
+        if choice != "alsa" {
+            match run_with_jack(&app, &rx, &route) {
+                Ok(()) => done = true,
+                Err(e) => {
+                    log(&format!("JACK indisponible : {e}"));
+                    problems.push(format!("JACK ({e})"));
+                }
+            }
+        }
+        if !done && choice != "jack" {
+            match run_with_alsa(&app, &rx, &route) {
+                Ok(()) => done = true,
+                Err(e) => {
+                    log(&format!("ALSA indisponible : {e}"));
+                    problems.push(format!("ALSA ({e})"));
+                }
+            }
+        }
+        if !done {
+            log("aucun système audio disponible : moteur sans son");
+            let _ = app.emit(EVENT, &Event::Error { command: "audio".into(), message: format!("aucun système audio disponible : {} — moteur sans son. Sous PipeWire, le périphérique ALSA « default » doit marcher ; sinon lance l'application avec « pw-jack ».", problems.join(" ; ")) });
             run_silent(&app, rx, &route);
         }
     }
