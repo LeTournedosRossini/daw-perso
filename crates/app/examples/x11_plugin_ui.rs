@@ -8,6 +8,16 @@ mod x11_window;
 #[cfg(target_os = "linux")]
 fn main() {
     use std::time::{Duration, Instant};
+    // `DAW_DEBUG_LOCALE=1` reproduit ce que fait GTK dans l'application : adopter la langue du système (virgule décimale en français).
+    if std::env::var_os("DAW_DEBUG_LOCALE").is_some() {
+        extern "C" {
+            fn setlocale(category: i32, locale: *const std::ffi::c_char) -> *const std::ffi::c_char;
+        }
+        // SAFETY: appel libc avec une chaîne vide terminée par 0 (= variables d'environnement) ; fil unique à ce stade.
+        let r = unsafe { setlocale(6 /* LC_ALL */, c"".as_ptr()) };
+        let name = if r.is_null() { "échec".to_string() } else { unsafe { std::ffi::CStr::from_ptr(r) }.to_string_lossy().into_owned() };
+        println!("locale adoptée : {name}");
+    }
     let a: Vec<String> = std::env::args().skip(1).collect();
     let seconds: u64 = a.get(1).and_then(|s| s.parse().ok()).unwrap_or(6);
     let rate = 48_000;

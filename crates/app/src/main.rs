@@ -276,10 +276,33 @@ struct Pump {
     latency_done: bool,
     started: Instant,
     debug_played: bool,
+    debug_opened: bool,
+    debug_pump: bool,
+    step_last: Instant,
+    step_report: Instant,
+    step_max: Duration,
 }
 
 impl Pump {
     fn step(&mut self) -> bool {
+        // Aide au diagnostic : `DAW_DEBUG_AUDIO=1` affiche chaque seconde le plus long tour de cette pompe (le fil des plugins et de leurs
+        // interfaces) ; `DAW_DEBUG_OPEN_UI=1` ouvre l'interface du premier plugin 5 s après le démarrage.
+        if self.debug_pump {
+            let now = Instant::now();
+            self.step_max = self.step_max.max(now.duration_since(self.step_last));
+            self.step_last = now;
+            if now.duration_since(self.step_report) >= Duration::from_secs(1) {
+                eprintln!("pompe diag : plus long écart entre deux tours {:.0} ms", self.step_max.as_secs_f64() * 1000.0);
+                self.step_max = Duration::ZERO;
+                self.step_report = now;
+            }
+        }
+        if !self.debug_opened && std::env::var_os("DAW_DEBUG_OPEN_UI").is_some() && self.started.elapsed() > Duration::from_secs(5) {
+            self.debug_opened = true;
+            let t = Instant::now();
+            let evs = self.host.command_json(r#"{"type":"open_plugin_ui","insert":0}"#);
+            eprintln!("open_plugin_ui : {} événement(s) en {:.0} ms", evs.len(), t.elapsed().as_secs_f64() * 1000.0);
+        }
         // Aide au diagnostic : `DAW_DEBUG_PLAY=1` lance la lecture 3 s après le démarrage (sans toucher à l'interface).
         if !self.debug_played && std::env::var_os("DAW_DEBUG_PLAY").is_some() && self.started.elapsed() > Duration::from_secs(3) {
             self.debug_played = true;
@@ -561,7 +584,7 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             let (engine, mut host) = build_host(info.sample_rate, buffer as usize, info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(driver2, info.sample_rate, info.buffer_size as u32);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -601,7 +624,7 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
         let (engine, mut host) = build_host(rate, 1024, 2, &route2, &eff, true).expect("projet de démonstration valide");
         host.set_audio_outputs(2);
         host.set_audio_status("JACK".into(), rate, 0);
-        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false };
+        let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
         let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
         (EngineProc(engine), control)
     })?;
@@ -629,7 +652,7 @@ fn run_with_wasapi(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
             let control: ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -669,7 +692,7 @@ fn run_with_alsa(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
             let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -709,7 +732,7 @@ fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Re
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");
             host.set_audio_outputs(info.outputs);
             host.set_audio_status(info.driver.clone(), info.sample_rate, info.buffer_size);
-            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false };
+            let mut pump = Pump { host, rx: rx2, app: app2, last_tick: Instant::now(), route: route2, last_armed: Vec::new(), latency: Some(Arc::clone(&info.latency)), latency_done: false, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
             let control: daw_audio_io::playback::ControlFn = Box::new(move |_| pump.step());
             (EngineProc(engine), control)
         })
@@ -741,7 +764,7 @@ fn run_silent(app: &AppHandle, rx: SharedRx, route: &SharedRoute) {
     let block = 256usize;
     let eff = effective();
     let Ok((mut engine, host)) = build_host(rate, block, 0, route, &eff, false) else { return };
-    let mut pump = Pump { host, rx, app: app.clone(), last_tick: Instant::now(), route: Arc::clone(route), last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false };
+    let mut pump = Pump { host, rx, app: app.clone(), last_tick: Instant::now(), route: Arc::clone(route), last_armed: Vec::new(), latency: None, latency_done: true, started: Instant::now(), debug_played: false, debug_opened: false, debug_pump: std::env::var_os("DAW_DEBUG_AUDIO").is_some(), step_last: Instant::now(), step_report: Instant::now(), step_max: Duration::ZERO };
     let (mut l, mut r) = (vec![0.0f32; block], vec![0.0f32; block]);
     let period = Duration::from_secs_f64(block as f64 / rate as f64);
     let mut next = Instant::now();
@@ -841,6 +864,13 @@ fn engine_thread(app: AppHandle, rx: SharedRx) {
 }
 
 fn main() {
+    // Locale numérique « C » : GTK (Tauri) adopte la langue du système au démarrage, donc en français la virgule décimale. Les plugins (JUCE
+    // et leur code de thème / de réglages) lisent et écrivent des nombres avec `strtod` / `printf` : en locale française AnalogSynth fait
+    // `abort()` en construisant son interface (constaté le 18 novembre 2026, code 134), et un état de plugin pourrait être écrit avec des
+    // virgules. `LC_NUMERIC` dans l'environnement l'emporte sur `LANG` quand GTK appelle `setlocale(LC_ALL, "")`. Fait avant tout fil :
+    // modifier l'environnement n'est sûr qu'ici.
+    #[cfg(unix)]
+    std::env::set_var("LC_NUMERIC", "C");
     log("démarrage de l'application");
     // Un panic dans un fil (callback audio compris, où il est contenu et rend du silence) doit laisser une trace.
     let previous = std::panic::take_hook();
