@@ -123,6 +123,13 @@ pub struct Prefs {
     pub version: u32,
     /// Nom du pilote ASIO ; `None` : `UMC`.
     pub driver: Option<String>,
+    /// macOS : morceau du nom du périphérique CoreAudio ; `None` : la sortie par défaut du système.
+    pub device: Option<String>,
+    /// Linux (JACK) : ports de sortie gauche et droit où écrire (sinon les deux premières sorties physiques). Un port qui n'existe plus
+    /// est ignoré à l'ouverture (retour à la valeur par défaut).
+    pub out_ports: Vec<String>,
+    /// Linux (JACK) : ports d'entrée gauche et droit à lire (sinon les deux premières entrées physiques).
+    pub in_ports: Vec<String>,
     /// Taille du tampon du pilote (échantillons) ; `None` : 64.
     pub buffer: Option<u32>,
     /// Fils de calcul des pistes, fil audio compris (1 : un seul cœur).
@@ -140,7 +147,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { version: PREFS_VERSION, driver: None, buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), startup: StartupPrefs::default(), remote: RemotePrefs::default() }
+        Prefs { version: PREFS_VERSION, driver: None, device: None, out_ports: Vec::new(), in_ports: Vec::new(), buffer: None, threads: 1, ahead_ms: 0, ahead_threads: 2, metronome: MetroPrefs::default(), auto_stop: AutoStopPrefs::default(), transport: TransportPrefs::default(), startup: StartupPrefs::default(), remote: RemotePrefs::default() }
     }
 }
 
@@ -160,6 +167,16 @@ impl Prefs {
         if let Some(d) = &self.driver {
             if d.trim().is_empty() || d.len() > 200 {
                 return Err("pilote : nom vide ou trop long".into());
+            }
+        }
+        if let Some(d) = &self.device {
+            if d.trim().is_empty() || d.len() > 200 {
+                return Err("périphérique : nom vide ou trop long".into());
+            }
+        }
+        for (what, list) in [("sorties", &self.out_ports), ("entrées", &self.in_ports)] {
+            if list.len() > 2 || list.iter().any(|n| n.trim().is_empty() || n.len() > 300) {
+                return Err(format!("ports {what} : deux noms au plus, non vides"));
             }
         }
         if let Some(b) = self.buffer {
@@ -192,9 +209,14 @@ pub fn same_driver(a: &str, b: &str) -> bool {
 }
 
 /// Ce que l'application utilise vraiment pour le moteur audio, une fois les variables d'environnement prises en compte.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Effective {
     pub driver: String,
+    /// macOS : morceau du nom du périphérique (vide : sortie par défaut).
+    pub device: String,
+    /// Linux : ports JACK demandés (vide : valeurs par défaut).
+    pub out_ports: Vec<String>,
+    pub in_ports: Vec<String>,
     pub buffer: u32,
     pub threads: u32,
     pub ahead_ms: u32,
@@ -223,13 +245,27 @@ pub fn resolve(p: &Prefs, env: &dyn Fn(&str) -> Option<String>) -> Effective {
     let threads = num("DAW_THREADS", "threads", &mut forced).unwrap_or(p.threads).max(1);
     let ahead_ms = num("DAW_AHEAD", "ahead_ms", &mut forced).unwrap_or(p.ahead_ms);
     let ahead_threads = num("DAW_AHEAD_THREADS", "ahead_threads", &mut forced).unwrap_or(p.ahead_threads).max(1);
-    Effective { driver, buffer, threads, ahead_ms, ahead_threads, forced }
+    Effective { driver, device: p.device.clone().unwrap_or_default(), out_ports: p.out_ports.clone(), in_ports: p.in_ports.clone(), buffer, threads, ahead_ms, ahead_threads, forced }
 }
 
 /// Ce qui tourne maintenant, pour la fenêtre des réglages (renseigné par l'application une fois le pilote ouvert).
-#[derive(Clone, Debug, PartialEq, Serialize)]
+/// Ports audio offerts par le serveur JACK (Linux) : ceux où l'on peut écrire (sorties) et ceux qu'on peut lire (entrées), les ports
+/// physiques d'abord.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct PortChoices {
+    pub outputs: Vec<String>,
+    pub inputs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Runtime {
     pub effective: Effective,
+    /// Système audio utilisé : « asio » (Windows), « coreaudio » (macOS), « jack » (Linux), ou vide (aucun).
+    pub system: String,
+    /// macOS : périphériques CoreAudio qui ont au moins deux sorties.
+    pub devices: Vec<String>,
+    /// Linux : ports JACK disponibles au démarrage (vide ailleurs ou si JACK n'est pas joignable).
+    pub ports: Option<PortChoices>,
     pub sample_rate: u32,
     pub inputs: u32,
     /// Pilotes ASIO installés (vide : pas de pilote branché sur cette plateforme).
@@ -299,6 +335,26 @@ mod tests {
             // 1 fil audio + 2 fils de rendu : toujours moins que les cœurs.
             assert!(1 + p.ahead_threads < cores);
         }
+    }
+
+    #[test]
+    fn device_and_ports_are_validated_resolved_and_default_to_nothing() {
+        let ok = Prefs { device: Some("MacBook Pro Speakers".into()), out_ports: vec!["system:playback_3".into(), "system:playback_4".into()], in_ports: vec!["system:capture_1".into()], ..Prefs::default() };
+        ok.validate().unwrap();
+        let e = resolve(&ok, &|_| None);
+        assert_eq!((e.device.as_str(), e.out_ports.len(), e.in_ports.len()), ("MacBook Pro Speakers", 2, 1));
+        let d = resolve(&Prefs::default(), &|_| None);
+        assert!(d.device.is_empty() && d.out_ports.is_empty() && d.in_ports.is_empty());
+        for bad in [
+            Prefs { device: Some("  ".into()), ..Prefs::default() },
+            Prefs { out_ports: vec!["a".into(), "b".into(), "c".into()], ..Prefs::default() },
+            Prefs { in_ports: vec![String::new()], ..Prefs::default() },
+        ] {
+            assert!(bad.validate().is_err());
+        }
+        // Un ancien fichier (sans ces champs) se relit avec les valeurs par défaut.
+        let old: Prefs = serde_json::from_str(r#"{"version":1,"buffer":128}"#).unwrap();
+        assert!(old.device.is_none() && old.out_ports.is_empty());
     }
 
     #[test]

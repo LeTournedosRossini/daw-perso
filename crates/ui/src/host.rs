@@ -1842,7 +1842,7 @@ impl Host {
         let restart_needed = self.runtime.as_ref().is_some_and(|r| {
             let want = prefs::resolve(&self.prefs, &env);
             let have = &r.effective;
-            !prefs::same_driver(&want.driver, &have.driver) || (want.buffer, want.threads, want.ahead_ms, want.ahead_threads) != (have.buffer, have.threads, have.ahead_ms, have.ahead_threads)
+            !prefs::same_driver(&want.driver, &have.driver) || (&want.device, &want.out_ports, &want.in_ports) != (&have.device, &have.out_ports, &have.in_ports) || (want.buffer, want.threads, want.ahead_ms, want.ahead_threads) != (have.buffer, have.threads, have.ahead_ms, have.ahead_threads)
         });
         Event::Prefs { prefs: self.prefs.clone(), running: self.runtime.clone(), restart_needed, path: self.prefs_path.as_ref().map(|p| p.to_string_lossy().into_owned()) }
     }

@@ -24,7 +24,7 @@ fn prefs_event(ev: &[Event]) -> (Prefs, Option<Runtime>, bool, Option<String>) {
 }
 
 fn runtime(driver: &str, buffer: u32, threads: u32, ahead_ms: u32) -> Runtime {
-    Runtime { effective: Effective { driver: driver.into(), buffer, threads, ahead_ms, ahead_threads: 2, forced: Vec::new() }, sample_rate: 44_100, inputs: 10, drivers: vec!["UMC ASIO Driver".into(), "ASIO4ALL v2".into()], cores: 4, audio: true }
+    Runtime { effective: Effective { driver: driver.into(), buffer, threads, ahead_ms, ahead_threads: 2, forced: Vec::new(), ..Default::default() }, system: "asio".into(), sample_rate: 44_100, inputs: 10, drivers: vec!["UMC ASIO Driver".into(), "ASIO4ALL v2".into()], cores: 4, audio: true, ..Default::default() }
 }
 
 #[test]
@@ -106,4 +106,18 @@ fn metronome_changes_are_remembered_in_the_file_after_a_moment() {
     let ev = host2.command_json(r#"{"type":"get_project"}"#);
     assert!(ev.iter().any(|e| matches!(e, Event::Metronome { enabled: true, only_recording: true, count_in_bars: 1, .. })));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_changed_device_or_port_asks_for_a_restart() {
+    let (_e, mut host) = rig();
+    host.set_runtime(runtime("UMC", 64, 1, 0));
+    assert!(!prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC"}}"#)).2);
+    assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","device":"Haut-parleurs"}}"#)).2);
+    assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","out_ports":["system:playback_3","system:playback_4"]}}"#)).2);
+    assert!(prefs_event(&host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC","in_ports":["system:capture_2"]}}"#)).2);
+    // Trois ports de sortie, ou un nom vide : refusés sans rien changer.
+    let before = prefs_event(&host.command_json(r#"{"type":"get_prefs"}"#)).0;
+    host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"out_ports":["a","b","c"]}}"#);
+    assert_eq!(prefs_event(&host.command_json(r#"{"type":"get_prefs"}"#)).0, before);
 }

@@ -68,7 +68,9 @@ export function prefsFromForm(f, metronome, base = {}) {
   return {
     ...base,
     version: 1,
-    driver: f.driver || null,
+    ...(f.system === "jack" || f.system === "coreaudio" ? {} : { driver: f.driver || null }),
+    ...(f.system === "coreaudio" ? { device: f.device || null } : {}),
+    ...(f.system === "jack" ? { out_ports: (f.out_ports ?? []).filter(Boolean), in_ports: (f.in_ports ?? []).filter(Boolean) } : {}),
     buffer: f.buffer ?? null,
     threads: f.threads,
     ahead_ms: f.ahead_ms,
@@ -86,7 +88,8 @@ export function runningText(r) {
   const e = r.effective;
   if (!r.audio) return "Aucun pilote audio n'est ouvert : le moteur tourne sans son.";
   const ms = bufferMs(e.buffer, r.sample_rate);
-  return `En cours : ${e.driver}, ${r.sample_rate} Hz, tampon ${e.buffer}${ms ? ` (${ms.toFixed(2).replace(".", ",")} ms)` : ""}, ${r.inputs} entrée(s), ${e.threads} fil(s) de calcul${e.ahead_ms ? `, avance ${e.ahead_ms} ms` : ""}.`;
+  const what = r.system === "jack" ? "JACK (ports : " + ((e.out_ports ?? []).length ? e.out_ports.join(", ") : "sorties physiques par défaut") + ")" : r.system === "coreaudio" ? `CoreAudio (${e.device || "périphérique par défaut du système"})` : e.driver;
+  return `En cours : ${what}, ${r.sample_rate} Hz, tampon ${e.buffer}${ms ? ` (${ms.toFixed(2).replace(".", ",")} ms)` : ""}, ${r.inputs} entrée(s), ${e.threads} fil(s) de calcul${e.ahead_ms ? `, avance ${e.ahead_ms} ms` : ""}.`;
 }
 
 export class SettingsDialog {
@@ -109,7 +112,7 @@ export class SettingsDialog {
     $("btn-settings")?.addEventListener("click", () => this.open());
     $("st-save").addEventListener("click", () => this.#save());
     $("st-restart").addEventListener("click", () => this.#restart());
-    for (const id of ["st-threads", "st-ahead", "st-ahead-threads", "st-driver", "st-buffer"]) $(id).addEventListener("change", () => this.#refreshNotes());
+    for (const id of ["st-threads", "st-ahead", "st-ahead-threads", "st-driver", "st-buffer", "st-out-l", "st-out-r", "st-in-l", "st-in-r"]) $(id).addEventListener("change", () => this.#refreshNotes());
     // Changer d'unité montre la valeur déjà réglée pour cette unité avant d'envoyer.
     $("st-m-pre-unit").addEventListener("change", () => this.#fillPre(this.state.metronome ?? this.#prefs().metronome));
     for (const id of ["st-m-only", "st-m-count", "st-m-pre", "st-m-pre-unit", "st-m-post"]) $(id).addEventListener("change", () => this.#sendMetronome());
@@ -134,7 +137,14 @@ export class SettingsDialog {
     const forced = new Set(r?.effective.forced ?? []);
     $("st-running").textContent = runningText(r);
 
-    // Pilote : ceux qui sont installés, plus celui qui est enregistré s'il n'y est pas (autre machine).
+    const system = r?.system ?? "asio";
+    $("st-f-driver").hidden = system === "jack";
+    $("st-jack").hidden = system !== "jack";
+    $("st-driver-label").textContent = system === "coreaudio" ? "Périphérique" : "Pilote";
+    if (system === "jack") this.#fillJack(p, r);
+    else if (system === "coreaudio") this.#fillDevices(p, r);
+    // Pilote ASIO : ceux qui sont installés, plus celui qui est enregistré s'il n'y est pas (autre machine).
+    else {
     const drivers = r?.drivers ?? [];
     const asked = p.driver ?? r?.effective.driver ?? DEFAULT_DRIVER;
     const wanted = matchDriver(asked, drivers) ?? asked;
@@ -143,7 +153,8 @@ export class SettingsDialog {
     sel.replaceChildren(...names.map((n) => Object.assign(document.createElement("option"), { value: n, textContent: drivers.includes(n) ? n : `${n} (non installé)` })));
     sel.value = wanted;
     sel.disabled = forced.has("driver") || drivers.length === 0;
-    $("st-driver-note").textContent = drivers.length === 0 ? "Pas de pilote ASIO sur cette plateforme." : forced.has("driver") ? "Imposé par DAW_ASIO_DRIVER." : "";
+    $("st-driver-note").textContent = drivers.length === 0 ? "Pas de pilote audio branché sur cette plateforme." : forced.has("driver") ? "Imposé par DAW_ASIO_DRIVER." : "";
+    }
 
     const current = p.buffer ?? DEFAULT_BUFFER;
     const buf = $("st-buffer");
@@ -185,14 +196,49 @@ export class SettingsDialog {
     this.#refreshNotes();
   }
 
+  /** macOS : périphériques CoreAudio (la sortie par défaut du système si rien n'est choisi). */
+  #fillDevices(p, r) {
+    const devices = r?.devices ?? [];
+    const asked = p.device ?? "";
+    const wanted = asked ? matchDriver(asked, devices) ?? asked : "";
+    const sel = $("st-driver");
+    const opts = [Object.assign(document.createElement("option"), { value: "", textContent: "Sortie par défaut du système" })];
+    for (const n of [...new Set([...devices, ...(wanted ? [wanted] : [])])]) opts.push(Object.assign(document.createElement("option"), { value: n, textContent: devices.includes(n) ? n : `${n} (introuvable)` }));
+    sel.replaceChildren(...opts);
+    sel.value = wanted;
+    sel.disabled = false;
+    $("st-driver-note").textContent = devices.length ? "Le périphérique choisi sert à la lecture et à l'enregistrement (toutes ses entrées). Pris en compte au prochain démarrage." : "Aucun périphérique de sortie trouvé.";
+  }
+
+  /** Linux (JACK) : ports de sortie et d'entrée du serveur, les ports physiques d'abord. */
+  #fillJack(p, r) {
+    const ports = r?.ports ?? null;
+    const lists = { "st-out-l": ["outputs", (p.out_ports ?? [])[0]], "st-out-r": ["outputs", (p.out_ports ?? [])[1]], "st-in-l": ["inputs", (p.in_ports ?? [])[0]], "st-in-r": ["inputs", (p.in_ports ?? [])[1]] };
+    for (const [id, [kind, saved]] of Object.entries(lists)) {
+      const all = ports?.[kind] ?? [];
+      const sel = $(id);
+      const opts = [Object.assign(document.createElement("option"), { value: "", textContent: "Par défaut (ports physiques)" })];
+      for (const n of [...new Set([...all, ...(saved ? [saved] : [])])]) opts.push(Object.assign(document.createElement("option"), { value: n, textContent: all.includes(n) ? n : `${n} (introuvable)` }));
+      sel.replaceChildren(...opts);
+      sel.value = saved ?? "";
+      sel.disabled = !ports;
+    }
+    $("st-jack-note").textContent = ports ? "Ports du serveur JACK (PipeWire : lancer l'application avec pw-jack). Un port introuvable est remplacé par les ports physiques par défaut. La liste est lue au démarrage ; pris en compte au prochain démarrage." : "Le serveur JACK n'est pas joignable : lance l'application avec pw-jack (voir tools/lancer-linux.sh).";
+  }
+
   #bufferLabel(b, r) {
     const ms = bufferMs(b, r?.sample_rate ?? 44100);
     return `${b} échantillons${ms ? ` — ${ms.toFixed(2).replace(".", ",")} ms` : ""}`;
   }
 
   #form() {
+    const system = this.last?.running?.system ?? "asio";
     return {
+      system,
       driver: $("st-driver").value,
+      device: system === "coreaudio" ? $("st-driver").value : undefined,
+      out_ports: [$("st-out-l").value, $("st-out-r").value],
+      in_ports: [$("st-in-l").value, $("st-in-r").value],
       buffer: Number($("st-buffer").value),
       threads: Number($("st-threads").value),
       ahead_ms: Number($("st-ahead").value),

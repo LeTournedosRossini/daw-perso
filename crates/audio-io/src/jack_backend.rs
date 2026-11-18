@@ -241,8 +241,11 @@ pub fn run_playback<P: StereoProcessor>(
     let midi_port = if opts.midi_in { Some(client.register_port("midi_in", jack::MidiIn::default()).map_err(|e| e.to_string())?) } else { None };
     let my_midi = midi_port.as_ref().map(|p| p.name().map_err(|e| e.to_string())).transpose()?;
     let phys = client.ports(None, Some("32 bit float mono audio"), PortFlags::IS_INPUT | PortFlags::IS_PHYSICAL);
-    let dest_l = opts.left.clone().or_else(|| phys.first().cloned());
-    let dest_r = opts.right.clone().or_else(|| phys.get(1).cloned()).or_else(|| dest_l.clone());
+    // Un port demandé qui n'existe plus (périphérique débranché depuis l'enregistrement des préférences) est ignoré : on retombe sur
+    // les ports physiques par défaut plutôt que de renoncer à tout le son.
+    let known = |name: &Option<String>| name.clone().filter(|n| client.port_by_name(n).is_some());
+    let dest_l = known(&opts.left).or_else(|| phys.first().cloned());
+    let dest_r = known(&opts.right).or_else(|| phys.get(1).cloned()).or_else(|| dest_l.clone());
 
     let (processor, mut control) = make(sample_rate);
     let xruns = Arc::new(AtomicU32::new(0));
@@ -256,8 +259,9 @@ pub fn run_playback<P: StereoProcessor>(
         active.as_client().connect_ports_by_name(&my_r, &dr).map_err(|e| format!("{my_r} -> {dr} : {e}"))?;
         // Entrées : celles qu'on a demandées, sinon les deux premières entrées physiques ; leur absence n'est pas une erreur.
         let sources = active.as_client().ports(None, Some("32 bit float mono audio"), PortFlags::IS_OUTPUT | PortFlags::IS_PHYSICAL);
-        let src_l = opts.in_left.clone().or_else(|| sources.first().cloned());
-        let src_r = opts.in_right.clone().or_else(|| sources.get(1).cloned()).or_else(|| src_l.clone());
+        let known_in = |name: &Option<String>| name.clone().filter(|n| active.as_client().port_by_name(n).is_some());
+        let src_l = known_in(&opts.in_left).or_else(|| sources.first().cloned());
+        let src_r = known_in(&opts.in_right).or_else(|| sources.get(1).cloned()).or_else(|| src_l.clone());
         if let Some(sl) = src_l {
             active.as_client().connect_ports_by_name(&sl, &my_in_l).map_err(|e| format!("{sl} -> {my_in_l} : {e}"))?;
         }

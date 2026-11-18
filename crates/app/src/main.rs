@@ -418,7 +418,29 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     let drivers: Vec<String> = daw_audio_io::asio_backend::list_drivers().into_iter().map(|d| d.name).collect();
     #[cfg(not(target_os = "windows"))]
     let drivers: Vec<String> = Vec::new();
+    let system = if cfg!(target_os = "windows") { "asio" } else if cfg!(target_os = "macos") { "coreaudio" } else if cfg!(target_os = "linux") { "jack" } else { "" };
+    // macOS : périphériques CoreAudio qui ont au moins deux sorties.
+    #[cfg(target_os = "macos")]
+    let devices: Vec<String> = daw_audio_io::coreaudio_backend::list_devices().map(|l| l.into_iter().filter(|d| d.outputs >= 2).map(|d| d.name).collect()).unwrap_or_default();
+    #[cfg(not(target_os = "macos"))]
+    let devices: Vec<String> = Vec::new();
+    // Linux : ports du serveur JACK (les ports physiques d'abord) ; vide si JACK n'est pas joignable.
+    #[cfg(target_os = "linux")]
+    let ports = daw_audio_io::jack_backend::list_ports().ok().map(|l| {
+        let first = |all: Vec<String>, phys: &[String]| -> Vec<String> { phys.iter().cloned().chain(all.into_iter().filter(|n| !phys.contains(n))).filter(|n| !n.starts_with("daw-play:") && !n.starts_with("daw-list:")).collect() };
+        daw_ui::prefs::PortChoices { outputs: first(l.sinks, &l.physical_sinks), inputs: first(l.sources, &l.physical_sources) }
+    });
+    #[cfg(target_os = "linux")]
+    match &ports {
+        Some(p) => log(&format!("ports JACK : {} sortie(s), {} entrée(s) ; choix enregistrés : sorties {:?}, entrées {:?}", p.outputs.len(), p.inputs.len(), eff.out_ports, eff.in_ports)),
+        None => log("ports JACK : liste indisponible (serveur non joignable)"),
+    }
+    #[cfg(not(target_os = "linux"))]
+    let ports: Option<daw_ui::prefs::PortChoices> = None;
     host.set_runtime(Runtime {
+        system: system.into(),
+        devices,
+        ports,
         effective: eff.clone(),
         sample_rate: rate,
         inputs,
@@ -497,11 +519,20 @@ fn run_with_driver(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Resul
             (EngineProc(engine), control)
         })
     };
-    let report = match attempt(true) {
+    // Le périphérique choisi (préférences) d'abord ; introuvable ou refusé, retour au périphérique par défaut du système.
+    let wanted = Some(eff.device.clone()).filter(|d| !d.trim().is_empty());
+    let report = match attempt(true, wanted.clone()) {
         Ok(r) => r,
         Err(e) => {
             log(&format!("ouverture avec les entrées impossible ({e}) : nouvel essai sans entrée"));
-            attempt(false)?
+            match attempt(false, wanted.clone()) {
+                Ok(r) => r,
+                Err(e2) if wanted.is_some() => {
+                    log(&format!("périphérique « {} » indisponible ({e2}) : périphérique par défaut", wanted.as_deref().unwrap_or("")));
+                    attempt(false, None)?
+                }
+                Err(e2) => return Err(e2),
+            }
         }
     };
     log(&format!("pilote arrêté : {} xruns signalés, allocations dans le callback : {}", report.xruns, report.callback_allocations));
@@ -517,7 +548,14 @@ fn run_with_jack(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Result<
     let eff = effective();
     log("ouverture de JACK (sous PipeWire : lancer avec pw-jack)");
     let (app2, rx2, route2) = (app.clone(), Arc::clone(rx), Arc::clone(route));
-    let opts = PlayOptions { seconds: 24 * 3600, ..PlayOptions::default() };
+    let opts = PlayOptions {
+        seconds: 24 * 3600,
+        left: eff.out_ports.first().cloned(),
+        right: eff.out_ports.get(1).cloned(),
+        in_left: eff.in_ports.first().cloned(),
+        in_right: eff.in_ports.get(1).cloned(),
+        ..PlayOptions::default()
+    };
     let report = run_playback(&opts, move |rate| {
         log(&format!("JACK ouvert : {rate} Hz, 2 entrées, 2 sorties"));
         // Taille maximale d'un bloc du moteur : un appel plus grand est découpé en blocs internes, sans allocation.
@@ -543,10 +581,10 @@ fn run_with_coreaudio(app: &AppHandle, rx: &SharedRx, route: &SharedRoute) -> Re
     use daw_audio_io::playback::PlaybackReport;
     let eff = effective();
     let buffer = eff.buffer;
-    let attempt = |with_inputs: bool| -> Result<PlaybackReport, String> {
-        log(&format!("ouverture de CoreAudio (périphérique par défaut), tampon {buffer}, {}", if with_inputs { "toutes les entrées" } else { "sans entrée" }));
+    let attempt = |with_inputs: bool, device: Option<String>| -> Result<PlaybackReport, String> {
+        log(&format!("ouverture de CoreAudio ({}), tampon {buffer}, {}", device.as_deref().map_or("périphérique par défaut".to_string(), |d| format!("« {d} »")), if with_inputs { "toutes les entrées" } else { "sans entrée" }));
         let (app2, rx2, route2, eff2) = (app.clone(), Arc::clone(rx), Arc::clone(route), eff.clone());
-        let opts = PlayOptions { seconds: 24 * 3600, device: None, buffer: Some(buffer), input_count: if with_inputs { u32::MAX } else { 0 }, output_count: u32::MAX };
+        let opts = PlayOptions { seconds: 24 * 3600, device, buffer: Some(buffer), input_count: if with_inputs { u32::MAX } else { 0 }, output_count: u32::MAX };
         run_playback_ex(&opts, move |info| {
             log(&format!("CoreAudio ouvert : « {} », {} Hz, tampon {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs));
             let (engine, mut host) = build_host(info.sample_rate, (buffer as usize).max(info.buffer_size as usize), info.inputs, &route2, &eff2, true).expect("projet de démonstration valide");

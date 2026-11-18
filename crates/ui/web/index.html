@@ -174,8 +174,15 @@
       <p id="st-forced" class="st-note warn" hidden></p>
       <fieldset class="st-group">
         <legend>Audio</legend>
-        <label class="st-field"><span>Pilote</span><select id="st-driver"></select></label>
+        <label class="st-field" id="st-f-driver"><span id="st-driver-label">Pilote</span><select id="st-driver"></select></label>
         <p id="st-driver-note" class="st-note"></p>
+        <div id="st-jack" hidden>
+          <label class="st-field"><span>Sortie gauche</span><select id="st-out-l"></select></label>
+          <label class="st-field"><span>Sortie droite</span><select id="st-out-r"></select></label>
+          <label class="st-field"><span>Entrée gauche</span><select id="st-in-l"></select></label>
+          <label class="st-field"><span>Entrée droite</span><select id="st-in-r"></select></label>
+          <p id="st-jack-note" class="st-note"></p>
+        </div>
         <label class="st-field"><span>Tampon</span><select id="st-buffer"></select></label>
         <p id="st-buffer-note" class="st-note"></p>
       </fieldset>

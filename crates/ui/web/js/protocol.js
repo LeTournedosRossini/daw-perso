@@ -52,6 +52,8 @@ const retError = (m) => (m.ret === undefined || (Number.isInteger(m.ret) && m.re
 export function validatePrefs(p) {
   if (!p || typeof p !== "object") return "préférences absentes";
   if (p.driver != null && (typeof p.driver !== "string" || !p.driver.trim() || p.driver.length > 200)) return "pilote : nom vide ou trop long";
+  if (p.device != null && (typeof p.device !== "string" || !p.device.trim() || p.device.length > 200)) return "périphérique : nom vide ou trop long";
+  for (const k of ["out_ports", "in_ports"]) if (p[k] !== undefined && (!Array.isArray(p[k]) || p[k].length > 2 || p[k].some((n) => typeof n !== "string" || !n.trim() || n.length > 300))) return `${k} : deux noms au plus, non vides`;
   if (p.buffer != null && !(Number.isInteger(p.buffer) && p.buffer >= 8 && p.buffer <= 2048)) return "tampon : de 8 à 2048 échantillons";
   if (!(Number.isInteger(p.threads) && p.threads >= 1 && p.threads <= 16)) return "fils de calcul : de 1 à 16";
   if (!(Number.isInteger(p.ahead_ms) && (p.ahead_ms === 0 || (p.ahead_ms >= 10 && p.ahead_ms <= 500)))) return "avance : 0 (désactivée) ou de 10 à 500 ms";

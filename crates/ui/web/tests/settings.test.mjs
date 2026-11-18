@@ -81,3 +81,24 @@ test("le budget de cœurs compte le fil audio, les aides du calcul et les fils d
   assert.equal(coreBudget(4, 0, 2, 4).level, "full");
   assert.equal(budgetText(coreBudget(1, 0, 2, 4)), "1 fil audio = 1 cœur occupé sur 4");
 });
+
+test("Linux (JACK) : les ports choisis sont enregistrés, le pilote ASIO reste intact", () => {
+  const p = prefsFromForm({ system: "jack", driver: "UMC", buffer: 64, threads: 1, ahead_ms: 0, ahead_threads: 2, out_ports: ["system:playback_3", ""], in_ports: ["", ""] }, { enabled: false }, { driver: "Autre" });
+  assert.equal(p.driver, "Autre");
+  assert.deepEqual(p.out_ports, ["system:playback_3"]);
+  assert.deepEqual(p.in_ports, []);
+  assert.equal(validatePrefs(p), null);
+});
+
+test("macOS : le périphérique est enregistré ; vide = sortie par défaut", () => {
+  const f = { system: "coreaudio", driver: "x", device: "MacBook Pro Speakers", buffer: 128, threads: 1, ahead_ms: 0, ahead_threads: 2 };
+  assert.equal(prefsFromForm(f, {}, {}).device, "MacBook Pro Speakers");
+  assert.equal(prefsFromForm({ ...f, device: "" }, {}, {}).device, null);
+});
+
+test("préférences : ports et périphérique invalides refusés", () => {
+  const ok = prefsFromForm({ buffer: 64, threads: 1, ahead_ms: 0, ahead_threads: 2 }, {}, {});
+  assert.notEqual(validatePrefs({ ...ok, out_ports: ["a", "b", "c"] }), null);
+  assert.notEqual(validatePrefs({ ...ok, in_ports: [""] }), null);
+  assert.notEqual(validatePrefs({ ...ok, device: "  " }), null);
+});
