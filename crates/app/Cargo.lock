@@ -585,6 +585,7 @@ dependencies = [
  "daw-engine",
  "daw-session",
  "daw-ui",
+ "libloading 0.8.9",
  "serde_json",
  "tauri",
  "tauri-build",

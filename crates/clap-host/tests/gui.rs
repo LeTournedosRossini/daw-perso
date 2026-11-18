@@ -156,3 +156,33 @@ fn gestures_and_values_made_in_the_interface_reach_the_host_in_order() {
     assert_eq!(std::iter::from_fn(|| h.pop_param_event()).count(), 1024);
     assert_eq!(h.lost_param_events(), 76);
 }
+
+/// Extension hôte `posix-fd-support` (Linux et macOS) : l'interface JUCE d'un plugin y reçoit les événements de sa connexion X11 ; sans elle
+/// l'interface reste figée. Un descripteur enregistré est surveillé, `on_fd` est appelé quand il est prêt, plus quand il est retiré.
+#[cfg(unix)]
+#[test]
+fn a_registered_descriptor_is_polled_and_the_plugin_is_called_when_it_is_ready() {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let (_p, h) = plugin();
+    let (mut writer, reader) = UnixStream::pair().unwrap();
+    let fd = reader.as_raw_fd();
+    assert!(!gui::register_fd(-1, 1), "descripteur invalide refusé");
+    assert!(!gui::register_fd(fd, 0), "sans drapeau : refusé");
+    assert!(gui::register_fd(fd, 1), "lecture");
+    assert!(!gui::register_fd(fd, 1), "déjà enregistré");
+    assert_eq!(h.poll_fds(), 0, "rien à lire : pas d'appel");
+    assert!(gui::take_log().is_empty());
+    writer.write_all(b"x").unwrap();
+    assert_eq!(h.poll_fds(), 1);
+    assert_eq!(gui::take_log(), [format!("fd:{fd}:1")]);
+    // Les données n'ont pas été lues : le descripteur reste prêt (c'est au plugin de les lire), l'hôte rappelle à chaque tour.
+    assert_eq!(h.poll_fds(), 1);
+    assert!(gui::unregister_fd(fd));
+    assert!(!gui::unregister_fd(fd), "déjà retiré");
+    gui::clear_log();
+    assert_eq!(h.poll_fds(), 0);
+    assert!(gui::take_log().is_empty());
+}

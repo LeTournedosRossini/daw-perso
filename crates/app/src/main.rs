@@ -28,6 +28,9 @@ mod win32_window;
 // Fenêtres de plugin macOS : `cocoa_check` permet de la vérifier sous Linux (`cargo rustc … -- --cfg cocoa_check`, compilation seulement).
 #[cfg(any(target_os = "macos", cocoa_check))]
 mod cocoa_window;
+// Fenêtres de plugin Linux : fenêtres X11 (libX11 chargée à l'exécution), sans bande.
+#[cfg(target_os = "linux")]
+mod x11_window;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -490,11 +493,13 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
         audio,
     });
     // Interfaces natives des plugins : fenêtres Win32 pompées par ce fil (celui des plugins) ; macOS : `NSView` logées dans la fenêtre
-    // Tauri, appels de plugin envoyés au fil principal (voir `cocoa_window.rs`). Pas encore écrit pour Linux.
+    // Tauri, appels de plugin envoyés au fil principal (voir `cocoa_window.rs`) ; Linux : fenêtres X11 (voir `x11_window.rs`).
     #[cfg(target_os = "windows")]
     host.set_window_system(Box::new(win32_window::DockedSystem::new()));
     #[cfg(target_os = "macos")]
     host.set_window_system(Box::new(cocoa_window::DockedSystem::new()));
+    #[cfg(target_os = "linux")]
+    host.set_window_system(Box::new(x11_window::X11System::new()));
     // L'entrée MIDI du moteur est confiée au routeur : les fils des appareils y déposent leurs messages.
     route.lock().unwrap_or_else(|e| e.into_inner()).tx = host.take_midi_input();
     Ok((engine, host))

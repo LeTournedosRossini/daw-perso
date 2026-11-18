@@ -169,7 +169,7 @@ fn opening_creates_the_window_then_follows_the_spec_order_and_a_second_open_only
         assert_eq!(s.client, gui::DEFAULT_SIZE);
     }
     // Ordre de la spécification : create, set_scale (avec l'échelle de la fenêtre), set_parent (avec SA fenêtre), titre, show.
-    assert_eq!(gui::take_log(), ["create:x11:intégrée", "set_scale:1.25", "set_parent:x11:1001", "title:Gain de test — Basse", "show"]);
+    assert_eq!(gui::take_log(), ["create:x11:intégrée", "set_scale:1.25", "set_parent:x11:1001", "show"]);
     // Ouvrir de nouveau : la fenêtre passe au premier plan, aucune seconde interface.
     let again = open(&mut h, id);
     assert_eq!(ui_events(&again), [(id, true)]);

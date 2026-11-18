@@ -10,6 +10,8 @@ use std::sync::Mutex;
 
 use clap_sys::ext::gui::{clap_gui_resize_hints, clap_host_gui, clap_plugin_gui, clap_window, CLAP_EXT_GUI};
 use clap_sys::ext::timer_support::{clap_host_timer_support, clap_plugin_timer_support, CLAP_EXT_TIMER_SUPPORT};
+#[cfg(unix)]
+use clap_sys::ext::posix_fd_support::{clap_host_posix_fd_support, clap_plugin_posix_fd_support, CLAP_EXT_POSIX_FD_SUPPORT};
 use clap_sys::host::clap_host;
 use clap_sys::plugin::clap_plugin;
 
@@ -130,6 +132,32 @@ pub fn register_timer(period_ms: u32) -> Option<u32> {
     }
 }
 
+/// Enregistre un descripteur auprès de l'hôte (`posix-fd-support`) ; rend vrai si l'hôte l'accepte.
+#[cfg(unix)]
+pub fn register_fd(fd: i32, flags: u32) -> bool {
+    // SAFETY: voir `request_resize`.
+    unsafe {
+        let host = LAST_HOST.load(Ordering::Acquire);
+        if host.is_null() {
+            return false;
+        }
+        let Some(get) = (*host).get_extension else { return false };
+        let ext = get(host, CLAP_EXT_POSIX_FD_SUPPORT.as_ptr()) as *const clap_host_posix_fd_support;
+        !ext.is_null() && (*ext).register_fd.is_some_and(|f| f(host, fd, flags))
+    }
+}
+
+#[cfg(unix)]
+pub fn unregister_fd(fd: i32) -> bool {
+    // SAFETY: voir `request_resize`.
+    unsafe {
+        let host = LAST_HOST.load(Ordering::Acquire);
+        let Some(get) = (*host).get_extension else { return false };
+        let ext = get(host, CLAP_EXT_POSIX_FD_SUPPORT.as_ptr()) as *const clap_host_posix_fd_support;
+        !ext.is_null() && (*ext).unregister_fd.is_some_and(|f| f(host, fd))
+    }
+}
+
 pub fn unregister_timer(id: u32) -> bool {
     // SAFETY: voir `request_resize`.
     unsafe {
@@ -223,6 +251,14 @@ unsafe extern "C" fn on_timer(_: *const clap_plugin, id: u32) {
 
 pub(crate) static TIMER: clap_plugin_timer_support = clap_plugin_timer_support { on_timer: Some(on_timer) };
 
+#[cfg(unix)]
+unsafe extern "C" fn on_fd(_: *const clap_plugin, fd: i32, flags: u32) {
+    log(format!("fd:{fd}:{flags}"));
+}
+
+#[cfg(unix)]
+pub(crate) static POSIX_FD: clap_plugin_posix_fd_support = clap_plugin_posix_fd_support { on_fd: Some(on_fd) };
+
 /// Réponse de `get_extension` pour les extensions de cette interface.
 pub(crate) fn extension(id: &CStr) -> Option<*const c_void> {
     if id == CLAP_EXT_GUI {
@@ -230,6 +266,10 @@ pub(crate) fn extension(id: &CStr) -> Option<*const c_void> {
     } else if id == CLAP_EXT_TIMER_SUPPORT {
         Some(&TIMER as *const _ as *const c_void)
     } else {
+        #[cfg(unix)]
+        if id == CLAP_EXT_POSIX_FD_SUPPORT {
+            return Some(&POSIX_FD as *const _ as *const c_void);
+        }
         None
     }
 }

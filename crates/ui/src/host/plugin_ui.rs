@@ -264,6 +264,7 @@ impl Host {
                 continue;
             }
             w.handle.run_timers(now);
+            w.handle.poll_fds();
             if let Some((rw, rh)) = w.handle.take_gui_resize_request() {
                 win.set_client_size(rw, rh); // le plugin se redimensionne lui-même une fois l'hôte d'accord
             }
@@ -295,7 +296,8 @@ fn attach_created_gui(handle: &PluginHandle, window: &mut Box<dyn NativeWindow>,
     if !unsafe { handle.gui_set_parent(api_name, native) } {
         return Err(format!("« {title} » : le plugin a refusé la fenêtre fournie"));
     }
-    handle.gui_suggest_title(title);
+    // Pas de `suggest_title` : la spécification CLAP le réserve aux fenêtres **flottantes** (le titre d'une fenêtre intégrée est celui de la
+    // fenêtre de l'hôte) ; un plugin s'en plaint (« the gui was not created as a floating window »).
     if !handle.gui_show() {
         return Err(format!("« {title} » : le plugin n'a pas pu afficher son interface"));
     }

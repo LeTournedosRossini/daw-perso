@@ -22,6 +22,8 @@ use clap_sys::ext::note_ports::{clap_host_note_ports, clap_note_dialect, clap_no
 use clap_sys::ext::audio_ports::{clap_audio_port_info, clap_plugin_audio_ports, CLAP_EXT_AUDIO_PORTS};
 use clap_sys::ext::gui::{clap_host_gui, clap_plugin_gui, clap_window, clap_window_handle, CLAP_EXT_GUI};
 use clap_sys::ext::timer_support::{clap_host_timer_support, clap_plugin_timer_support, CLAP_EXT_TIMER_SUPPORT};
+#[cfg(unix)]
+use clap_sys::ext::posix_fd_support::{clap_host_posix_fd_support, clap_plugin_posix_fd_support, CLAP_EXT_POSIX_FD_SUPPORT, CLAP_POSIX_FD_ERROR, CLAP_POSIX_FD_READ, CLAP_POSIX_FD_WRITE};
 use clap_sys::ext::latency::{clap_host_latency, clap_plugin_latency, CLAP_EXT_LATENCY};
 use clap_sys::ext::params::{clap_host_params, clap_param_info, clap_plugin_params, CLAP_EXT_PARAMS};
 use clap_sys::ext::state::{clap_host_state, clap_plugin_state, CLAP_EXT_STATE};
@@ -123,6 +125,10 @@ struct HostShared {
     gui_hide_requested: AtomicBool,
     gui_closed: AtomicBool,
     timers: Mutex<Timers>,
+    /// Descripteurs de fichiers que le plugin veut voir surveiller (extension hôte `posix-fd-support`, Linux et macOS) : son interface
+    /// graphique (JUCE, X11) y reçoit ses événements ; `(fd, drapeaux CLAP)`.
+    #[cfg(unix)]
+    fds: Mutex<Vec<(i32, u32)>>,
     latency_changed: AtomicBool,
     restart_requested: AtomicBool,
     process_requested: AtomicBool,
@@ -279,6 +285,55 @@ unsafe extern "C" fn host_timer_unregister(h: *const clap_host, id: u32) -> bool
     t.list.retain(|x| x.id != id);
     t.list.len() != before
 }
+#[cfg(unix)]
+unsafe extern "C" fn host_fd_register(h: *const clap_host, fd: i32, flags: u32) -> bool {
+    if fd < 0 || flags & (CLAP_POSIX_FD_READ | CLAP_POSIX_FD_WRITE | CLAP_POSIX_FD_ERROR) == 0 {
+        return false;
+    }
+    let mut f = shared(h).fds.lock().unwrap_or_else(|e| e.into_inner());
+    if f.iter().any(|(x, _)| *x == fd) {
+        return false;
+    }
+    f.push((fd, flags));
+    true
+}
+#[cfg(unix)]
+unsafe extern "C" fn host_fd_modify(h: *const clap_host, fd: i32, flags: u32) -> bool {
+    let mut f = shared(h).fds.lock().unwrap_or_else(|e| e.into_inner());
+    match f.iter_mut().find(|(x, _)| *x == fd) {
+        Some(e) => {
+            e.1 = flags;
+            true
+        }
+        None => false,
+    }
+}
+#[cfg(unix)]
+unsafe extern "C" fn host_fd_unregister(h: *const clap_host, fd: i32) -> bool {
+    let mut f = shared(h).fds.lock().unwrap_or_else(|e| e.into_inner());
+    let before = f.len();
+    f.retain(|(x, _)| *x != fd);
+    f.len() != before
+}
+#[cfg(unix)]
+static HOST_FD: clap_host_posix_fd_support = clap_host_posix_fd_support { register_fd: Some(host_fd_register), modify_fd: Some(host_fd_modify), unregister_fd: Some(host_fd_unregister) };
+
+#[cfg(unix)]
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
+}
+#[cfg(target_os = "linux")]
+type Nfds = std::ffi::c_ulong;
+#[cfg(all(unix, not(target_os = "linux")))]
+type Nfds = std::ffi::c_uint;
+#[cfg(unix)]
+extern "C" {
+    fn poll(fds: *mut PollFd, nfds: Nfds, timeout: i32) -> i32;
+}
+
 static HOST_TIMER: clap_host_timer_support = clap_host_timer_support { register_timer: Some(host_timer_register), unregister_timer: Some(host_timer_unregister) };
 
 static HOST_LATENCY: clap_host_latency = clap_host_latency { changed: Some(host_latency_changed) };
@@ -410,8 +465,23 @@ unsafe extern "C" fn host_get_extension(_: *const clap_host, id: *const c_char) 
         &HOST_TIMER as *const _ as *const c_void
     } else if id == FR_EXT_CHORD_TRACK {
         &HOST_CHORD_TRACK as *const _ as *const c_void
+    } else if let Some(p) = posix_fd_extension(id) {
+        p
     } else {
         std::ptr::null()
+    }
+}
+
+/// Extension hôte `posix-fd-support` (Linux et macOS seulement) si `id` la désigne.
+fn posix_fd_extension(id: &CStr) -> Option<*const c_void> {
+    #[cfg(unix)]
+    {
+        (id == CLAP_EXT_POSIX_FD_SUPPORT).then_some(&HOST_FD as *const _ as *const c_void)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = id;
+        None
     }
 }
 
@@ -702,6 +772,11 @@ impl PluginHandle {
     pub fn run_timers(&self, now: Instant) -> usize {
         self.core.run_timers(now)
     }
+    /// Surveille les descripteurs que le plugin a demandé à voir surveiller (`posix-fd-support`, Linux et macOS) et appelle `on_fd`
+    /// pour ceux qui sont prêts ; rend le nombre d'appels. Sans attente : à appeler souvent (~10 ms) avec la pompe des fenêtres.
+    pub fn poll_fds(&self) -> usize {
+        self.core.poll_fds()
+    }
     pub fn gui_support(&self) -> GuiSupport {
         self.core.gui_support()
     }
@@ -893,6 +968,63 @@ impl Core {    fn ext<T>(&self, id: &CStr) -> Option<&T> {
         let hide = self.shared.gui_hide_requested.swap(false, Ordering::AcqRel);
         let closed = self.shared.gui_closed.swap(false, Ordering::AcqRel);
         hide || closed
+    }
+
+    /// Voir `PluginHandle::poll_fds`.
+    #[cfg(unix)]
+    pub fn poll_fds(&self) -> usize {
+        let regs: Vec<(i32, u32)> = self.shared.fds.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if regs.is_empty() {
+            return 0;
+        }
+        let Some(on_fd) = self.ext::<clap_plugin_posix_fd_support>(CLAP_EXT_POSIX_FD_SUPPORT).and_then(|e| e.on_fd) else { return 0 };
+        const POLLIN: i16 = 0x1;
+        const POLLOUT: i16 = 0x4;
+        const POLLERR: i16 = 0x8;
+        const POLLHUP: i16 = 0x10;
+        let mut pfds: Vec<PollFd> = regs
+            .iter()
+            .map(|(fd, fl)| PollFd { fd: *fd, events: (if fl & CLAP_POSIX_FD_READ != 0 { POLLIN } else { 0 }) | (if fl & CLAP_POSIX_FD_WRITE != 0 { POLLOUT } else { 0 }), revents: 0 })
+            .collect();
+        // SAFETY: `pfds` est un tableau valide de `PollFd` (même disposition que `struct pollfd`), délai nul : l'appel ne bloque pas.
+        let n = unsafe { poll(pfds.as_mut_ptr(), pfds.len() as Nfds, 0) };
+        if n <= 0 {
+            return 0;
+        }
+        let ready: Vec<(i32, u32)> = pfds
+            .iter()
+            .filter(|p| p.revents != 0)
+            .map(|p| {
+                let mut fl = 0;
+                if p.revents & POLLIN != 0 {
+                    fl |= CLAP_POSIX_FD_READ;
+                }
+                if p.revents & POLLOUT != 0 {
+                    fl |= CLAP_POSIX_FD_WRITE;
+                }
+                if p.revents & (POLLERR | POLLHUP) != 0 {
+                    fl |= CLAP_POSIX_FD_ERROR;
+                }
+                (p.fd, fl)
+            })
+            .collect();
+        let count = ready.len();
+        if count > 0 {
+            // Sur le fil principal du processus (macOS) : les interfaces des plugins y vivent.
+            crate::main_thread::run(|| {
+                for (fd, fl) in &ready {
+                    // SAFETY: `raw` valide ; fil principal au sens de CLAP ; `fd` vient de ce que le plugin a lui-même enregistré.
+                    unsafe { on_fd(self.raw, *fd, *fl) }
+                }
+            });
+        }
+        count
+    }
+
+    /// Sans objet hors Linux et macOS (aucun descripteur à surveiller).
+    #[cfg(not(unix))]
+    pub fn poll_fds(&self) -> usize {
+        0
     }
 
     /// Appelle `on_timer` pour chaque minuteur du plugin arrivé à échéance à l'instant `now` ; rend le nombre d'appels.
