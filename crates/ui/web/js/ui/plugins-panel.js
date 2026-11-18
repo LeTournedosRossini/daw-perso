@@ -17,6 +17,7 @@ export class PluginsPanel {
     this.root = document.getElementById("plugins-panel");
     this.node = null; // identifiant du nœud affiché
     this.view = new PluginView({ state, client, root: this.root.querySelector(".pv-host"), docked: false, onTarget: () => this.#layout() });
+    this.autoOpened = null; // plugin dont ce panneau a ouvert l'interface native (Linux : fenêtre à part, sans bande)
     this.lastByNode = new Map(); // piste → dernier plugin dont on a ouvert la fenêtre (le prochain « Plugins… » rouvre celui-là)
     const remember = (insert) => {
       const node = this.state.project?.nodes.find((n) => n.inserts.some((i) => i.id === insert));
@@ -52,8 +53,23 @@ export class PluginsPanel {
     const chain = this.chain();
     const keep = chain.find((i) => i.id === this.view.insert)?.id;
     this.root.hidden = false;
-    this.view.setTarget(nodeId, keep ?? chain[0]?.id ?? null);
+    const target = keep ?? chain[0]?.id ?? null;
+    this.view.setTarget(nodeId, target);
     this.render();
+    this.#openNative(chain.find((i) => i.id === target));
+  }
+
+  /**
+   * Sans fenêtre de plugin à bande (Linux : l'interface du plugin est une fenêtre native à part, sans liste), demander un plugin **ouvre
+   * son interface visuelle par défaut**, comme dans la fenêtre de plugin de Windows et de macOS ; la liste de paramètres reste à côté de la
+   * chaîne. Une seule interface ouverte par ce panneau à la fois : celle du plugin qu'on quitte se ferme.
+   */
+  #openNative(ins) {
+    if (this.windowed || !ins?.gui) return;
+    const prev = this.autoOpened === null || this.autoOpened === ins.id ? null : this.chain().find((i) => i.id === this.autoOpened);
+    if (prev?.ui_open) this.client.send({ type: "close_plugin_ui", insert: prev.id });
+    if (!ins.ui_open) this.client.send({ type: "open_plugin_ui", insert: ins.id });
+    this.autoOpened = ins.id;
   }
 
   close() {
@@ -103,6 +119,7 @@ export class PluginsPanel {
       return;
     }
     this.view.setTarget(this.node, ins.id);
+    this.#openNative(ins);
   }
 
   renderChain() {
