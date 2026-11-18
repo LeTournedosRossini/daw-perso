@@ -1,5 +1,5 @@
 //! Essai du backend WASAPI (Windows, mode partagé) : liste les appareils puis joue un la 440 Hz pendant N secondes, avec la capture.
-//! `cargo run -p daw-audio-io --example wasapi_probe -- [appareil de lecture ou "-"] [période] [secondes] [capture 0|1]`
+//! `cargo run -p daw-audio-io --example wasapi_probe -- [lecture : numéro, nom ou "-"] [période] [secondes] [capture 0|1] [capture : numéro, nom ou "-"]`
 #[cfg(target_os = "windows")]
 fn main() {
     use daw_audio_io::playback::StereoProcessor;
@@ -16,18 +16,39 @@ fn main() {
             }
         }
     }
-    println!("Appareils WASAPI :");
-    for d in list_devices() {
-        println!("  {}{} {}{}", if d.playback { "Lecture " } else { "Capture " }, if d.default { "(défaut)" } else { "        " }, d.name, "");
+    let devices = list_devices();
+    let outs: Vec<_> = devices.iter().filter(|d| d.playback).collect();
+    let ins: Vec<_> = devices.iter().filter(|d| d.capture).collect();
+    println!("Appareils de lecture :");
+    for (i, d) in outs.iter().enumerate() {
+        println!("  L{} {}{}", i + 1, d.name, if d.default { "   (par defaut)" } else { "" });
     }
+    println!("Appareils de capture :");
+    for (i, d) in ins.iter().enumerate() {
+        println!("  C{} {}{}", i + 1, d.name, if d.default { "   (par defaut)" } else { "" });
+    }
+    // Un appareil se désigne par son numéro (L2, C3 ou 2, 3), par un morceau de son nom, ou "-" pour celui par défaut.
+    let pick = |arg: Option<&String>, list: &[&daw_audio_io::wasapi_backend::DeviceEntry]| -> Option<String> {
+        let a = arg?.trim();
+        if a.is_empty() || a == "-" {
+            return None;
+        }
+        let digits = a.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+        match digits.parse::<usize>() {
+            Ok(n) if n >= 1 && n <= list.len() => Some(list[n - 1].name.clone()),
+            _ => Some(a.to_string()),
+        }
+    };
     let a: Vec<String> = std::env::args().skip(1).collect();
     let opts = PlayOptions {
         seconds: a.get(2).and_then(|s| s.parse().ok()).unwrap_or(5),
-        device: a.first().filter(|s| s.as_str() != "-").cloned(),
+        device: pick(a.first(), &outs),
+        capture_device: pick(a.get(4), &ins),
         buffer: a.get(1).and_then(|s| s.parse().ok()),
         capture: a.get(3).map_or(true, |s| s != "0"),
-        ..PlayOptions::default()
     };
+    println!("Lecture choisie : {}", opts.device.as_deref().unwrap_or("par defaut"));
+    println!("Capture choisie : {}", opts.capture_device.as_deref().unwrap_or("par defaut"));
     let r = run_playback_ex(&opts, |info| {
         println!("Ouvert : {} — {} Hz, période {}, {} entrée(s), {} sortie(s)", info.driver, info.sample_rate, info.buffer_size, info.inputs, info.outputs);
         let lat = info.latency.clone();
