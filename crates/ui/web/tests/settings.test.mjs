@@ -131,3 +131,13 @@ test("Windows : ASIO ou WASAPI, appareils et pilote enregistrés ensemble", () =
   assert.equal(validatePrefs({ ...p, audio_system: "asio" }), null);
   assert.match(runningText({ audio: true, system: "wasapi", sample_rate: 48000, inputs: 2, effective: { buffer: 128, threads: 1, ahead_ms: 0, device: "" } }), /WASAPI partagé/);
 });
+
+test("Linux : un avertissement quand des fils de calcul en continu sont réglés, rien sinon", async () => {
+  const { linuxThreadsNote } = await import("../js/ui/settings-dialog.js");
+  const linux = ["jack", "alsa"];
+  assert.equal(linuxThreadsNote({ threads: 1, ahead_ms: 0 }, linux), null);
+  assert.match(linuxThreadsNote({ threads: 2, ahead_ms: 0 }, linux), /priorité temps réel/);
+  assert.match(linuxThreadsNote({ threads: 1, ahead_ms: 50 }, linux), /tampon 256/);
+  assert.equal(linuxThreadsNote({ threads: 3, ahead_ms: 50 }, ["asio", "wasapi"]), null);
+  assert.equal(linuxThreadsNote({ threads: 3, ahead_ms: 50 }, []), null);
+});

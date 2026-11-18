@@ -60,15 +60,18 @@ fn set_prefs_writes_the_file_applies_the_metronome_and_flags_a_restart() {
 #[test]
 fn no_restart_when_saved_audio_settings_are_the_running_ones() {
     let (_e, mut host) = rig();
-    host.set_runtime(runtime("UMC", 64, 1, 0));
+    // Ce qui tourne : le tampon par défaut de la plateforme (64, ou 256 sous Linux).
+    host.set_runtime(runtime("UMC", prefs::default_buffer(), 1, 0));
     let (_, _, restart, _) = prefs_event(&host.command_json(r#"{"type":"get_prefs"}"#));
     assert!(!restart);
-    let ev = host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC"}}"#);
+    let buf = prefs::default_buffer();
+    let ev = host.command_json(&format!(r#"{{"type":"set_prefs","prefs":{{"buffer":{buf},"driver":"UMC"}}}}"#));
     assert!(!prefs_event(&ev).2);
     // Le même pilote désigné par son nom complet n'est pas un changement.
-    let ev = host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":64,"driver":"UMC ASIO Driver"}}"#);
+    let ev = host.command_json(&format!(r#"{{"type":"set_prefs","prefs":{{"buffer":{buf},"driver":"UMC ASIO Driver"}}}}"#));
     assert!(!prefs_event(&ev).2);
-    let ev = host.command_json(r#"{"type":"set_prefs","prefs":{"buffer":128}}"#);
+    let other = if buf == 128 { 256 } else { 128 };
+    let ev = host.command_json(&format!(r#"{{"type":"set_prefs","prefs":{{"buffer":{other}}}}}"#));
     assert!(prefs_event(&ev).2);
 }
 

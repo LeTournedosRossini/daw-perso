@@ -15,6 +15,18 @@ pub const PREFS_VERSION: u32 = 1;
 
 pub const DEFAULT_DRIVER: &str = "UMC";
 pub const DEFAULT_BUFFER: u32 = 64;
+/// Tampon par défaut sous Linux : pas d'objectif de basse latence là-bas (décision du 4 novembre 2026), et le fil audio n'y a pas la priorité
+/// temps réel (limite `rtprio`) : 64 échantillons (1,3 ms) sont trop courts sur une machine chargée.
+pub const DEFAULT_BUFFER_LINUX: u32 = 256;
+
+/// Tampon par défaut de la plateforme.
+pub fn default_buffer() -> u32 {
+    if cfg!(target_os = "linux") {
+        DEFAULT_BUFFER_LINUX
+    } else {
+        DEFAULT_BUFFER
+    }
+}
 
 /// Unité du pré-roll.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,7 +174,15 @@ impl Prefs {
     /// avance de 50 ms avec 2 fils de rendu et un seul fil de calcul (3 cœurs occupés, mesuré propre à 32 et 16 échantillons sur la
     /// UMC) ; en dessous, pas d'avance (les fils se gêneraient). Le reste est la valeur par défaut.
     pub fn recommended(cores: u32) -> Prefs {
-        if cores >= 4 {
+        Prefs::recommended_for(cores, cfg!(target_os = "linux"))
+    }
+
+    /// Comme `recommended`, pour une plateforme donnée. **Linux : jamais de calcul en avance ni de fils de calcul en plus** : ces fils
+    /// tournent en continu pendant la lecture, et sans priorité temps réel (refusée par le système) ils privent le fil audio du processeur
+    /// sur une machine chargée (observé le 18 novembre 2026 : de 750 à 15 cycles par seconde, son haché puis absent). Windows et macOS donnent
+    /// à ces fils une priorité protégée.
+    pub fn recommended_for(cores: u32, linux: bool) -> Prefs {
+        if cores >= 4 && !linux {
             Prefs { ahead_ms: 50, ahead_threads: 2, threads: 1, ..Prefs::default() }
         } else {
             Prefs::default()
@@ -258,7 +278,7 @@ pub fn resolve(p: &Prefs, env: &dyn Fn(&str) -> Option<String>) -> Effective {
         }
         None => p.driver.clone().unwrap_or_else(|| DEFAULT_DRIVER.into()),
     };
-    let buffer = num("DAW_BUFFER", "buffer", &mut forced).unwrap_or_else(|| p.buffer.unwrap_or(DEFAULT_BUFFER));
+    let buffer = num("DAW_BUFFER", "buffer", &mut forced).unwrap_or_else(|| p.buffer.unwrap_or_else(default_buffer));
     let threads = num("DAW_THREADS", "threads", &mut forced).unwrap_or(p.threads).max(1);
     let ahead_ms = num("DAW_AHEAD", "ahead_ms", &mut forced).unwrap_or(p.ahead_ms);
     let ahead_threads = num("DAW_AHEAD_THREADS", "ahead_threads", &mut forced).unwrap_or(p.ahead_threads).max(1);
@@ -351,17 +371,22 @@ mod tests {
         let p = Prefs::default();
         p.validate().unwrap();
         let e = resolve(&p, &no_env);
-        assert_eq!((e.driver.as_str(), e.buffer, e.threads, e.ahead_ms, e.ahead_threads), ("UMC", 64, 1, 0, 2));
+        assert_eq!((e.driver.as_str(), e.buffer, e.threads, e.ahead_ms, e.ahead_threads), ("UMC", default_buffer(), 1, 0, 2));
+        // Le tampon par défaut dépend de la plateforme : 64 (basse latence) ailleurs, 256 sous Linux.
+        assert_eq!(default_buffer(), if cfg!(target_os = "linux") { 256 } else { 64 });
         assert!(e.forced.is_empty());
     }
 
     #[test]
-    fn a_first_start_uses_the_lookahead_only_with_four_cores_or_more() {
+    fn a_first_start_uses_the_lookahead_only_with_four_cores_or_more_and_never_on_linux() {
         for cores in [1, 2, 3] {
-            assert_eq!(Prefs::recommended(cores), Prefs::default());
+            assert_eq!(Prefs::recommended_for(cores, false), Prefs::default());
+        }
+        for cores in [1, 4, 6, 16, 64] {
+            assert_eq!(Prefs::recommended_for(cores, true), Prefs::default(), "Linux : aucun fil de plus par défaut ({cores} cœurs)");
         }
         for cores in [4, 6, 16] {
-            let p = Prefs::recommended(cores);
+            let p = Prefs::recommended_for(cores, false);
             assert_eq!((p.ahead_ms, p.ahead_threads, p.threads), (50, 2, 1));
             p.validate().unwrap();
             // 1 fil audio + 2 fils de rendu : toujours moins que les cœurs.

@@ -63,6 +63,16 @@ export function threadsWarning(threads, aheadMs, aheadThreads, cores) {
   return null;
 }
 
+/**
+ * Avertissement propre à Linux : le fil audio n'y a pas la priorité temps réel (limite `rtprio`), donc les fils de calcul qui tournent en
+ * continu (calcul parallèle, calcul en avance) peuvent lui prendre le processeur sur une machine chargée : coupures, puis son absent.
+ */
+export function linuxThreadsNote(f, systems) {
+  if (!Array.isArray(systems) || !systems.includes("alsa")) return null;
+  if (!(f.threads > 1 || f.ahead_ms > 0)) return null;
+  return "Linux : le fil audio n'a pas la priorité temps réel ; ces fils supplémentaires peuvent lui prendre le processeur sur une machine chargée (coupures, son qui s'arrête). Réglage sûr : 1 fil, calcul en avance désactivé, tampon 256.";
+}
+
 /** Préférences d'après les champs de la fenêtre (le métronome est repris de l'état courant : il se règle ailleurs, tout de suite). */
 export function prefsFromForm(f, metronome, base = {}) {
   return {
@@ -169,7 +179,7 @@ export class SettingsDialog {
       this.#fillAsio(p, r, forced);
     }
 
-    const current = p.buffer ?? DEFAULT_BUFFER;
+    const current = p.buffer ?? r?.effective?.buffer ?? DEFAULT_BUFFER;
     const buf = $("st-buffer");
     buf.replaceChildren(...bufferChoices(current).map((b) => Object.assign(document.createElement("option"), { value: String(b), textContent: this.#bufferLabel(b, r) })));
     buf.value = String(current);
@@ -330,7 +340,7 @@ export class SettingsDialog {
     const b = coreBudget(f.threads, f.ahead_ms, f.ahead_threads, r?.cores);
     $("st-budget").textContent = `Cœurs occupés pendant la lecture : ${budgetText(b)}.`;
     const w = threadsWarning(f.threads, f.ahead_ms, f.ahead_threads, r?.cores);
-    $("st-threads-note").textContent = w ?? "";
+    $("st-threads-note").textContent = [w, linuxThreadsNote(f, r?.systems)].filter(Boolean).join(" ");
     $("st-threads-note").classList.toggle("warn", b.level === "over");
     const restart = !!this.last?.restart_needed;
     $("st-restart").hidden = !restart || !this.files?.tauri;
