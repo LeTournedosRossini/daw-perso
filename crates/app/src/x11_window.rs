@@ -16,7 +16,7 @@ use std::rc::{Rc, Weak};
 use daw_ui::plugin_window::{NativeWindow, WindowSystem};
 use libloading::Library;
 
-type Window = c_ulong;
+pub(crate) type Window = c_ulong;
 type Atom = c_ulong;
 type Display = c_void;
 
@@ -29,7 +29,7 @@ const P_MAX_SIZE: c_long = 1 << 5;
 /// `XSizeHints` (ICCCM) : seuls `flags`, `min_*` et `max_*` servent.
 #[repr(C)]
 #[derive(Default)]
-struct SizeHints {
+pub(crate) struct SizeHints {
     flags: c_long,
     x: c_int,
     y: c_int,
@@ -49,25 +49,30 @@ struct SizeHints {
 }
 
 /// Les fonctions de Xlib dont on a besoin, résolues une fois.
-struct Xlib {
+pub(crate) struct Xlib {
     _lib: Library,
-    open_display: unsafe extern "C" fn(*const c_char) -> *mut Display,
-    close_display: unsafe extern "C" fn(*mut Display) -> c_int,
-    default_screen: unsafe extern "C" fn(*mut Display) -> c_int,
-    root_window: unsafe extern "C" fn(*mut Display, c_int) -> Window,
-    black_pixel: unsafe extern "C" fn(*mut Display, c_int) -> c_ulong,
-    create_simple_window: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_uint, c_uint, c_uint, c_ulong, c_ulong) -> Window,
-    destroy_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
-    map_raised: unsafe extern "C" fn(*mut Display, Window) -> c_int,
-    resize_window: unsafe extern "C" fn(*mut Display, Window, c_uint, c_uint) -> c_int,
-    select_input: unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int,
-    intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom,
-    set_wm_protocols: unsafe extern "C" fn(*mut Display, Window, *mut Atom, c_int) -> c_int,
-    change_property: unsafe extern "C" fn(*mut Display, Window, Atom, Atom, c_int, c_int, *const u8, c_int) -> c_int,
-    set_wm_normal_hints: unsafe extern "C" fn(*mut Display, Window, *mut SizeHints),
-    pending: unsafe extern "C" fn(*mut Display) -> c_int,
-    next_event: unsafe extern "C" fn(*mut Display, *mut [c_long; 24]) -> c_int,
-    flush: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) open_display: unsafe extern "C" fn(*const c_char) -> *mut Display,
+    pub(crate) close_display: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) default_screen: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) root_window: unsafe extern "C" fn(*mut Display, c_int) -> Window,
+    pub(crate) black_pixel: unsafe extern "C" fn(*mut Display, c_int) -> c_ulong,
+    pub(crate) create_simple_window: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_uint, c_uint, c_uint, c_ulong, c_ulong) -> Window,
+    pub(crate) destroy_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    pub(crate) map_raised: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    pub(crate) resize_window: unsafe extern "C" fn(*mut Display, Window, c_uint, c_uint) -> c_int,
+    pub(crate) select_input: unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int,
+    pub(crate) intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom,
+    pub(crate) set_wm_protocols: unsafe extern "C" fn(*mut Display, Window, *mut Atom, c_int) -> c_int,
+    pub(crate) change_property: unsafe extern "C" fn(*mut Display, Window, Atom, Atom, c_int, c_int, *const u8, c_int) -> c_int,
+    pub(crate) set_wm_normal_hints: unsafe extern "C" fn(*mut Display, Window, *mut SizeHints),
+    pub(crate) pending: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) next_event: unsafe extern "C" fn(*mut Display, *mut [c_long; 24]) -> c_int,
+    pub(crate) flush: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) map_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    pub(crate) reparent_window: unsafe extern "C" fn(*mut Display, Window, Window, c_int, c_int) -> c_int,
+    pub(crate) unmap_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    pub(crate) move_resize_window: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_uint, c_uint) -> c_int,
+    pub(crate) get_geometry: unsafe extern "C" fn(*mut Display, Window, *mut Window, *mut c_int, *mut c_int, *mut c_uint, *mut c_uint, *mut c_uint, *mut c_uint) -> c_int,
 }
 
 macro_rules! sym {
@@ -99,17 +104,22 @@ impl Xlib {
             pending: sym!(lib, "XPending"),
             next_event: sym!(lib, "XNextEvent"),
             flush: sym!(lib, "XFlush"),
+            map_window: sym!(lib, "XMapWindow"),
+            reparent_window: sym!(lib, "XReparentWindow"),
+            unmap_window: sym!(lib, "XUnmapWindow"),
+            move_resize_window: sym!(lib, "XMoveResizeWindow"),
+            get_geometry: sym!(lib, "XGetGeometry"),
             _lib: lib,
         })
     }
 }
 
 /// La connexion au serveur X, partagée par les fenêtres ; fermée quand la dernière disparaît.
-struct Conn {
-    x: Xlib,
-    display: *mut Display,
-    root: Window,
-    black: c_ulong,
+pub(crate) struct Conn {
+    pub(crate) x: Xlib,
+    pub(crate) display: *mut Display,
+    pub(crate) root: Window,
+    pub(crate) black: c_ulong,
     screen: c_int,
     wm_delete: Atom,
     wm_protocols: Atom,
@@ -244,27 +254,32 @@ impl X11System {
         if let Some(c) = &self.conn {
             return Ok(Rc::clone(c));
         }
-        let x = Xlib::load()?;
-        // SAFETY: `XOpenDisplay(NULL)` lit `DISPLAY` ; rend NULL en cas d'échec.
-        let display = unsafe { (x.open_display)(std::ptr::null()) };
-        if display.is_null() {
-            return Err("aucun serveur X joignable (variable DISPLAY) : pas d'interface de plugin (Wayland pur ?)".into());
-        }
-        // SAFETY: `display` vient d'être ouvert.
-        let (screen, root, black) = unsafe {
-            let screen = (x.default_screen)(display);
-            (screen, (x.root_window)(display, screen), (x.black_pixel)(display, screen))
-        };
-        let mut c = Conn { x, display, root, black, screen, wm_delete: 0, wm_protocols: 0, net_wm_name: 0, utf8: 0 };
-        c.wm_delete = c.atom("WM_DELETE_WINDOW");
-        c.wm_protocols = c.atom("WM_PROTOCOLS");
-        c.net_wm_name = c.atom("_NET_WM_NAME");
-        c.utf8 = c.atom("UTF8_STRING");
-        let _ = c.screen;
-        let c = Rc::new(c);
+        let c = open_conn()?;
         self.conn = Some(Rc::clone(&c));
         Ok(c)
     }
+}
+
+/// Ouvre une connexion au serveur X (`DISPLAY`) : partagée par les fenêtres d'un même système.
+pub(crate) fn open_conn() -> Result<Rc<Conn>, String> {
+    let x = Xlib::load()?;
+    // SAFETY: `XOpenDisplay(NULL)` lit `DISPLAY` ; rend NULL en cas d'échec.
+    let display = unsafe { (x.open_display)(std::ptr::null()) };
+    if display.is_null() {
+        return Err("aucun serveur X joignable (variable DISPLAY) : pas d'interface de plugin (Wayland pur ?)".into());
+    }
+    // SAFETY: `display` vient d'être ouvert.
+    let (screen, root, black) = unsafe {
+        let screen = (x.default_screen)(display);
+        (screen, (x.root_window)(display, screen), (x.black_pixel)(display, screen))
+    };
+    let mut c = Conn { x, display, root, black, screen, wm_delete: 0, wm_protocols: 0, net_wm_name: 0, utf8: 0 };
+    c.wm_delete = c.atom("WM_DELETE_WINDOW");
+    c.wm_protocols = c.atom("WM_PROTOCOLS");
+    c.net_wm_name = c.atom("_NET_WM_NAME");
+    c.utf8 = c.atom("UTF8_STRING");
+    let _ = c.screen;
+    Ok(Rc::new(c))
 }
 
 impl WindowSystem for X11System {

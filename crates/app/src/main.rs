@@ -30,7 +30,10 @@ mod win32_window;
 mod cocoa_window;
 // Fenêtres de plugin Linux : fenêtres X11 (libX11 chargée à l'exécution), sans bande.
 #[cfg(target_os = "linux")]
+#[allow(dead_code)] // le système de fenêtres nues n'est plus branché (repli possible) ; sa connexion X sert aux fenêtres à bande
 mod x11_window;
+#[cfg(target_os = "linux")]
+mod x11_docked;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -301,7 +304,7 @@ impl Pump {
             self.debug_opened = true;
             let t = Instant::now();
             let evs = self.host.command_json(r#"{"type":"open_plugin_ui","insert":0}"#);
-            eprintln!("open_plugin_ui : {} événement(s) en {:.0} ms", evs.len(), t.elapsed().as_secs_f64() * 1000.0);
+            eprintln!("open_plugin_ui : {} événement(s) en {:.0} ms : {}", evs.len(), t.elapsed().as_secs_f64() * 1000.0, serde_json::to_string(&evs).unwrap_or_default());
         }
         // Aide au diagnostic : `DAW_DEBUG_PLAY=1` lance la lecture 3 s après le démarrage (sans toucher à l'interface).
         if !self.debug_played && std::env::var_os("DAW_DEBUG_PLAY").is_some() && self.started.elapsed() > Duration::from_secs(3) {
@@ -522,7 +525,7 @@ fn build_host(rate: u32, buffer: usize, inputs: u32, route: &SharedRoute, eff: &
     #[cfg(target_os = "macos")]
     host.set_window_system(Box::new(cocoa_window::DockedSystem::new()));
     #[cfg(target_os = "linux")]
-    host.set_window_system(Box::new(x11_window::X11System::new()));
+    host.set_window_system(Box::new(x11_docked::DockedSystem::new()));
     // L'entrée MIDI du moteur est confiée au routeur : les fils des appareils y déposent leurs messages.
     route.lock().unwrap_or_else(|e| e.into_inner()).tx = host.take_midi_input();
     Ok((engine, host))
@@ -871,6 +874,12 @@ fn main() {
     // modifier l'environnement n'est sûr qu'ici.
     #[cfg(unix)]
     std::env::set_var("LC_NUMERIC", "C");
+    // Linux : les fenêtres de plugin logent leur interface dans une fenêtre X11 fille de la fenêtre Tauri (voir `x11_docked.rs`) : GTK doit
+    // donc tourner en X11. Sous Wayland, c'est XWayland (tant que `DISPLAY` existe) ; un choix explicite de l'utilisateur est respecté.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GDK_BACKEND").is_none() && std::env::var_os("DISPLAY").is_some() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     log("démarrage de l'application");
     // Un panic dans un fil (callback audio compris, où il est contenu et rend du silence) doit laisser une trace.
     let previous = std::panic::take_hook();
@@ -902,6 +911,8 @@ fn main() {
             log("fenêtre prête : démarrage du fil moteur");
             #[cfg(target_os = "windows")]
             win32_window::set_app(app.handle().clone());
+            #[cfg(target_os = "linux")]
+            x11_docked::set_app(app.handle().clone());
             #[cfg(target_os = "macos")]
             {
                 cocoa_window::set_app(app.handle().clone());

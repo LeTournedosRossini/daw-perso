@@ -21,6 +21,8 @@ daw-audio-io = { path = "../audio-io" }
 daw-clap-host = { path = "../clap-host" }
 # Chargement de libX11 à l'exécution (fenêtres des interfaces de plugins sous Linux) ; déjà utilisée par le crate clap-host.
 libloading = "0.8"
+# Poignée de fenêtre X11 de la fenêtre Tauri (fenêtres de plugin à bande, Linux) ; déjà tirée par Tauri.
+raw-window-handle = "0.6"
 daw-engine = { path = "../engine" }
 daw-session = { path = "../session" }
 daw-ui = { path = "../ui" }
