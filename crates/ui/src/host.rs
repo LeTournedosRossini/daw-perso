@@ -141,14 +141,23 @@ pub fn default_scan() -> CatalogScan {
 pub fn cached_scan(cache: Option<std::path::PathBuf>) -> CatalogScan {
     Box::new(move || {
         use daw_clap_host::{default_search_dirs, find_plugins, Bundle};
-        let files: Vec<std::path::PathBuf> = default_search_dirs().iter().flat_map(|d| find_plugins(d)).collect();
+        // Un même fichier trouvé par deux chemins (dossier donné deux fois, lien, `CLAP_PATH` qui répète un dossier) ne compte qu'une fois.
+        let mut seen_files = std::collections::HashSet::new();
+        let files: Vec<std::path::PathBuf> = default_search_dirs()
+            .iter()
+            .flat_map(|d| find_plugins(d))
+            .filter(|f| seen_files.insert(std::fs::canonicalize(f).unwrap_or_else(|_| f.clone())))
+            .collect();
         let open = |file: &std::path::Path| -> Option<Vec<PluginListing>> {
             let bundle = Bundle::open(file).ok()?;
             let list = bundle.plugins().ok()?;
             let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             Some(list.into_iter().map(|i| PluginListing { clap_id: i.id, name: i.name, vendor: i.vendor, file: file_name.clone(), description: i.description, features: i.features }).collect())
         };
-        crate::plugin_cache::scan_files(&files, cache.as_deref(), open).0
+        // Un même plugin présent dans deux dossiers (livré avec l'application et installé à part) n'est proposé qu'une fois : le premier
+        // trouvé gagne (les plugins livrés sont cherchés d'abord).
+        let mut seen_ids = std::collections::HashSet::new();
+        crate::plugin_cache::scan_files(&files, cache.as_deref(), open).0.into_iter().filter(|l| seen_ids.insert(l.clap_id.clone())).collect()
     })
 }
 
