@@ -40,6 +40,55 @@ impl Host {
         })
     }
 
+    /// Les accords et la section qui passent, pour **toutes** les tablettes de retour (lecture seule, aucun droit particulier) : position en secondes,
+    /// tempo et chiffrage au point de lecture, la section en cours et les accords à partir de celui qui sonne (dix au plus). La tablette
+    /// prolonge elle-même la position entre deux lectures de l'état. `None` quand le projet n'a ni accord ni section.
+    pub(super) fn chart_state(&self) -> Option<serde_json::Value> {
+        let track = self.session.chord_track();
+        let structure = self.session.structure();
+        if track.chords.is_empty() && structure.is_empty() {
+            return None;
+        }
+        let rate = self.session.sample_rate();
+        let (tm, mm) = (self.session.tempo_map(), self.session.meter_map());
+        let pos = self.handle.position();
+        let posf = tm.to_frac(pos, rate)?;
+        let secs = |f: daw_core_types::time::Frac| tm.to_samples(f, rate).map(|s| s as f64 / f64::from(rate));
+        let (bar0, within) = mm.locate(posf).unwrap_or((0, daw_core_types::time::Frac::ZERO));
+        let meter = mm.meter_at_bar(bar0);
+        let beat_pos = within.as_f64() / meter.beat_len().as_f64().max(1e-9);
+        // L'accord qui sonne, sinon le premier à venir.
+        let first = track.chords.iter().position(|c| c.start <= posf && posf < c.start.checked_add(c.len).unwrap_or(c.start)).or_else(|| track.chords.iter().position(|c| c.start > posf));
+        let chords: Vec<serde_json::Value> = first
+            .map(|i| &track.chords[i..])
+            .unwrap_or(&[])
+            .iter()
+            .take(10)
+            .filter_map(|c| {
+                let end = c.start.checked_add(c.len)?;
+                let name = if c.nc { "N.C.".to_owned() } else { format!("{}{}{}", c.root.name(), c.quality, c.bass.map(|b| format!("/{}", b.name())).unwrap_or_default()) };
+                Some(serde_json::json!({ "name": name, "nc": c.nc, "at": (secs(c.start)? * 1000.0).round() / 1000.0, "end": (secs(end)? * 1000.0).round() / 1000.0 }))
+            })
+            .collect();
+        let section = structure
+            .iter()
+            .find(|s| s.at <= posf && s.at.checked_add(s.dur).is_some_and(|e| posf < e))
+            .and_then(|s| Some(serde_json::json!({ "name": s.name, "color": s.color, "at": secs(s.at)?, "end": secs(s.at.checked_add(s.dur)?)? })));
+        let next_section = structure.iter().find(|s| s.at > posf).and_then(|s| Some(serde_json::json!({ "name": s.name, "color": s.color, "at": secs(s.at)? })));
+        Some(serde_json::json!({
+            "playing": self.playing,
+            "pos": (pos as f64 / f64::from(rate) * 1000.0).round() / 1000.0,
+            "bpm": tm.tempo_at(posf).as_f64(),
+            "num": meter.num(),
+            "den": meter.den(),
+            "bar": bar0 + 1,
+            "beat": (beat_pos * 1000.0).round() / 1000.0,
+            "chords": chords,
+            "section": section,
+            "next_section": next_section,
+        }))
+    }
+
     /// Une commande d'une tablette autorisée. Les refus de l'hôte (aucune piste armée, enregistrement en cours…) sont gardés pour la tablette.
     pub(super) fn remote_request(&mut self, ret: u32, cmd: RemoteCmd) -> Vec<Event> {
         // Le rôle est relu ici aussi : il a pu changer entre la requête et ce tick.

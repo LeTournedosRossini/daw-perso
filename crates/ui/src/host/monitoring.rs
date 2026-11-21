@@ -140,6 +140,7 @@ impl Host {
     /// Le mix de chaque retour : toutes les pistes et tous les bus (sauf les retours et la sortie principale), avec le niveau de leur envoi.
     pub(super) fn monitor_publish(&mut self) {
         let returns = self.monitor_returns();
+        let chart = self.chart_state();
         let g = self.session.graph();
         let mut out = Vec::new();
         for (ret, name) in &returns {
@@ -167,6 +168,9 @@ impl Host {
             let groups: Vec<serde_json::Value> = self.session.effective_group_list(Some(NodeId(*ret))).iter().map(|gr| serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "offset_db": self.group_offset(gr.id, Some(*ret)) })).collect();
             let role = self.effective_role(*ret);
             let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role });
+            if let Some(c) = &chart {
+                state["chart"] = c.clone();
+            }
             if self.monitor_role_expired(*ret) {
                 state["expired"] = true.into();
             }

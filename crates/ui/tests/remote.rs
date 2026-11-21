@@ -577,3 +577,48 @@ fn automation_modes_are_set_per_track_and_per_chosen_parameter_with_the_fine_rig
         assert_eq!(rig.fx(bad), 400, "{bad}");
     }
 }
+
+#[test]
+fn every_return_tablet_sees_the_chords_and_the_section_that_play_without_any_right() {
+    let mut rig = Rig::new();
+    // Sans accord ni section, rien à montrer ; ici la structure existe (Intro / Refrain) mais pas d'accord.
+    rig.settle();
+    let st = rig.state();
+    assert_eq!(st["role"], 0, "adresse de simple musicien");
+    assert!(st["chart"]["chords"].as_array().unwrap().is_empty());
+    assert_eq!(st["chart"]["section"]["name"], "Intro");
+    assert_eq!(st["chart"]["next_section"]["name"], "Refrain");
+
+    // Une grille : Dm7 | G7/B | Cmaj7 | N.C. (une ronde chacun, 120 bpm : une ronde = 2 s).
+    let track = serde_json::json!({
+        "format": "flibuste-carte", "version": 1,
+        "chords": [
+            { "at": [0, 1], "dur": [1, 1], "root": "D", "quality": "m7", "bass": null },
+            { "at": [1, 1], "dur": [1, 1], "root": "G", "quality": "7", "bass": "B" },
+            { "at": [2, 1], "dur": [1, 1], "root": "C", "quality": "M7", "bass": null },
+            { "at": [3, 1], "dur": [1, 1], "nc": true }
+        ]
+    });
+    let ev = rig.h.command_json(&serde_json::json!({ "type": "set_chords", "track": track }).to_string());
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    rig.settle();
+    let st = rig.state();
+    assert_eq!(st["role"], 0);
+    let c = &st["chart"];
+    let names: Vec<&str> = c["chords"].as_array().unwrap().iter().map(|x| x["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Dm7", "G7/B", "CM7", "N.C."]);
+    assert_eq!(c["chords"][1]["at"], 2.0, "la deuxième ronde commence à 2 s à 120 bpm");
+    assert_eq!(c["chords"][1]["end"], 4.0);
+    assert_eq!((c["bpm"].as_f64(), c["num"].as_u64(), c["den"].as_u64(), c["bar"].as_u64()), (Some(120.0), Some(4), Some(4), Some(1)));
+    assert_eq!(c["playing"], false);
+
+    // Tête placée dans la 3e ronde (5 s) : la liste commence par l'accord qui sonne.
+    rig.h.command_json(r#"{"type":"seek","pos":240000}"#);
+    rig.settle();
+    let c = &rig.state()["chart"];
+    assert_eq!(c["chords"][0]["name"], "CM7");
+    assert_eq!(c["bar"], 3);
+    assert_eq!(c["pos"], 5.0);
+    assert!(c["beat"].as_f64().unwrap() >= 0.0 && c["beat"].as_f64().unwrap() < 4.0);
+    assert_eq!(c["section"]["name"], "Intro", "4 rondes = 8 s : à 5 s on est encore dans l'intro");
+}

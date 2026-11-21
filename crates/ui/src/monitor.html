@@ -78,7 +78,7 @@
     body.tablet #secpanel .secs button { flex: none; min-width: 110px; height: 30px; border-radius: 10px; border: 1px solid var(--line); border-left: 6px solid var(--c, var(--accent)); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; padding: 0 10px; cursor: pointer; touch-action: manipulation; }
     body.tablet #secpanel .secs small { color: var(--muted); font-weight: 400; margin-left: 4px; }
     /* Mixeur : tranches à toute la hauteur */
-    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - var(--sec-h) - 222px), 620px); }
+    html body.tab-mix #mixlist { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; --fh: clamp(110px, calc(100vh - var(--bar-h) - var(--sec-h) - var(--chart-h, 0px) - 222px), 620px); }
     body.tab-mix.view-edit #mixlist { display: none; }
     body.tab-mix .mx { flex: 1 1 0; min-width: 62px; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 8px; margin: 0; border-left: 1px solid var(--line); border-top: 5px solid var(--c, var(--accent)); }
     body.tab-mix .mx.master { order: 99; border-top-color: var(--text); }
@@ -245,11 +245,33 @@
   .mx .knob i { position: absolute; left: 50%; top: 3px; width: 3px; height: 11px; margin-left: -1.5px; border-radius: 2px; background: var(--accent); transform-origin: 50% 12px; transform: rotate(var(--a)); }
   .mx .knob:focus-visible { outline: 2px solid var(--accent); }
   .mx .panrow .pv { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
+  /* Accords qui passent (lecture seule, toutes les tablettes de retour). */
+  #chart { display: none; margin: 0 0 10px; padding: 10px 14px; border: 1px solid var(--line); border-left: 8px solid var(--c, var(--accent)); border-radius: 12px; background: var(--panel); }
+  #chart.on { display: block; }
+  #chart .ch-top { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
+  #chart .ch-sec { font-weight: 700; color: var(--text); font-size: 15px; }
+  #chart .ch-pos { margin-left: auto; font-variant-numeric: tabular-nums; }
+  #chart .ch-main { display: flex; align-items: baseline; gap: 16px; margin-top: 4px; }
+  #chart .ch-now { font-size: 56px; font-weight: 800; line-height: 1.05; letter-spacing: -1px; }
+  #chart .ch-next { font-size: 24px; font-weight: 600; color: var(--muted); }
+  #chart .ch-in { font-size: 14px; color: var(--muted); margin-left: auto; align-self: center; font-variant-numeric: tabular-nums; }
+  #chart .ch-bar { height: 6px; border-radius: 3px; background: var(--line); margin-top: 8px; overflow: hidden; }
+  #chart .ch-bar i { display: block; height: 100%; width: 0; background: var(--c, var(--accent)); }
+  #chart .ch-more { margin-top: 6px; font-size: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #chart.soon .ch-in { color: var(--bad); font-weight: 700; }
+  body.tab-mix #chart { position: fixed; top: 0; left: 0; right: 0; z-index: 25; margin: 0; padding: 4px 12px; border-radius: 0; border-width: 0 0 1px 0; border-left: 8px solid var(--c, var(--accent)); }
+  body.tab-mix #chart .ch-now { font-size: 30px; }
+  body.tab-mix #chart .ch-next { font-size: 18px; }
+  body.tab-mix #chart .ch-more, body.tab-mix #chart .ch-top { display: none; }
+  body.tab-mix #chart .ch-main { margin-top: 0; }
+  body.tab-mix #chart .ch-bar { margin-top: 3px; height: 4px; }
+  body.tab-mix.has-chart { padding-top: 56px; --chart-h: 56px; }
 </style>
 </head>
 <body>
 <h1 id="title">Mon retour</h1>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
+<div id="chart" aria-label="Accords"><div class="ch-top"><span class="ch-sec" id="ch-sec"></span><span id="ch-sec2"></span><span class="ch-pos" id="ch-pos"></span></div><div class="ch-main"><span class="ch-now" id="ch-now"></span><span class="ch-next" id="ch-next"></span><span class="ch-in" id="ch-in"></span></div><div class="ch-bar"><i id="ch-prog"></i></div><div class="ch-more" id="ch-more"></div></div>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
 <div id="fxpanel" role="dialog" aria-label="Plugins de la piste" hidden>
   <div class="fx-head"><strong id="fx-track"></strong><span class="fx-trk" id="fx-trk" hidden><button id="fx-prev" aria-label="Piste précédente avec des plugins">◀ Piste</button><button id="fx-next" aria-label="Piste suivante avec des plugins">Piste ▶</button></span><span id="fx-chain"></span><button id="fx-close" aria-label="Fermer">✕</button></div>
@@ -385,6 +407,49 @@ function buildGroup(g) {
   return r;
 }
 
+
+// Accords qui passent : l'état donne la position et la liste des accords à venir ; la page prolonge elle-même la position entre deux lectures.
+let chart = null, chartAt = 0;
+function showChart(c) {
+  chart = c ?? null;
+  chartAt = performance.now();
+  document.getElementById("chart").classList.toggle("on", !!c);
+  document.body.classList.toggle("has-chart", !!c);
+  drawChart();
+}
+function drawChart() {
+  if (!chart) return;
+  const root = document.getElementById("chart");
+  const el = (id) => document.getElementById(id);
+  const dt = chart.playing ? (performance.now() - chartAt) / 1000 : 0;
+  const pos = chart.pos + dt;
+  const beatsDone = dt * chart.bpm / 60;
+  const abs = chart.beat + beatsDone;
+  const bar = chart.bar + Math.floor(abs / chart.num);
+  const beat = Math.floor(abs % chart.num) + 1;
+  el("ch-pos").textContent = "Mesure " + bar + " · temps " + beat;
+  const sec = chart.section ?? null;
+  const next = chart.next_section ?? null;
+  el("ch-sec").textContent = sec ? sec.name : "";
+  el("ch-sec2").textContent = !sec && next ? "avant : " + next.name : sec && next ? "→ " + next.name : "";
+  root.style.setProperty("--c", (sec ?? next)?.color ?? "var(--accent)");
+  const list = chart.chords;
+  // L'accord qui sonne : le dernier de la liste commencé ; avant le premier, on attend le premier.
+  let i = -1;
+  for (let k = 0; k < list.length; k++) if (list[k].at <= pos + 1e-6) i = k;
+  const cur = i >= 0 && pos < list[i].end ? list[i] : null;
+  const nxt = list[i + 1] ?? (cur ? null : list[0]);
+  el("ch-now").textContent = cur ? cur.name : "—";
+  el("ch-next").textContent = nxt ? "→ " + nxt.name : "";
+  const to = nxt ? Math.max(0, (nxt.at - pos) * chart.bpm / 60) : null;
+  const soon = chart.playing && to !== null && to <= 2;
+  root.classList.toggle("soon", soon);
+  el("ch-in").textContent = chart.playing && to !== null && to <= 16 ? "dans " + Math.ceil(to - 1e-6) + " temps" : "";
+  el("ch-prog").style.width = (cur ? Math.min(1, Math.max(0, (pos - cur.at) / (cur.end - cur.at))) * 100 : 0) + "%";
+  el("ch-more").textContent = list.slice(i + 2, i + 7).map((c) => c.name).join("   ");
+}
+setInterval(drawChart, 100);
+
 async function poll() {
   try {
     const res = await fetch(base + "/state", { cache: "no-store" });
@@ -394,6 +459,7 @@ async function poll() {
     fxState = st;
     followOrientation(); // (l'événement du navigateur peut manquer : on vérifie aussi à chaque lecture de l'état)
     layoutTablet();
+    showChart(st.chart);
     showRemote(st.remote);
     showTabs(!!st.mix);
     showMix(st.mix);
