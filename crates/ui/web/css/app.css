@@ -1027,3 +1027,10 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .file-menu .fm-recent .fm-item span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-menu .fm-recent .fm-item:disabled { opacity: 0.45; cursor: default; }
 .file-menu .fm-clear { color: var(--muted); }
+
+/* Niveau du clic du métronome dans un retour (tranche du mixeur). */
+.mx-strip .mx-click { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); }
+.mx-strip .mx-click[hidden] { display: none; }
+.mx-strip .mx-click input { width: 56px; min-width: 0; }
+.mx-strip .mx-click output { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.mx-strip .mx-click input.on + output { color: var(--text); }

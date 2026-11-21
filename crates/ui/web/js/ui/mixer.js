@@ -588,6 +588,7 @@ export class Mixer {
       <select class="mx-out" aria-label="Sortie" ${n.kind === "master" || isReturn(n) ? "hidden" : ""}></select>
       <select class="mx-ret" aria-label="Sortie sur la carte son" title="${n.is_return ? "Sortie de ce retour sur la carte son (sorties 3 et suivantes) : muet tant qu'aucune n'est choisie" : "Sortir ce bus sur la carte son (sorties 3 et suivantes) au lieu de la sortie principale"}" ${n.kind === "bus" ? "" : "hidden"}></select>
       <button class="mx-qr" title="Adresse et code QR de ce retour : la tablette du musicien règle son mix" aria-label="Code QR du retour" ${isReturn(n) ? "" : "hidden"}>QR</button>
+      <label class="mx-click" title="Niveau du clic du métronome dans ce retour (tout à gauche : pas de clic)" ${isReturn(n) ? "" : "hidden"}><span>Clic</span><input type="range" min="-60" max="6" step="1" aria-label="Clic dans ce retour"><output></output></label>
       <div class="mx-top"><div class="mx-fx"></div><div class="mx-sends"></div></div>
       <div class="mx-pan"><input type="range" min="-1" max="1" step="0.01" aria-label="Panoramique"><span class="pan-out"></span></div>
       <div class="mx-fader-wrap"><div class="mx-fader" role="slider" aria-label="Volume" aria-valuemin="${DB_MIN}" aria-valuemax="${DB_MAX}" tabindex="0"><div class="zero"></div><div class="thumb"></div></div><canvas class="mx-meter" aria-hidden="true"></canvas></div>
@@ -622,7 +623,18 @@ export class Mixer {
       this.#addGrip(root, n.id);
     }
     q(".mx-qr").addEventListener("click", (e) => openMonitorPopup(e.currentTarget, this.state, this.client, n));
-    const refs = { witness, root, out: q(".mx-out"), ret: q(".mx-ret"), fx: q(".mx-fx"), sends: q(".mx-sends"), pan: q(".mx-pan input"), panOut: q(".pan-out"), fader: q(".mx-fader"), thumb: q(".thumb"), zero: q(".zero"), meter: q(".mx-meter"), db: q(".mx-db"), m: q(".m"), s: q(".s"), r: q(".r"), p: q(".p"), sendRows: new Map() };
+    const clickIn = q(".mx-click input");
+    if (isReturn(n)) {
+      clickIn.addEventListener("input", () => {
+        const v = Number(clickIn.value);
+        this.client.send({ type: "set_return_click", node: n.id, db: v <= -60 ? null : v });
+      });
+      clickIn.addEventListener("dblclick", () => {
+        clickIn.value = "-60";
+        this.client.send({ type: "set_return_click", node: n.id, db: null });
+      });
+    }
+    const refs = { witness, clickIn, clickOut: q(".mx-click output"), root, out: q(".mx-out"), ret: q(".mx-ret"), fx: q(".mx-fx"), sends: q(".mx-sends"), pan: q(".mx-pan input"), panOut: q(".pan-out"), fader: q(".mx-fader"), thumb: q(".thumb"), zero: q(".zero"), meter: q(".mx-meter"), db: q(".mx-db"), m: q(".m"), s: q(".s"), r: q(".r"), p: q(".p"), sendRows: new Map() };
     this.refs.set(n.id, refs);
     const send = (patch) => this.client.send({ type: "set_node", node: n.id, ...patch });
 
@@ -794,6 +806,13 @@ export class Mixer {
       const g = this.sheetFor.to === null ? n?.gain : n?.sends.find((x) => x.to === this.sheetFor.to)?.gain;
       if (g === undefined) this.sheet.close();
       else this.sheet.update(g);
+    }
+    for (const [id, r] of this.refs) {
+      if (!r.clickIn || document.activeElement === r.clickIn) continue; // pendant le geste, le curseur reste où on le tient
+      const db = this.#node(id)?.click_db;
+      r.clickIn.value = String(db == null ? -60 : Math.max(-60, Math.min(6, Math.round(db))));
+      r.clickOut.textContent = db == null ? "off" : `${Math.round(db)} dB`;
+      r.clickIn.classList.toggle("on", db != null);
     }
     for (const [id, r] of this.mixRefs) {
       const n = this.#node(id);

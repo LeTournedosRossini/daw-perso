@@ -137,3 +137,29 @@ fn a_version_20_project_keeps_its_returns_a_bus_with_an_output_was_one() {
     assert!(back.graph().nodes[a.0 as usize].monitor, "avec sortie physique : c'était un retour");
     assert!(!back.graph().nodes[b.0 as usize].monitor, "sans sortie physique : un bus");
 }
+
+#[test]
+fn the_click_level_of_a_return_is_kept_in_the_project_and_refused_elsewhere() {
+    let (mut s, t, a, b) = session();
+    assert_eq!(s.return_click(a), 0.0);
+    s.set_return_click_untracked(a, 0.25).unwrap();
+    assert_eq!(s.return_click(a), 0.25);
+    assert_eq!(s.set_return_click_untracked(t, 1.0), Err(SessionError::NotAReturn(t)), "une piste n'a pas de clic de retour");
+    assert_eq!(s.set_return_click_untracked(NodeId(0), 1.0), Err(SessionError::MasterNode));
+    assert_eq!(s.set_return_click_untracked(NodeId(99), 1.0), Err(SessionError::UnknownNode(NodeId(99))));
+    s.set_return_click_untracked(b, f32::NAN).unwrap();
+    assert_eq!(s.return_click(b), 0.0, "une valeur non finie donne « pas de clic »");
+    s.set_return_click_untracked(b, 99.0).unwrap();
+    assert_eq!(s.return_click(b), 4.0, "borné à +12 dB");
+    s.set_return_click_untracked(b, 0.0).unwrap();
+
+    let (json, _) = s.to_json(48_000).unwrap();
+    assert!(json.contains("\"click\""));
+    let back = Session::from_json(&json, &NoAudio).unwrap().0;
+    assert_eq!(back.return_click(a), 0.25);
+    assert_eq!(back.return_click(b), 0.0);
+    assert_eq!(back.to_json(48_000).unwrap().0, json, "réécriture identique");
+    // Sans clic nulle part, le champ n'apparaît pas : un projet sans clic s'écrit exactement comme avant.
+    let (plain, ..) = session();
+    assert!(!plain.to_json(48_000).unwrap().0.contains("\"click\""));
+}

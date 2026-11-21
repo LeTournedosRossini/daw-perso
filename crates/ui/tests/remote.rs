@@ -622,3 +622,38 @@ fn every_return_tablet_sees_the_chords_and_the_section_that_play_without_any_rig
     assert!(c["beat"].as_f64().unwrap() >= 0.0 && c["beat"].as_f64().unwrap() < 4.0);
     assert_eq!(c["section"]["name"], "Intro", "4 rondes = 8 s : à 5 s on est encore dans l'intro");
 }
+
+#[test]
+fn a_musician_sets_the_click_level_of_his_own_return_and_nobody_elses_target_is_accepted() {
+    let mut rig = Rig::new();
+    rig.settle();
+    assert_eq!(rig.state()["role"], 0, "adresse de simple musicien");
+    assert!(rig.state()["click_db"].is_null(), "pas de clic au départ");
+
+    let post = |rig: &Rig, body: &str| http(rig.port, "POST", &format!("{}/set", rig.path), body).0;
+    assert_eq!(post(&rig, r#"{"click_db":-12}"#), 200);
+    rig.settle();
+    let st = rig.state();
+    assert_eq!(st["click_db"], -12.0);
+    let ev = rig.h.command_json(r#"{"type":"get_project"}"#);
+    let info = node(&ev, "Retour Marie");
+    assert!((info.click_db.unwrap() + 12.0).abs() < 0.01, "la page principale voit le même niveau : {:?}", info.click_db);
+
+    assert_eq!(post(&rig, r#"{"click_db":-80}"#), 200);
+    rig.settle();
+    assert!(rig.state()["click_db"].is_null(), "−60 dB et moins : plus de clic");
+    assert_eq!(post(&rig, r#"{"click_db":"fort"}"#), 400, "valeur non numérique");
+
+    // La commande de la page principale : refusée pour un bus ordinaire, pour la sortie principale.
+    let ev = rig.h.command_json(r#"{"type":"add_track","kind":"bus","name":"Sous-groupe"}"#);
+    let bus = node(&ev, "Sous-groupe").id;
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_return_click","node":{bus},"db":-6}}"#));
+    assert!(ev.iter().any(|e| matches!(e, Event::Error { command, .. } if command == "set_return_click")), "{ev:?}");
+    let ev = rig.h.command_json(r#"{"type":"set_return_click","node":0,"db":-6}"#);
+    assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })));
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_return_click","node":{},"db":-6}}"#, rig.bus));
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    assert!((node(&ev, "Retour Marie").click_db.unwrap() + 6.0).abs() < 0.01);
+    let ev = rig.h.command_json(&format!(r#"{{"type":"set_return_click","node":{},"db":null}}"#, rig.bus));
+    assert!(node(&ev, "Retour Marie").click_db.is_none());
+}

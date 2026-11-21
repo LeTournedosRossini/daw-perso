@@ -167,7 +167,9 @@ impl Host {
                 .collect();
             let groups: Vec<serde_json::Value> = self.session.effective_group_list(Some(NodeId(*ret))).iter().map(|gr| serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "offset_db": self.group_offset(gr.id, Some(*ret)) })).collect();
             let role = self.effective_role(*ret);
-            let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role });
+            let click = self.session.return_click(NodeId(*ret));
+            let click_db = (click > 0.0).then(|| (20.0 * f64::from(click).log10() * 10.0).round() / 10.0);
+            let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role, "click_db": click_db });
             if let Some(c) = &chart {
                 state["chart"] = c.clone();
             }
@@ -191,6 +193,22 @@ impl Host {
                 m.publish(ret, json, role);
             }
         }
+    }
+
+    /// Règle le niveau du clic d'un retour (`None` ou −60 dB et moins : plus de clic). Hors historique, le projet est marqué modifié ; le moteur
+    /// reçoit la commande directement (le graphe n'est pas rechargé : un geste continu ne doit pas coûter un rechargement).
+    pub(super) fn set_return_click(&mut self, node: u32, db: Option<f64>) -> Vec<Event> {
+        let gain = db.filter(|d| *d > DB_MIN).map_or(0.0, |d| 10f32.powf(d as f32 / 20.0));
+        if let Err(e) = self.session.set_return_click_untracked(NodeId(node), gain) {
+            let message = match e {
+                daw_session::SessionError::NotAReturn(_) => "set_return_click : seul un retour de monitoring a un clic".to_owned(),
+                other => format!("{other:?}"),
+            };
+            return vec![Event::Error { command: "set_return_click".into(), message }];
+        }
+        self.handle.send(daw_engine::Command::SetReturnClick { node, gain });
+        self.dirty = true;
+        vec![self.project_event()]
     }
 
     /// Appelé à chaque `tick` : applique les réglages des tablettes, republie les mix, signale un changement de la liste des retours.
@@ -217,6 +235,12 @@ impl Host {
     /// Une demande de tablette. Seuls les retours existants et les sources (ni retour, ni sortie principale) sont acceptés.
     fn monitor_request(&mut self, r: SetRequest) -> Vec<Event> {
         match r {
+            SetRequest::Click { ret, db } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.set_return_click(ret, Some(db))
+            }
             SetRequest::Level { ret, node, db } => self.monitor_apply(ret, node, db),
             SetRequest::Flags { ret, node, mute, solo } => {
                 if !self.monitor_valid(ret, Some(node)) {

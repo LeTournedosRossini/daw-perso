@@ -266,12 +266,20 @@
   body.tab-mix #chart .ch-main { margin-top: 0; }
   body.tab-mix #chart .ch-bar { margin-top: 3px; height: 4px; }
   body.tab-mix.has-chart { padding-top: 56px; --chart-h: 56px; }
+  /* Niveau du clic du métronome dans mon casque. */
+  #clickrow { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  #clickrow span { font-weight: 600; }
+  #clickrow input { flex: 1; min-width: 0; }
+  #clickrow output { min-width: 3.6em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  #clickrow.on output { color: var(--text); }
+  body.tab-mix #clickrow { display: none; }
 </style>
 </head>
 <body>
 <h1 id="title">Mon retour</h1>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="chart" aria-label="Accords"><div class="ch-top"><span class="ch-sec" id="ch-sec"></span><span id="ch-sec2"></span><span class="ch-pos" id="ch-pos"></span></div><div class="ch-main"><span class="ch-now" id="ch-now"></span><span class="ch-next" id="ch-next"></span><span class="ch-in" id="ch-in"></span></div><div class="ch-bar"><i id="ch-prog"></i></div><div class="ch-more" id="ch-more"></div></div>
+<div id="clickrow"><span>♩ Clic</span><input id="click-lvl" type="range" min="-60" max="6" step="1" aria-label="Niveau du clic dans mon casque"><output id="click-out"></output></div>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
 <div id="fxpanel" role="dialog" aria-label="Plugins de la piste" hidden>
   <div class="fx-head"><strong id="fx-track"></strong><span class="fx-trk" id="fx-trk" hidden><button id="fx-prev" aria-label="Piste précédente avec des plugins">◀ Piste</button><button id="fx-next" aria-label="Piste suivante avec des plugins">Piste ▶</button></span><span id="fx-chain"></span><button id="fx-close" aria-label="Fermer">✕</button></div>
@@ -450,6 +458,31 @@ function drawChart() {
 }
 setInterval(drawChart, 100);
 
+// Niveau du clic du métronome dans mon casque (tout à gauche : plus de clic). Chaque musicien règle le sien.
+const clickLvl = document.getElementById("click-lvl"), clickOut = document.getElementById("click-out");
+let clickTimer = null;
+function paintClick(db) {
+  clickLvl.value = String(db == null ? -60 : Math.max(-60, Math.min(6, Math.round(db))));
+  clickOut.textContent = db == null ? "aucun" : Math.round(db) + " dB";
+  document.getElementById("clickrow").classList.toggle("on", db != null);
+}
+function showClick(db) {
+  if ((lock.get("click") ?? 0) > Date.now()) return; // je tiens le curseur : mon affichage prime sur l'état du serveur
+  paintClick(db ?? null);
+}
+clickLvl.addEventListener("input", () => {
+  lock.set("click", Date.now() + 1500);
+  const v = Number(clickLvl.value);
+  paintClick(v <= -60 ? null : v);
+  if (clickTimer) return;
+  clickTimer = setTimeout(() => {
+    clickTimer = null;
+    const w = Number(clickLvl.value);
+    post({ click_db: w <= -60 ? -60 : w });
+  }, 60);
+});
+clickLvl.addEventListener("dblclick", () => { clickLvl.value = "-60"; clickLvl.dispatchEvent(new Event("input")); });
+
 async function poll() {
   try {
     const res = await fetch(base + "/state", { cache: "no-store" });
@@ -460,6 +493,7 @@ async function poll() {
     followOrientation(); // (l'événement du navigateur peut manquer : on vérifie aussi à chaque lecture de l'état)
     layoutTablet();
     showChart(st.chart);
+    showClick(st.click_db);
     showRemote(st.remote);
     showTabs(!!st.mix);
     showMix(st.mix);

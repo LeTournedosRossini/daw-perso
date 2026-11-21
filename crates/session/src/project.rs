@@ -276,6 +276,9 @@ struct NodeDto {
     /// Verrou de gamme des notes jouées en direct (format 22) : `"scale"` ou `"chord"` ; absent, aucun.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scale_lock: Option<String>,
+    /// Niveau du clic du métronome dans ce retour (gain linéaire) ; absent : pas de clic. Sans changement de version : champ facultatif.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    click: Option<f32>,
     sends: Vec<SendDto>,
     clips: Vec<ClipDto>,
     midi_clips: Vec<MidiClipDto>,
@@ -682,6 +685,7 @@ impl Session {
                 monitor_token: self.monitor_tokens.get(n.id.0 as usize).cloned().unwrap_or_default(),
                 monitor_role: self.monitor_roles.get(n.id.0 as usize).copied().unwrap_or(0),
                 scale_lock: match n.scale_lock { daw_engine::ScaleLock::Off => None, daw_engine::ScaleLock::Scale => Some("scale".into()), daw_engine::ScaleLock::Chord => Some("chord".into()) },
+                click: (n.monitor && n.click > 0.0).then_some(n.click),
                 vel_curve: (n.vel_curve != daw_engine::VelocityCurve::default()).then(|| VelCurveDto { enabled: n.vel_curve.enabled, bend: n.vel_curve.bend, smooth: n.vel_curve.smooth, min: n.vel_curve.min, max: n.vel_curve.max, fixed: n.vel_curve.fixed }),
                 input_dyn: (n.input_dyn != daw_engine::InputDynamics::default()).then(|| DynDto { enabled: n.input_dyn.enabled, gate_db: n.input_dyn.gate_db, threshold_db: n.input_dyn.threshold_db, ratio: n.input_dyn.ratio, attack_ms: n.input_dyn.attack_ms, release_ms: n.input_dyn.release_ms, makeup_db: n.input_dyn.makeup_db, record: n.input_dyn.record }),
                 midi_filter: self.midi_filters.get(n.id.0 as usize).map(|v| v.iter().map(|r| MidiRuleDto { device: r.device.clone(), channels: r.channels }).collect()).unwrap_or_default(),
@@ -948,6 +952,9 @@ impl Session {
             if let Some(v) = &n.vel_curve {
                 let curve = daw_engine::VelocityCurve { enabled: v.enabled, bend: v.bend, smooth: v.smooth, min: v.min, max: v.max, fixed: v.fixed };
                 s.set_velocity_curve_untracked(NodeId(i as u32), curve).map_err(|e| ProjectError::BadGraph(format!("courbe de vélocité : {e:?}")))?;
+            }
+            if let Some(g) = n.click.filter(|g| g.is_finite() && *g > 0.0) {
+                s.set_return_click_untracked(NodeId(i as u32), g).map_err(|e| ProjectError::BadGraph(format!("clic du retour : {e:?}")))?;
             }
             if let Some(mode) = n.scale_lock.as_deref() {
                 let lock = match mode {

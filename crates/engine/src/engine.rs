@@ -61,6 +61,8 @@ pub enum Command {
     Panic,
     /// Écoute de contrôle d'un bus ou d'un retour dans la sortie principale ; `u32::MAX` : plus d'écoute.
     SetListen { node: u32 },
+    /// Niveau du clic du métronome dans un retour (0 : aucun clic).
+    SetReturnClick { node: u32, gain: f32 },
 }
 
 enum Msg {
@@ -102,6 +104,9 @@ pub struct Engine {
     pos: u64,
     /// Métronome et pré-compte.
     metro: Metronome,
+    /// Le clic du bloc en cours au niveau 1 : la part de la sortie principale, et le clic entier (pour les retours).
+    click_main: Vec<f32>,
+    click_all: Vec<f32>,
     loop_range: Option<(u64, u64)>,
     shared_pos: Arc<AtomicU64>,
     shared_leaks: Arc<AtomicU32>,
@@ -172,6 +177,8 @@ impl Engine {
                 pos: 0,
                 loop_range: None,
                 metro: Metronome::new(),
+                click_main: vec![0.0; max_block],
+                click_all: vec![0.0; max_block],
                 shared_pos: Arc::clone(&position),
                 shared_leaks: Arc::clone(&leaks),
                 pool: None,
@@ -331,6 +338,7 @@ impl Engine {
             }
             Command::SetInsertBypass { insert, bypass } => self.graph.set_insert_bypass(insert, bypass),
             Command::Panic => self.graph.panic(),
+            Command::SetReturnClick { node, gain } => self.graph.set_return_click(node as usize, gain),
             Command::SetListen { node } => self.graph.set_listen((node != u32::MAX).then_some(node as usize)),
         }
     }
@@ -508,10 +516,19 @@ impl Engine {
                 self.feed_midi(done, n);
                 // À l'arrêt, le graphe tourne quand même (écoute en direct, queues d'effets, notes en direct) ;
                 // les clips et les notes de clips se taisent et la tête de lecture ne bouge pas.
+                // Le clic (pré-compte, queues) est fabriqué avant le graphe : les retours qui le veulent le reçoivent dans leur entrée.
+                let extra_click = self.graph.has_return_click();
+                let finished = self.metro.render(self.pos, n, false, extra_click, &mut self.click_main[..n], &mut self.click_all[..n]);
+                self.graph.set_click(&self.click_all[..n]);
                 self.graph.process_with(self.pool.as_ref(), self.pos, n, false, view, &mut out_l[range.clone()], &mut out_r[range.clone()]);
                 Self::copy_extra(&self.graph, extra, range.start, n);
+                let g = self.metro.gain();
+                for (k, j) in range.clone().enumerate() {
+                    out_l[j] += self.click_main[k] * g;
+                    out_r[j] += self.click_main[k] * g;
+                }
                 // Pré-compte (la tête est immobile) et queues de clics ; à la fin du pré-compte, la lecture démarre.
-                if self.metro.render(self.pos, n, false, &mut out_l[range.clone()], &mut out_r[range]) {
+                if finished {
                     self.playing = true;
                     self.ahead_play_started();
                 }
@@ -554,9 +571,16 @@ impl Engine {
                 *slot = &inputs[c][r.clone()];
             }
             self.graph.set_loop(self.loop_range);
+            let extra_click = self.graph.has_return_click();
+            self.metro.render(self.pos, seg, true, extra_click, &mut self.click_main[..seg], &mut self.click_all[..seg]);
+            self.graph.set_click(&self.click_all[..seg]);
             self.graph.process_with(self.pool.as_ref(), self.pos, seg, true, &view[..inputs.len()], &mut out_l[r.clone()], &mut out_r[r.clone()]);
             Self::copy_extra(&self.graph, extra, extra_at + off, seg);
-            self.metro.render(self.pos, seg, true, &mut out_l[r.clone()], &mut out_r[r]);
+            let g = self.metro.gain();
+            for (k, j) in r.clone().enumerate() {
+                out_l[j] += self.click_main[k] * g;
+                out_r[j] += self.click_main[k] * g;
+            }
             self.pos += seg as u64;
             off += seg;
             left -= seg;

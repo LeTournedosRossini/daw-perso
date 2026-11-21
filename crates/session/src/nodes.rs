@@ -392,6 +392,22 @@ impl Session {
         Ok(())
     }
 
+    /// Niveau (gain linéaire) du clic du métronome dans un retour : 0 = pas de clic.
+    pub fn return_click(&self, node: NodeId) -> f32 {
+        self.graph.nodes.get(node.0 as usize).map_or(0.0, |n| n.click)
+    }
+
+    /// Règle le niveau du clic d'un retour **sans historique** (réglage de monitoring, comme les envois : geste continu). Refusé si le
+    /// nœud n'est pas un retour de monitoring. L'appelant recharge le graphe ou envoie la commande du moteur.
+    pub fn set_return_click_untracked(&mut self, node: NodeId, gain: f32) -> Result<(), SessionError> {
+        let i = self.node_index(node)?;
+        if !self.graph.nodes[i].monitor {
+            return Err(SessionError::NotAReturn(node));
+        }
+        self.graph.nodes[i].click = if gain.is_finite() { gain.clamp(0.0, 4.0) } else { 0.0 };
+        Ok(())
+    }
+
     /// Filtre d'entrée MIDI d'une piste (liste vide : tout accepter).
     pub fn midi_filter(&self, node: NodeId) -> &[crate::midi_filter::MidiRule] {
         self.midi_filters.get(node.0 as usize).map_or(&[], Vec::as_slice)

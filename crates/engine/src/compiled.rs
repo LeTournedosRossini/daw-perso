@@ -219,6 +219,8 @@ struct NodeC {
     /// Courbe de réponse de la vélocité des débuts de note (`None` : désactivée, les notes passent telles quelles).
     vel_table: Option<Box<[u8; 128]>>,
     /// Verrou de gamme des notes jouées en direct, et touche émise pour chaque touche jouée (pistes seulement ; alloué à la compilation).
+    /// Niveau du clic du métronome ajouté à l'entrée de ce retour (0 : aucun).
+    click_gain: f32,
     scale_lock: crate::scale_lock::ScaleLock,
     lock_map: Option<Box<crate::scale_lock::LockMap>>,
     /// Types de messages en direct reçus pendant le bloc (bits `meters::MIDI_*`), remis à zéro après publication.
@@ -942,6 +944,9 @@ pub struct CompiledGraph {
     listen_mix: Smoother,
     listen_l: Vec<f32>,
     listen_r: Vec<f32>,
+    /// Le clic du bloc en cours, au niveau 1 (rempli par le moteur avant `process_with`, vidé après usage).
+    click_src: Vec<f32>,
+    click_len: usize,
     /// Transport donné aux plugins (voir `NodeC::time`) ; la boucle y est mise à jour par le moteur avant chaque bloc.
     time: Arc<TimeShared>,
     /// Niveaux de crête rendus à l'interface (après chaque fader) ; `None` : non mesuré.
@@ -1101,6 +1106,7 @@ impl CompiledGraph {
                 midi_seen: 0,
                 vel_in: 0,
                 vel_table: d.vel_curve.table().filter(|_| matches!(d.kind, NodeKind::Track(_))),
+                click_gain: if d.monitor { d.click.clamp(0.0, 4.0) } else { 0.0 },
                 scale_lock: if matches!(d.kind, NodeKind::Track(_)) { d.scale_lock } else { Default::default() },
                 lock_map: matches!(d.kind, NodeKind::Track(_)).then(crate::scale_lock::new_map),
                 dyn_cfg: d.input_dyn,
@@ -1153,7 +1159,7 @@ impl CompiledGraph {
             }
         }
         let extra = desc.nodes.iter().filter_map(|d| d.phys).map(|p| usize::from(p.first) + usize::from(p.channels())).max().unwrap_or(2) - 2;
-        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], listen: None, listen_mix: Smoother::new(0.0), listen_l: vec![0.0; max_block], listen_r: vec![0.0; max_block], time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
+        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], listen: None, listen_mix: Smoother::new(0.0), listen_l: vec![0.0; max_block], listen_r: vec![0.0; max_block], click_src: vec![0.0; max_block], click_len: 0, time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
         g.refresh_sends(0);
         if let Some(p) = ahead {
             g.make_twins(p);
@@ -1397,6 +1403,25 @@ impl CompiledGraph {
         self.refresh_sends(ramp);
     }
 
+    /// Le clic du prochain bloc (au niveau 1) : il est ajouté, au niveau de chacun, à l'entrée des retours qui en ont demandé.
+    pub fn set_click(&mut self, src: &[f32]) {
+        let k = src.len().min(self.click_src.len());
+        self.click_src[..k].copy_from_slice(&src[..k]);
+        self.click_len = k;
+    }
+
+    /// Règle le niveau du clic d'un retour (`gain` 0 : pas de clic). Ignoré pour un nœud qui n'est pas un retour de monitoring.
+    pub fn set_return_click(&mut self, node: usize, gain: f32) {
+        if let Some(d) = self.nodes.get_mut(node).filter(|d| d.is_return) {
+            d.click_gain = if gain.is_finite() { gain.clamp(0.0, 4.0) } else { 0.0 };
+        }
+    }
+
+    /// Vrai si au moins un retour veut le clic (le métronome le fabrique alors même quand il est éteint pour la sortie principale).
+    pub fn has_return_click(&self) -> bool {
+        self.nodes.iter().any(|d| d.is_return && d.click_gain > 0.0)
+    }
+
     /// Écoute de contrôle d'un bus ou d'un retour (`None` : fin de l'écoute). Seul un bus peut être écouté ; le reste est ignoré.
     /// L'entrée et la sortie de l'écoute se font en rampe ; changer de bus d'écoute coupe net d'un bus à l'autre.
     pub fn set_listen(&mut self, node: Option<usize>) {
@@ -1580,6 +1605,19 @@ impl CompiledGraph {
         }
         for b in &mut self.phys_bufs {
             b[..n].fill(0.0);
+        }
+        if self.click_len > 0 {
+            // Le clic entre dans le retour avant ses sources : il passe par son fader et ses effets, comme le reste de ce que le musicien entend.
+            let k = self.click_len.min(n);
+            for node in self.nodes.iter_mut().filter(|d| d.is_return && d.click_gain > 0.0) {
+                let g = node.click_gain;
+                for j in 0..k {
+                    let v = self.click_src[j] * g;
+                    node.l[j] += v;
+                    node.r[j] += v;
+                }
+            }
+            self.click_len = 0;
         }
         let view = AheadView { epoch: self.ahead_epoch, rec: self.ahead_rec };
         let timing = pool.is_some();

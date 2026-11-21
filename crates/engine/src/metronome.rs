@@ -52,6 +52,8 @@ const VOICES: usize = 8;
 struct Voice {
     active: bool,
     accent: bool,
+    /// Ce clic est aussi destiné à la sortie principale (métronome allumé, ou pré-compte) ; sinon il ne sert qu'aux retours.
+    main: bool,
     /// Échantillons à attendre avant de commencer (début situé plus loin dans le bloc en cours).
     wait: usize,
     /// Prochain échantillon de la forme d'onde.
@@ -101,15 +103,25 @@ impl Metronome {
         self.count_in.as_ref().map(|(c, done, _)| c.frames.saturating_sub(*done))
     }
 
-    fn start(&mut self, accent: bool, wait: usize) {
+    fn start(&mut self, accent: bool, wait: usize, main: bool) {
         if let Some(v) = self.voices.iter_mut().find(|v| !v.active) {
-            *v = Voice { active: true, accent, wait, idx: 0 };
+            *v = Voice { active: true, accent, main, wait, idx: 0 };
         }
     }
 
-    /// Mélange le clic dans `out_l` / `out_r` pour `n` échantillons à partir de la position `pos`. `playing` : la tête avance (les
-    /// temps du projet ne sonnent que dans ce cas). Retourne vrai quand le pré-compte vient de se terminer.
-    pub(crate) fn render(&mut self, pos: u64, n: usize, playing: bool, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+    /// Niveau du clic de la sortie principale.
+    pub(crate) fn gain(&self) -> f32 {
+        self.gain
+    }
+
+    /// Fabrique le clic de `n` échantillons à partir de la position `pos`, **au niveau 1** : `main` reçoit ce qui est destiné à la sortie
+    /// principale, `all` tout le clic (ce que reçoivent les retours qui l'ont demandé). Les deux tampons sont remplacés, pas mélangés ; le
+    /// niveau se règle par destination. `playing` : la tête avance (les temps du projet ne sonnent que dans ce cas) ; `extra` : au moins un
+    /// retour veut le clic même quand le métronome est éteint. Retourne vrai quand le pré-compte vient de se terminer.
+    pub(crate) fn render(&mut self, pos: u64, n: usize, playing: bool, extra: bool, main: &mut [f32], all: &mut [f32]) -> bool {
+        let n = n.min(main.len()).min(all.len());
+        main[..n].fill(0.0);
+        all[..n].fill(0.0);
         let mut finished = false;
         if let Some((c, done, next)) = self.count_in.as_mut() {
             let end = *done + n as u64;
@@ -126,12 +138,12 @@ impl Metronome {
             *done = end;
             finished = *done >= c.frames;
             for &(wait, accent) in &starts[..count] {
-                self.start(accent, wait);
+                self.start(accent, wait, true);
             }
             if finished {
                 self.count_in = None;
             }
-        } else if self.enabled && playing {
+        } else if (self.enabled || extra) && playing {
             if let Some(track) = self.track.as_ref() {
                 let end = pos + n as u64;
                 let first = track.clicks.partition_point(|c| c.pos < pos);
@@ -141,28 +153,30 @@ impl Metronome {
                     starts[count] = ((c.pos - pos) as usize, c.accent);
                     count += 1;
                 }
+                let to_main = self.enabled;
                 for &(wait, accent) in &starts[..count] {
-                    self.start(accent, wait);
+                    self.start(accent, wait, to_main);
                 }
             }
         }
-        self.mix(n, out_l, out_r);
+        self.mix(n, main, all);
         finished
     }
 
-    fn mix(&mut self, n: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+    fn mix(&mut self, n: usize, main: &mut [f32], all: &mut [f32]) {
         let Some(track) = self.track.as_ref() else {
             self.voices = [Voice::default(); VOICES];
             return;
         };
-        let gain = self.gain;
         for v in self.voices.iter_mut().filter(|v| v.active) {
             let wave = if v.accent { &track.accent } else { &track.normal };
             for j in v.wait.min(n)..n {
                 match wave.get(v.idx) {
                     Some(s) => {
-                        out_l[j] += s * gain;
-                        out_r[j] += s * gain;
+                        all[j] += s;
+                        if v.main {
+                            main[j] += s;
+                        }
                         v.idx += 1;
                     }
                     None => {

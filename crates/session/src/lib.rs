@@ -50,6 +50,8 @@ pub enum SessionError {
     UnknownMidiClip(MidiClipId),
     /// La destination d'un clip n'est pas une piste (sortie principale ou bus).
     NotATrack(NodeId),
+    /// Le nœud n'est pas un retour de monitoring (réglage réservé aux retours).
+    NotAReturn(NodeId),
     /// Note ou clip de notes invalide (touche, canal, vélocité, durée nulle, début hors du clip).
     BadMidi,
     /// Courbe d'automation invalide (vide, positions non croissantes, valeur non finie).

@@ -757,6 +757,17 @@ export class MockEngine extends EngineClient {
         this.#emitProject();
         break;
       }
+      case "set_return_click": {
+        const n = this.node(msg.node);
+        if (!n || !n.is_return) {
+          this.emit("error", { command: msg.type, message: "set_return_click : seul un retour de monitoring a un clic" });
+          return false;
+        }
+        n.click_db = msg.db === null || msg.db <= -60 ? null : msg.db;
+        this.#markDirty();
+        this.#emitProject();
+        break;
+      }
       case "set_track_scale_lock": {
         const n = this.node(msg.node);
         if (!n || n.kind === "master" || n.kind === "bus") {

@@ -603,6 +603,7 @@ impl NodeC {
             midi_seen: 0,
             vel_in: 0,
             vel_table: self.vel_table.clone(),
+            click_gain: 0.0,
             scale_lock: self.scale_lock,
             lock_map: self.lock_map.as_ref().map(|_| crate::scale_lock::new_map()),
             active: crate::midi::ActiveNotes::new(),

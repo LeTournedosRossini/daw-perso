@@ -26,6 +26,8 @@ const WORKERS: usize = 4;
 /// Une demande de réglage venue d'une tablette. Elle ne porte que sur le mix de **son** retour `ret`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SetRequest {
+    /// Niveau (en dB) du clic du métronome dans ce retour (−60 et moins : plus de clic). Droit de tout musicien sur **son** retour.
+    Click { ret: u32, db: f64 },
     /// Niveau (en dB) de l'envoi de `node` vers le retour.
     Level { ret: u32, node: u32, db: f64 },
     /// Coupe / solo de l'envoi de `node` vers le retour (dans ce retour seulement).
@@ -215,6 +217,9 @@ fn parse_request(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
     };
     let finite = |k: &str| v[k].as_f64().filter(|x| x.is_finite());
     let (mute, solo) = (flag("mute")?, flag("solo")?);
+    if let Some(db) = finite("click_db") {
+        return Some(SetRequest::Click { ret, db: db.clamp(-60.0, 12.0) });
+    }
     if let Some(group) = id("group") {
         if let Some(db) = finite("offset_db") {
             return Some(SetRequest::GroupOffset { ret, group, db: db.clamp(-12.0, 12.0) });

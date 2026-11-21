@@ -110,6 +110,8 @@ pub struct NodeDesc {
     pub vel_curve: crate::velocity::VelocityCurve,
     /// Verrou de gamme (pistes seulement) : ramène les notes jouées **en direct** à la gamme ou à l'accord en vigueur.
     pub scale_lock: crate::scale_lock::ScaleLock,
+    /// Niveau du clic du métronome dans ce retour (retours de monitoring seulement ; 0 : pas de clic). Le clic s'ajoute à l'entrée du retour.
+    pub click: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -199,6 +201,7 @@ impl GraphDesc {
                 input_dyn: Default::default(),
                 vel_curve: Default::default(),
                 scale_lock: Default::default(),
+                click: 0.0,
             }],
             pdc: true,
             time_map: Default::default(),
@@ -225,6 +228,7 @@ impl GraphDesc {
             input_dyn: Default::default(),
             vel_curve: Default::default(),
             scale_lock: Default::default(),
+            click: 0.0,
         }
     }
 

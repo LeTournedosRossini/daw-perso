@@ -63,6 +63,7 @@ fn explain(e: &SessionError) -> String {
         SessionError::UnknownClip(c) => format!("clip inconnu : {}", c.0),
         SessionError::UnknownMidiClip(c) => format!("clip de notes inconnu : {}", c.0),
         SessionError::NotATrack(n) => format!("le nœud {} n'est pas une piste : un clip ne peut être posé que sur une piste", n.0),
+        SessionError::NotAReturn(n) => format!("le nœud {} n'est pas un retour de monitoring", n.0),
         SessionError::BadMidi => "notes ou clip de notes invalide".into(),
         SessionError::BadLane => "courbe d'automation invalide".into(),
         SessionError::BadNoteIndex(i) => format!("note inexistante : {i}"),
@@ -1129,6 +1130,7 @@ impl Host {
                 self.dirty = true;
                 vec![self.project_event()]
             }
+            Command::SetReturnClick { node, db } => self.set_return_click(node, db),
             Command::SetTrackScaleLock { node, mode } => {
                 let lock = match mode.as_str() {
                     "scale" => daw_engine::ScaleLock::Scale,
@@ -3029,6 +3031,7 @@ impl Host {
                     monitor: self.session.node_input(id).monitor,
                     dynamics: DynamicsSpec::from_engine(self.session.input_dynamics(id)),
                     velocity_curve: VelocityCurveSpec::from_engine(self.session.velocity_curve(id)),
+                    click_db: Some(self.session.return_click(id)).filter(|g| *g > 0.0).map(|g| 20.0 * f64::from(g).log10()),
                     scale_lock: match self.session.scale_lock(id) { daw_engine::ScaleLock::Off => "off", daw_engine::ScaleLock::Scale => "scale", daw_engine::ScaleLock::Chord => "chord" }.into(),
                     midi_filter: self.session.midi_filter(id).iter().map(|r| MidiRuleSpec { device: r.device.clone(), channels: if r.channels == daw_session::midi_filter::ALL_CHANNELS { Vec::new() } else { (1..=16u8).filter(|c| r.channels & (1u16 << (c - 1)) != 0).collect() } }).collect(),
                     inserts: n
