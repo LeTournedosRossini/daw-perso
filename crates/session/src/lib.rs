@@ -20,6 +20,7 @@ pub mod project;
 pub mod groups;
 pub mod midi_filter;
 pub mod lyrics;
+pub mod markers;
 pub mod structure;
 pub mod takes;
 pub mod xfade;
@@ -82,6 +83,8 @@ pub enum SessionError {
     BadStructure(String),
     /// Paroles invalides (le message dit pourquoi).
     BadLyrics(String),
+    /// Marqueurs invalides (le message dit pourquoi).
+    BadMarkers(String),
     /// Sortie physique refusée (pas un bus, canaux de la sortie principale, trop de canaux, canal déjà pris).
     BadPhysOut(NodeId),
 }
@@ -111,6 +114,8 @@ pub enum Edit {
     SetStructure { old: Vec<structure::Section>, new: Vec<structure::Section> },
     /// Paroles remplacées en bloc : voir `lyrics`.
     SetLyrics { old: Vec<lyrics::Syllable>, new: Vec<lyrics::Syllable> },
+    /// Marqueurs de repère remplacés en bloc : voir `markers`.
+    SetMarkers { old: Vec<markers::Marker>, new: Vec<markers::Marker> },
     /// Groupes de pistes et appartenance, en bloc : voir `groups`.
     SetGroups { old: Box<groups::GroupState>, new: Box<groups::GroupState> },
     /// Groupes propres à un retour (remplacent ceux du projet dans son mix) ; `None` : ceux du projet.
@@ -157,6 +162,7 @@ impl Edit {
             Edit::SetChordTrack { old, new } => Edit::SetChordTrack { old: new, new: old },
             Edit::SetStructure { old, new } => Edit::SetStructure { old: new, new: old },
             Edit::SetLyrics { old, new } => Edit::SetLyrics { old: new, new: old },
+            Edit::SetMarkers { old, new } => Edit::SetMarkers { old: new, new: old },
             Edit::SetGroups { old, new } => Edit::SetGroups { old: new, new: old },
             Edit::SetReturnGroups { ret, old, new } => Edit::SetReturnGroups { ret, old: new, new: old },
             Edit::InsertNode { index, record } => Edit::RemoveNode { index, record },
@@ -232,6 +238,10 @@ pub struct Session {
     structure: Vec<structure::Section>,
     /// Paroles (syllabes en temps musical).
     lyrics: Vec<lyrics::Syllable>,
+    /// Marqueurs de repère, triés par instant.
+    markers: Vec<markers::Marker>,
+    /// Prochain identifiant de marqueur (jamais réutilisé).
+    next_marker_id: u32,
     /// Groupes de pistes (identifiants stables) et groupe de chaque nœud (0 = aucun) : parallèle à `graph.nodes`.
     groups: Vec<groups::Group>,
     node_group: Vec<u32>,
@@ -295,7 +305,7 @@ impl Session {
         let inputs = vec![nodes::NodeInput::default(); graph.nodes.len()];
         let node_group = vec![0u32; graph.nodes.len()];
         let node_group_len = graph.nodes.len();
-        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
+        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), markers: Vec::new(), next_marker_id: 1, groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
         let _ = s.sync_all(); // identique à l'entrée (conversion exacte) ; sinon le graphe reste tel quel
         s
     }
@@ -529,6 +539,35 @@ impl Session {
         self.push(label, Edit::SetLyrics { old, new: list })
     }
 
+    /// Les marqueurs de repère (triés par instant).
+    pub fn markers(&self) -> &[markers::Marker] {
+        &self.markers
+    }
+
+    /// Remplace les marqueurs (une action annulable). Refusés sans trace s'ils sont invalides.
+    pub fn set_markers(&mut self, label: &str, mut list: Vec<markers::Marker>) -> Result<(), SessionError> {
+        markers::normalize(&mut list);
+        markers::validate(&list).map_err(SessionError::BadMarkers)?;
+        if list == self.markers {
+            return Ok(());
+        }
+        // Les identifiants donnés ne sont jamais repris par un marqueur neuf.
+        if let Some(max) = list.iter().map(|m| m.id).max() {
+            self.next_marker_id = self.next_marker_id.max(max.saturating_add(1));
+        }
+        let old = self.markers.clone();
+        self.push(label, Edit::SetMarkers { old, new: list })
+    }
+
+    /// Ajoute un marqueur à `at` (une action annulable) et rend son identifiant.
+    pub fn add_marker(&mut self, at: daw_core_types::time::Frac, name: &str, color: Option<String>) -> Result<u32, SessionError> {
+        let id = self.next_marker_id;
+        let mut list = self.markers.clone();
+        list.push(markers::Marker { id, at, name: name.to_owned(), color });
+        self.set_markers("Ajouter un marqueur", list)?;
+        Ok(id)
+    }
+
     /// Numéro qui change à chaque modification de la piste d'accords (annulations comprises).
     pub fn chord_revision(&self) -> u32 {
         self.chord_revision
@@ -639,6 +678,10 @@ impl Session {
             Edit::SetLyrics { new, .. } => {
                 self.lyrics = new.clone();
                 self.chord_revision = self.chord_revision.wrapping_add(1); // la page relit chords + structure + paroles ensemble
+            }
+            Edit::SetMarkers { new, .. } => {
+                self.markers = new.clone();
+                self.chord_revision = self.chord_revision.wrapping_add(1); // la page relit chords + structure + paroles + marqueurs ensemble
             }
             Edit::SetChordTrack { new, .. } => {
                 self.chords = (**new).clone();

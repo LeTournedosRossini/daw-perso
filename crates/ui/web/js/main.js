@@ -404,6 +404,9 @@ window.addEventListener("keydown", (e) => {
     case "Enter":
       timeline.openPianoRollForSelection();
       break;
+    case "'":
+      markers.addLocator();
+      break;
     case "k":
     case "K":
       if (scoreWindow.isOpen()) scoreWindow.focusKey();

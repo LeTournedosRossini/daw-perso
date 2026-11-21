@@ -81,6 +81,9 @@ struct FileDto {
     /// Paroles (syllabes en fractions de ronde), absentes si vide : champ facultatif, le numéro de version ne change pas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lyrics: Vec<LyricDto>,
+    /// Marqueurs de repère, absents si vide : champ facultatif, le numéro de version ne change pas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    markers: Vec<MarkerDto>,
     /// Groupes de pistes (format 15), absents si vide.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     groups: Vec<GroupDto>,
@@ -143,6 +146,15 @@ struct SectionDto {
     color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     category: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MarkerDto {
+    id: u32,
+    at: FracDto,
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -741,6 +753,7 @@ impl Session {
             nodes,
             chord_track: if self.chords.is_empty() { None } else { serde_json::from_str(&self.chords.to_carte_json("")).ok() },
             groups: self.groups.iter().map(|g| GroupDto { id: g.id, name: g.name.clone(), color: g.color.clone() }).collect(),
+            markers: self.markers.iter().map(|m| MarkerDto { id: m.id, at: frac_to(m.at), name: m.name.clone(), color: m.color.clone() }).collect(),
             lyrics: self.lyrics.iter().map(|l| LyricDto { at: frac_to(l.at), text: l.text.clone(), hyphen: l.hyphen, verse: l.verse, end: l.end.map(frac_to) }).collect(),
             structure: self.structure.iter().map(|s| SectionDto { at: frac_to(s.at), dur: frac_to(s.dur), name: s.name.clone(), color: s.color.clone(), category: s.category.clone() }).collect(),
         };
@@ -928,6 +941,16 @@ impl Session {
             crate::structure::normalize(&mut list);
             crate::structure::validate(&list).map_err(ProjectError::BadGraph)?;
             s.structure = list;
+        }
+        if !file.markers.is_empty() {
+            let mut list = Vec::new();
+            for d in &file.markers {
+                list.push(crate::markers::Marker { id: d.id, at: frac_from(d.at)?, name: d.name.clone(), color: d.color.clone() });
+            }
+            crate::markers::normalize(&mut list);
+            crate::markers::validate(&list).map_err(ProjectError::BadGraph)?;
+            s.next_marker_id = list.iter().map(|m| m.id).max().map_or(1, |m| m.saturating_add(1));
+            s.markers = list;
         }
         if !file.lyrics.is_empty() {
             let mut list = Vec::new();

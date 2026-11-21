@@ -189,6 +189,16 @@ pub enum RemoteCmd {
     Click(bool),
     /// Le pré-roll s'applique-t-il aussi à la lecture normale.
     PlayPreRoll(bool),
+    /// Pose un marqueur de repère à la position de lecture : `good` (« Bonne prise », vert), `retake` (« À refaire », rouge) ou `plain`.
+    Marker(MarkerKind),
+}
+
+/// Les trois sortes de marqueur qu'une tablette peut poser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerKind {
+    Good,
+    Retake,
+    Plain,
 }
 
 /// Lit le corps d'une commande de télécommande. `None` si ce n'est pas une commande connue et valide.
@@ -203,6 +213,12 @@ fn parse_remote(v: &serde_json::Value) -> Option<RemoteCmd> {
         "preroll" => RemoteCmd::PreRoll(n("bars").filter(|b| *b <= 8)?),
         "click" => RemoteCmd::Click(v["on"].as_bool()?),
         "playpreroll" => RemoteCmd::PlayPreRoll(v["on"].as_bool()?),
+        "marker" => RemoteCmd::Marker(match v["kind"].as_str()? {
+            "good" => MarkerKind::Good,
+            "retake" => MarkerKind::Retake,
+            "plain" => MarkerKind::Plain,
+            _ => return None,
+        }),
         _ => return None,
     })
 }

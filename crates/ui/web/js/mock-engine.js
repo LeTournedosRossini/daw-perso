@@ -142,7 +142,7 @@ export class MockEngine extends EngineClient {
 
   #emitChords() {
     this.chordRevision = (this.chordRevision ?? 0) + 1;
-    this.emit("chords", { revision: this.chordRevision, track: structuredClone(this.chordTrack), skipped: [], structure: structuredClone(this.structure ?? []), lyrics: structuredClone(this.lyrics ?? []) });
+    this.emit("chords", { revision: this.chordRevision, track: structuredClone(this.chordTrack), skipped: [], structure: structuredClone(this.structure ?? []), lyrics: structuredClone(this.lyrics ?? []), markers: structuredClone(this.markers ?? []) });
   }
 
   /** Mêmes refus que l'hôte : durée nulle, accords qui se chevauchent, qualité inconnue (jamais de perte silencieuse). */
@@ -189,6 +189,7 @@ export class MockEngine extends EngineClient {
     s.__chords = structuredClone(this.chordTrack); // la piste d'accords suit l'historique, comme le reste
     s.__structure = structuredClone(this.structure ?? []);
     s.__lyrics = structuredClone(this.lyrics ?? []);
+    s.__markers = structuredClone(this.markers ?? []);
     s.__groups = structuredClone(this.project.groups ?? []);
     return s;
   }
@@ -197,6 +198,7 @@ export class MockEngine extends EngineClient {
   #restore(snap) {
     if (snap.__structure) this.structure = structuredClone(snap.__structure);
     if (snap.__lyrics) this.lyrics = structuredClone(snap.__lyrics);
+    if (snap.__markers) this.markers = structuredClone(snap.__markers);
     if (snap.__groups) this.project.groups = structuredClone(snap.__groups);
     if (snap.__chords) {
       this.chordTrack = structuredClone(snap.__chords);
@@ -486,6 +488,17 @@ export class MockEngine extends EngineClient {
   }
 
   /** Applique une édition de clips : tout ou rien, une entrée d'historique, puis `project` et `history`. */
+  /** La position de lecture en fraction de ronde (au tempo du départ : l'aperçu n'a qu'un palier de tempo). */
+  #playheadFrac() {
+    const t = this.project.tempo_map?.[0] ?? { num: 120, den: 1 };
+    const bpm = t.num / t.den;
+    const wholeSeconds = (60 / bpm) * 4;
+    const ticks = Math.round((this.pos / this.project.sample_rate / wholeSeconds) * 3840);
+    const g = (a, b) => (b ? g(b, a % b) : a);
+    const d = g(ticks, 3840) || 1;
+    return [ticks / d, 3840 / d];
+  }
+
   #edit(label, msg, fn) {
     const before = this.#snapshot();
     try {
@@ -1089,6 +1102,29 @@ export class MockEngine extends EngineClient {
             if (n && n.verse === s.verse && fcmp(n.at, s.at) === 0) throw new Error("deux syllabes au même instant dans le même couplet");
           }
           this.lyrics = list;
+        }) && (this.#emitChords(), true);
+      case "add_marker": {
+        const at = msg.at ?? this.#playheadFrac();
+        const name = (msg.name ?? "").trim() || `Marqueur ${(this.markers ?? []).length + 1}`;
+        return this.#edit("Ajouter un marqueur", msg, () => {
+          if (!(at[1] > 0)) throw new Error("add_marker : fraction à dénominateur nul");
+          this.markers = [...(this.markers ?? []), { id: (this.nextMarker = (this.nextMarker ?? 0) + 1), at, name, ...(msg.color ? { color: msg.color } : {}) }].sort((a, b) => fcmp(a.at, b.at) || a.id - b.id);
+        }) && (this.#emitChords(), true);
+      }
+      case "edit_marker":
+        return this.#edit("Modifier un marqueur", msg, () => {
+          const m = (this.markers ?? []).find((x) => x.id === msg.id);
+          if (!m) throw new Error(`marqueur inconnu : ${msg.id}`);
+          if (msg.at) m.at = msg.at;
+          if (typeof msg.name === "string") m.name = msg.name.trim();
+          if (typeof msg.color === "string") (msg.color ? (m.color = msg.color) : delete m.color);
+          this.markers.sort((a, b) => fcmp(a.at, b.at) || a.id - b.id);
+        }) && (this.#emitChords(), true);
+      case "delete_markers":
+        return this.#edit(msg.ids.length > 1 ? "Supprimer des marqueurs" : "Supprimer un marqueur", msg, () => {
+          const n = (this.markers ?? []).length;
+          this.markers = (this.markers ?? []).filter((m) => !msg.ids.includes(m.id));
+          if (this.markers.length === n) throw new Error("aucun de ces marqueurs n'existe");
         }) && (this.#emitChords(), true);
       case "import_chords":
       case "export_chords":

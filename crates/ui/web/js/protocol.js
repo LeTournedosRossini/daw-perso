@@ -187,6 +187,15 @@ export function validateCommand(m) {
       if (!(Array.isArray(m.syllables) && m.syllables.every((s) => s && Array.isArray(s.at) && s.at.length === 2 && typeof s.text === "string"))) return "set_lyrics : syllables (liste de { at, text }) requises";
       if (!m.syllables.every((s) => s.verse === undefined || (Number.isInteger(s.verse) && s.verse >= 1 && s.verse <= 8))) return "set_lyrics : couplet de 1 à 8";
       return m.syllables.every((s) => s.end === undefined || (Array.isArray(s.end) && s.end.length === 2 && s.end[1] > 0 && s.end[0] * s.at[1] > s.at[0] * s.end[1])) ? null : "set_lyrics : la fin d'un trait de prolongation doit suivre le début";
+    case "add_marker":
+      if (m.at !== undefined && !(Array.isArray(m.at) && m.at.length === 2 && Number.isInteger(m.at[0]) && Number.isInteger(m.at[1]) && m.at[0] >= 0 && m.at[1] > 0)) return "add_marker : at doit être une fraction [n, d]";
+      return m.color === undefined || /^#[0-9a-fA-F]{6}$/.test(m.color) ? null : "add_marker : color #rrggbb";
+    case "edit_marker":
+      if (!Number.isInteger(m.id)) return "edit_marker : id requis";
+      if (m.at !== undefined && !(Array.isArray(m.at) && m.at.length === 2 && Number.isInteger(m.at[0]) && Number.isInteger(m.at[1]) && m.at[0] >= 0 && m.at[1] > 0)) return "edit_marker : at doit être une fraction [n, d]";
+      return m.color === undefined || m.color === "" || /^#[0-9a-fA-F]{6}$/.test(m.color) ? null : "edit_marker : color #rrggbb ou vide";
+    case "delete_markers":
+      return Array.isArray(m.ids) && m.ids.length >= 1 && m.ids.length <= 10000 && m.ids.every(Number.isInteger) ? null : "delete_markers : ids (de 1 à 10 000 marqueurs)";
     case "import_chords":
     case "export_chords":
       return typeof m.path === "string" && m.path.trim() ? null : `${m.type} : path requis`;

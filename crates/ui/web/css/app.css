@@ -1034,3 +1034,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .mx-strip .mx-click input { width: 56px; min-width: 0; }
 .mx-strip .mx-click output { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .mx-strip .mx-click input.on + output { color: var(--text); }
+
+/* Repères nommés (marqueurs posés à la main ou depuis une tablette) : sur la même bande que les marqueurs de tempo. */
+#markers .marker.locator { border-left-color: var(--lc, #e0a030); }
+#markers .marker.locator:hover, #markers .marker.locator:focus-visible { background: var(--lc, #e0a030); color: #000; }

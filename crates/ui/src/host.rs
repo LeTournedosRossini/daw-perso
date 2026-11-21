@@ -19,7 +19,7 @@ use daw_session::{ClipId, MEvent, MKind, MLane, MNote, MPoint, MidiClipId, MidiT
 
 use crate::prefs::{self, Prefs, Runtime};
 use crate::project_io::{self, PluginEntry, UiInput, UiMeta};
-use crate::protocol::{AudioStatus, AuxPortInfo, DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
+use crate::protocol::{AudioStatus, AuxPortInfo, DynamicsSpec, VelocityCurveSpec, MidiRuleSpec, ReturnGroupsInfo, GroupInfo, SectionDto, LyricDto, MarkerDto, ReturnOutput, ScaleInfo, LaneInfo, LanePoint, LaneTarget, SendInfo, NoteDetail, EventDetail, ClipInfo, Command, CurveSpec, Event, InputSpec, InsertInfo, LoopRange, MeterChange, NodeInfo, NoteInfo, ParamEntry, PluginListing, ProjectInfo, TempoChange, TransportAction};
 
 /// Dossier (sous la racine de la sauvegarde automatique) du projet qui n'a pas encore de dossier à lui.
 const UNTITLED_DIR: &str = "sans-titre.daw";
@@ -71,7 +71,7 @@ fn explain(e: &SessionError) -> String {
         SessionError::Routing(m) => format!("sortie refusée : {m}"),
         SessionError::BadName => "nom de 1 à 60 caractères".into(),
         SessionError::UnknownInsert(i) => format!("plugin inconnu : {i}"),
-        SessionError::BadChordTrack(m) | SessionError::BadStructure(m) | SessionError::BadLyrics(m) | SessionError::BadGroups(m) | SessionError::BadMidiFilter(m) => m.clone(),
+        SessionError::BadChordTrack(m) | SessionError::BadStructure(m) | SessionError::BadLyrics(m) | SessionError::BadMarkers(m) | SessionError::BadGroups(m) | SessionError::BadMidiFilter(m) => m.clone(),
         SessionError::BadVelocityCurve => "courbe de vélocité : courbure −1000 à 1000, adoucissement 0 à 1000, vélocités de 1 à 127".into(),
         SessionError::BadInputDynamics => "dynamique d'entrée : porte −90 à −20 dB, seuil −60 à 0 dB, rapport 1 à 20, attaque 0,1 à 100 ms, relâchement 10 à 2 000 ms, compensation 0 à 24 dB".into(),
         SessionError::BadPhysOut(n) => format!("sortie refusée pour le nœud {} : ce doit être un bus, sur des sorties libres de la carte (3 et suivantes)", n.0),
@@ -284,6 +284,7 @@ mod convert;
 mod export;
 mod gather;
 mod groups;
+mod markers;
 mod import;
 mod monitoring;
 mod plugin_out;
@@ -984,6 +985,9 @@ impl Host {
                 let r = self.session.set_lyrics(label.as_deref().unwrap_or("Modifier les paroles"), list);
                 self.finish_edit(name, r)
             }
+            Command::AddMarker { at, name: label, color } => self.add_marker(at, label, color),
+            Command::EditMarker { id, at, name: label, color } => self.edit_marker(id, at, label, color),
+            Command::DeleteMarkers { ids } => self.delete_markers(&ids),
             Command::StartMonitor { port, local_only } => self.start_monitor(port, local_only.unwrap_or(false)),
             Command::StopMonitor => self.stop_monitor(),
             Command::RenewMonitorAddress { node } => self.renew_monitor_address(node),
@@ -2906,7 +2910,8 @@ impl Host {
         let track = serde_json::from_str(&self.session.chord_track().to_carte_json(&self.name)).unwrap_or(serde_json::Value::Null);
         let structure = self.session.structure().iter().map(|s| SectionDto { at: [s.at.num(), s.at.den()], dur: [s.dur.num(), s.dur.den()], name: s.name.clone(), color: s.color.clone(), category: s.category.clone() }).collect();
         let lyrics = self.session.lyrics().iter().map(|l| LyricDto { at: [l.at.num(), l.at.den()], text: l.text.clone(), hyphen: l.hyphen, verse: l.verse, end: l.end.map(|e| [e.num(), e.den()]) }).collect();
-        Event::Chords { revision: self.session.chord_revision(), track, skipped, structure, lyrics }
+        let markers = self.session.markers().iter().map(|m| MarkerDto { id: m.id, at: [m.at.num(), m.at.den()], name: m.name.clone(), color: m.color.clone() }).collect();
+        Event::Chords { revision: self.session.chord_revision(), track, skipped, structure, lyrics, markers }
     }
 
     fn loop_record_event(&self) -> Event {

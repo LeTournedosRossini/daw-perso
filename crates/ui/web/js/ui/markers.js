@@ -13,13 +13,76 @@ export class Markers {
     this.timeline = timeline;
     this.key = "";
     document.getElementById("btn-add-marker")?.addEventListener("click", (e) => this.open(null, e.currentTarget));
+    document.getElementById("btn-locator")?.addEventListener("click", () => this.addLocator());
+    // Les repères (marqueurs nommés) arrivent avec les accords et la structure.
+    client.on("chords", (e) => {
+      state.markers = e.markers ?? [];
+      this.key = "";
+      this.refresh();
+    });
+  }
+
+  /** Pose un repère à la position de lecture (même pendant une prise) ; l'hôte le nomme « Marqueur N ». */
+  addLocator() {
+    this.client.send({ type: "add_marker" });
+  }
+
+  /** Menu d'un repère : aller là, renommer, couleur, supprimer. */
+  #openLocator(m, anchor) {
+    const { client } = this;
+    const menu = menuEl();
+    menu.classList.add("time-form");
+    const h = document.createElement("div");
+    h.className = "heading";
+    h.textContent = "Repère";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = m.name;
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "Nom du repère");
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = m.color ?? "#e0a030";
+    color.setAttribute("aria-label", "Couleur du repère");
+    const apply = () => {
+      const patch = {};
+      if (name.value.trim() && name.value.trim() !== m.name) patch.name = name.value.trim();
+      if (color.value !== (m.color ?? "#e0a030")) patch.color = color.value;
+      closeMenu();
+      if (Object.keys(patch).length) client.send({ type: "edit_marker", id: m.id, ...patch });
+    };
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "item tm-ok";
+    ok.textContent = "Appliquer";
+    ok.addEventListener("click", apply);
+    menu.addEventListener("keydown", (e) => e.key === "Enter" && apply());
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "item";
+    go.textContent = "Aller à ce repère";
+    go.addEventListener("click", () => {
+      closeMenu();
+      client.send({ type: "seek", pos: Math.round(this.state.tempo.samplesAt(m.at[0] / m.at[1])) });
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "item tm-del";
+    del.textContent = "Supprimer le repère";
+    del.addEventListener("click", () => {
+      closeMenu();
+      client.send({ type: "delete_markers", ids: [m.id] });
+    });
+    menu.append(h, field("Nom", name), field("Couleur", color), ok, go, del);
+    showMenu(menu, anchor);
+    name.select();
   }
 
   /** Repositionne les marqueurs ; ne reconstruit que si la vue ou le projet ont changé. */
   refresh() {
     const { project, view } = this.state;
     if (!project) return;
-    const key = `${view.start}|${view.spp}|${this.timeline.width}|${JSON.stringify(project.tempo_map)}|${JSON.stringify(project.meters)}`;
+    const key = `${view.start}|${view.spp}|${this.timeline.width}|${JSON.stringify(project.tempo_map)}|${JSON.stringify(project.meters)}|${JSON.stringify(this.state.markers ?? [])}`;
     if (key === this.key) return;
     this.key = key;
     this.el.replaceChildren();
@@ -33,6 +96,20 @@ export class Markers {
       b.textContent = markerLabel(m);
       b.title = `Mesure ${m.bar}${m.midBar ? " (en cours de mesure)" : ""} — cliquer pour modifier ou supprimer`;
       b.addEventListener("click", () => this.open(m, b));
+      this.el.append(b);
+    }
+    // Repères nommés : un petit drapeau à la couleur du repère, avec son nom.
+    for (const m of this.state.markers ?? []) {
+      const x = sampleToX(view, this.state.tempo.samplesAt(m.at[0] / m.at[1]));
+      if (x < -200 || x > this.timeline.width + 20) continue;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "marker locator";
+      b.style.left = `${Math.max(0, x)}px`;
+      if (m.color) b.style.setProperty("--lc", m.color);
+      b.textContent = `⚑ ${m.name}`;
+      b.title = `${m.name} — cliquer pour renommer, aller là ou supprimer`;
+      b.addEventListener("click", () => this.#openLocator(m, b));
       this.el.append(b);
     }
   }

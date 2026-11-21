@@ -657,3 +657,30 @@ fn a_musician_sets_the_click_level_of_his_own_return_and_nobody_elses_target_is_
     let ev = rig.h.command_json(&format!(r#"{{"type":"set_return_click","node":{},"db":null}}"#, rig.bus));
     assert!(node(&ev, "Retour Marie").click_db.is_none());
 }
+
+#[test]
+fn a_transport_tablet_drops_good_take_and_retake_markers_at_the_play_head() {
+    let mut rig = Rig::new();
+    // Sans le droit de télécommande : refusé.
+    assert_eq!(rig.cmd(r#"{"cmd":"marker","kind":"good"}"#), 403);
+    rig.set_role(1);
+    rig.h.command_json(r#"{"type":"seek","pos":96000}"#);
+    rig.settle();
+    assert_eq!(rig.cmd(r#"{"cmd":"marker","kind":"good"}"#), 200);
+    assert_eq!(rig.cmd(r#"{"cmd":"marker","kind":"retake"}"#), 200);
+    assert_eq!(rig.cmd(r#"{"cmd":"marker","kind":"plain"}"#), 200);
+    assert_eq!(rig.cmd(r#"{"cmd":"marker","kind":"bizarre"}"#), 400);
+    assert_eq!(rig.cmd(r#"{"cmd":"marker"}"#), 400);
+    let ev = rig.settle();
+    let list = ev
+        .iter()
+        .rev()
+        .find_map(|e| if let Event::Chords { markers, .. } = e { Some(markers.clone()) } else { None })
+        .expect("la page principale reçoit la liste des marqueurs");
+    assert_eq!(list.len(), 3, "{list:?}");
+    let by = |n: &str| list.iter().find(|m| m.name == n).unwrap_or_else(|| panic!("pas de marqueur « {n} »"));
+    assert_eq!(by("Bonne prise").color.as_deref(), Some("#2fb457"));
+    assert_eq!(by("À refaire").color.as_deref(), Some("#e5484d"));
+    assert_eq!(by("Marqueur").color, None);
+    assert!(list.iter().all(|m| m.at == [1, 1]), "tous à la position de lecture (une ronde) : {list:?}");
+}

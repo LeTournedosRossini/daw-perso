@@ -273,6 +273,11 @@
   #clickrow output { min-width: 3.6em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   #clickrow.on output { color: var(--text); }
   body.tab-mix #clickrow { display: none; }
+  /* Marqueurs posés depuis la tablette (pendant une prise). */
+  #remote .mk { border-left: 5px solid var(--c); }
+  #remote .mk.good { --c: #2fb457; }
+  #remote .mk.retake { --c: #e5484d; }
+  #remote .mk.flash { background: var(--c); color: #fff; }
 </style>
 </head>
 <body>
@@ -293,7 +298,7 @@
   <div class="bar"><button id="r-start" aria-label="Retour au début">⏮</button><button id="r-play" aria-label="Lecture / pause" aria-pressed="false">▶</button><button id="r-stop" aria-label="Arrêt">■</button><button id="r-rec" aria-label="Enregistrer : maintenir appuyé">●<i></i></button></div>
   <div class="stat"><span id="r-state">Arrêt</span><b id="r-bar">Mesure 1</b></div>
   <div class="msg" id="r-msg"></div>
-  <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
+  <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-good" class="mk good" title="Pose un marqueur « Bonne prise » à la position de lecture" aria-label="Marqueur : bonne prise">✓ Bonne</button><button id="r-retake" class="mk retake" title="Pose un marqueur « À refaire » à la position de lecture" aria-label="Marqueur : à refaire">↻ À refaire</button><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
 </div>
 <div id="automenu" role="dialog" aria-label="Automation" hidden>
@@ -549,6 +554,13 @@ function wireRemote() {
   el("r-start").addEventListener("click", () => cmd({ cmd: "start" }));
   el("r-play").addEventListener("click", () => cmd({ cmd: "toggle" }));
   el("r-stop").addEventListener("click", () => cmd({ cmd: "stop" }));
+  for (const [id, kind] of [["r-good", "good"], ["r-retake", "retake"]]) {
+    el(id).addEventListener("click", () => {
+      cmd({ cmd: "marker", kind });
+      el(id).classList.add("flash");
+      setTimeout(() => el(id).classList.remove("flash"), 450); // « posé » : un retour visible, le marqueur n'a pas d'effet sur le son
+    });
+  }
   el("r-click").addEventListener("click", () => cmd({ cmd: "click", on: el("r-click").getAttribute("aria-pressed") !== "true" }));
   const rec = el("r-rec");
   const cancel = () => { clearTimeout(recHold); recHold = null; rec.classList.remove("hold"); };

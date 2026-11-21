@@ -9,7 +9,7 @@ use std::time::Instant;
 use daw_core_types::NodeId;
 
 use super::Host;
-use crate::monitor::{FxCmd, FxTarget, MixCmd, RemoteCmd, ROLE_ALL, ROLE_FINE, ROLE_MIXER, ROLE_TRANSPORT};
+use crate::monitor::{MarkerKind, FxCmd, FxTarget, MixCmd, RemoteCmd, ROLE_ALL, ROLE_FINE, ROLE_MIXER, ROLE_TRANSPORT};
 use crate::prefs::PreRollUnit;
 use crate::protocol::{Command, Event, TransportAction};
 
@@ -119,6 +119,14 @@ impl Host {
                 let mut prefs = self.prefs.clone();
                 prefs.transport.play_pre_roll = on;
                 self.command(Command::SetPrefs { prefs })
+            }
+            RemoteCmd::Marker(kind) => {
+                let (name, color) = match kind {
+                    MarkerKind::Good => ("Bonne prise", Some("#2fb457")),
+                    MarkerKind::Retake => ("À refaire", Some("#e5484d")),
+                    MarkerKind::Plain => ("Marqueur", None),
+                };
+                self.add_marker(None, Some(name.to_owned()), color.map(str::to_owned))
             }
             RemoteCmd::Click(on) => {
                 let m = &self.metro;

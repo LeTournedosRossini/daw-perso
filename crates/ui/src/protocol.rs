@@ -67,6 +67,17 @@ pub struct SectionDto {
     pub category: Option<String>,
 }
 
+/// Un marqueur de repère.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MarkerDto {
+    pub id: u32,
+    /// Position en fraction de ronde `[n, d]`.
+    pub at: [u64; 2],
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
 /// Une syllabe des paroles (position en fraction de ronde `[n, d]`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LyricDto {
@@ -127,6 +138,13 @@ pub enum Command {
     SetStructure { sections: Vec<SectionDto>, label: Option<String> },
     /// Remplace les paroles (syllabes en temps musical, couplets 1 à 8) : une action annulable, refusée en entier si invalide.
     SetLyrics { syllables: Vec<LyricDto>, label: Option<String> },
+    /// Pose un marqueur de repère (une action annulable) : à `at` (fraction de ronde `[n, d]`), sinon à la position de lecture. Permis pendant
+    /// une prise. `name` : par défaut « Marqueur N » ; `color` : `#rrggbb`.
+    AddMarker { at: Option<[u64; 2]>, name: Option<String>, color: Option<String> },
+    /// Modifie un marqueur : nouvelle position, nouveau nom, nouvelle couleur (`""` : la couleur par défaut). Une action annulable.
+    EditMarker { id: u32, at: Option<[u64; 2]>, name: Option<String>, color: Option<String> },
+    /// Supprime des marqueurs (une action annulable).
+    DeleteMarkers { ids: Vec<u32> },
     /// Importe un fichier `flibuste-carte` : les voies présentes remplacent celles de la piste, les absentes ne sont pas touchées.
     ImportChords { path: String },
     /// Écrit la piste d'accords dans un fichier `flibuste-carte`.
@@ -614,6 +632,9 @@ impl Command {
             Command::SetChords { .. } => "set_chords",
             Command::SetStructure { .. } => "set_structure",
             Command::SetLyrics { .. } => "set_lyrics",
+            Command::AddMarker { .. } => "add_marker",
+            Command::EditMarker { .. } => "edit_marker",
+            Command::DeleteMarkers { .. } => "delete_markers",
             Command::StartMonitor { .. } => "start_monitor",
             Command::StopMonitor => "stop_monitor",
             Command::RenewMonitorAddress { .. } => "renew_monitor_address",
@@ -636,6 +657,8 @@ impl Command {
                 }
                 Ok(())
             }
+            Command::AddMarker { at, .. } | Command::EditMarker { at, .. } if at.is_some_and(|a| a[1] == 0) => Err(format!("{} : fraction à dénominateur nul", self.name())),
+            Command::DeleteMarkers { ids } if ids.is_empty() || ids.len() > 10_000 => Err("delete_markers : de 1 à 10 000 marqueurs".into()),
             Command::BeginGroup { label } => {
                 if label.trim().is_empty() || label.chars().count() > 80 {
                     return Err("begin_group : libellé de 1 à 80 caractères".into());
@@ -1575,7 +1598,7 @@ pub enum Event {
     /// Journal des commandes reçues par le serveur des retours (les plus récentes en dernier).
     MonitorLog { entries: Vec<crate::monitor::JournalEntry> },
     Monitor { active: bool, port: u16, returns: Vec<MonitorReturn>, error: Option<String> },
-    Chords { revision: u32, track: serde_json::Value, skipped: Vec<String>, structure: Vec<SectionDto>, lyrics: Vec<LyricDto> },
+    Chords { revision: u32, track: serde_json::Value, skipped: Vec<String>, structure: Vec<SectionDto>, lyrics: Vec<LyricDto>, markers: Vec<MarkerDto> },
     /// Ce que la page doit connaître pour saisir des accords et des gammes : dictionnaire de qualités de Scorsaire (identifiant,
     /// demi-tons sur deux octaves), écritures acceptées (`maj7` → `M7`) et catalogue des 72 gammes. Envoyé avec `get_project`.
     ChordCatalog { qualities: Vec<(String, Vec<u8>)>, aliases: Vec<(String, String)>, scales: Vec<ScaleInfo> },
