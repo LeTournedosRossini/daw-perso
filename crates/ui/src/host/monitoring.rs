@@ -141,6 +141,7 @@ impl Host {
     pub(super) fn monitor_publish(&mut self) {
         let returns = self.monitor_returns();
         let chart = self.chart_state();
+        let grid = self.grid_state();
         let g = self.session.graph();
         let mut out = Vec::new();
         for (ret, name) in &returns {
@@ -172,6 +173,9 @@ impl Host {
             let mut state = serde_json::json!({ "name": name, "sources": sources, "groups": groups, "role": role, "click_db": click_db });
             if let Some(c) = &chart {
                 state["chart"] = c.clone();
+            }
+            if let Some(gr) = &grid {
+                state["grid"] = gr.clone();
             }
             if self.monitor_role_expired(*ret) {
                 state["expired"] = true.into();

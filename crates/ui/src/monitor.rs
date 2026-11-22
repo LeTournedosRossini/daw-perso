@@ -199,6 +199,8 @@ pub enum RemoteCmd {
     Record,
     /// Va au début de la section d'indice `n` de la forme.
     Section(u32),
+    /// Va au début de la mesure `n` (à partir de 1) : un appui sur une case de la grille.
+    Bar(u32),
     /// Pré-roll en mesures (0 à 8).
     PreRoll(u32),
     /// Métronome allumé ou éteint.
@@ -228,6 +230,7 @@ fn parse_remote(v: &serde_json::Value) -> Option<RemoteCmd> {
         "start" => RemoteCmd::Start,
         "record" => RemoteCmd::Record,
         "section" => RemoteCmd::Section(n("index")?),
+        "bar" => RemoteCmd::Bar(n("bar").filter(|b| *b >= 1)?),
         "preroll" => RemoteCmd::PreRoll(n("bars").filter(|b| *b <= 8)?),
         "click" => RemoteCmd::Click(v["on"].as_bool()?),
         "playpreroll" => RemoteCmd::PlayPreRoll(v["on"].as_bool()?),

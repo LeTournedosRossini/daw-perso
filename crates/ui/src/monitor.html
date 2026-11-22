@@ -304,6 +304,26 @@
   #laypanel label { display: flex; gap: 8px; align-items: center; padding: 7px 0; font-size: 15px; }
   #laypanel label input { width: 20px; height: 20px; }
   #laypanel .lay-top { display: flex; justify-content: space-between; align-items: center; }
+
+  /* Vue « Grille » (comme la page Structure du lecteur multipiste) : une carte par section, une case par mesure */
+  #viewsw { display: none; gap: 6px; margin: 0 0 10px; }
+  #viewsw.on { display: flex; }
+  #viewsw button { flex: 1; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  #viewsw button[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #gridview { display: none; gap: 10px; }
+  body.view-grid #gridview { display: grid; }
+  body.view-grid #list, body.view-grid #hint, body.view-grid #clickrow { display: none !important; }
+  body.tab-mix #viewsw, body.tab-mix #gridview { display: none; }
+  .gcard { border: 1px solid var(--line); border-left: 8px solid var(--c, var(--accent)); border-radius: 12px; background: var(--panel); padding: 8px 10px; }
+  .gcard.cur { box-shadow: inset 0 0 0 2px var(--c, var(--accent)); }
+  .gcard .gh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; margin-bottom: 6px; }
+  .gcard .gh small { opacity: .7; font-weight: 500; }
+  .gcard .gcells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .gcell { position: relative; display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 2px 3px; border: 1px solid var(--line); border-radius: 6px; text-align: center; font-weight: 600; line-height: 1.2; overflow: hidden; word-spacing: .2em; }
+  .gcell.same { opacity: .55; font-weight: 500; }
+  .gcell.multi { font-size: .85em; }
+  .gcell.cur { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; opacity: 1; }
+  .gcell i { position: absolute; bottom: 0; left: 0; width: 3px; height: 100%; background: currentColor; opacity: .55; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -312,6 +332,8 @@
 <div id="laypanel" role="dialog" aria-label="Affichage"></div>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="chart" aria-label="Accords"><div class="ch-top"><span class="ch-sec" id="ch-sec"></span><span id="ch-sec2"></span><span class="ch-pos" id="ch-pos"></span></div><div class="ch-main"><span class="ch-now" id="ch-now"></span><span class="ch-next" id="ch-next"></span><span class="ch-in" id="ch-in"></span></div><div class="ch-bar"><i id="ch-prog"></i></div><div class="ch-more" id="ch-more"></div></div>
+<div id="viewsw" role="group" aria-label="Vue"><button id="vw-mix" aria-pressed="true">Mix</button><button id="vw-grid" aria-pressed="false">Grille</button></div>
+<div id="gridview" aria-label="Grille du morceau"></div>
 <div id="clickrow"><span>♩ Clic</span><input id="click-lvl" type="range" min="-60" max="6" step="1" aria-label="Niveau du clic dans mon casque"><output id="click-out"></output></div>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
 <div id="fxpanel" role="dialog" aria-label="Plugins de la piste" hidden>
@@ -492,6 +514,86 @@ function drawChart() {
 }
 setInterval(drawChart, 100);
 
+// ---- Vue « Grille » : une carte par section, une case par mesure avec son accord ; la mesure qui joue est en couleur ---------------------------
+const gridView = { rev: -1, cells: [], cards: [], cur: null, mark: null, remote: false };
+let gridData = null;
+function setView(grid) {
+  document.body.classList.toggle("view-grid", grid);
+  document.getElementById("vw-mix").setAttribute("aria-pressed", grid ? "false" : "true");
+  document.getElementById("vw-grid").setAttribute("aria-pressed", grid ? "true" : "false");
+  store.put("view-" + base, grid ? "grid" : "mix");
+  paintGrid();
+}
+document.getElementById("vw-mix").addEventListener("click", () => setView(false));
+document.getElementById("vw-grid").addEventListener("click", () => setView(true));
+function showGrid(grid, remote) {
+  const has = !!grid && grid.sections.length > 0;
+  document.getElementById("viewsw").classList.toggle("on", has);
+  if (!has) { document.body.classList.remove("view-grid"); gridData = null; document.getElementById("gridview").replaceChildren(); gridView.rev = -1; return; }
+  gridData = grid;
+  gridView.remote = remote;
+  if (!showGrid.init) { showGrid.init = true; setView(store.get("view-" + base) === "grid"); }
+  const key = JSON.stringify([grid.rev, grid.sections.map((x) => [x.name, x.first, x.count]), remote]);
+  if (key === gridView.rev) return;
+  gridView.rev = key;
+  const box = document.getElementById("gridview");
+  gridView.cells = [];
+  gridView.cards = [];
+  box.replaceChildren(...grid.sections.map((sec) => {
+    const card = document.createElement("div");
+    card.className = "gcard";
+    card.style.setProperty("--c", sec.color || "var(--accent)");
+    const head = document.createElement("div");
+    head.className = "gh";
+    head.innerHTML = "<span></span><small></small>";
+    head.firstChild.textContent = sec.name;
+    head.lastChild.textContent = "mesure" + (sec.count > 1 ? "s " + sec.first + "–" + (sec.first + sec.count - 1) : " " + sec.first);
+    if (remote) head.addEventListener("click", () => cmd({ cmd: "section", index: sec.index }));
+    const cells = document.createElement("div");
+    cells.className = "gcells";
+    let prev = null;
+    sec.cells.forEach((names, k) => {
+      const c = document.createElement("div");
+      c.className = "gcell" + (names.length === 1 && names[0] === prev ? " same" : "") + (names.length > 2 ? " multi" : "");
+      c.textContent = names.join(" ") || "–";
+      if (names.length) prev = names[names.length - 1];
+      const bar = sec.first + k;
+      if (remote) c.addEventListener("click", () => cmd({ cmd: "bar", bar }));
+      cells.append(c);
+      gridView.cells.push({ el: c, bar });
+    });
+    card.append(head, cells);
+    gridView.cards.push({ el: card, first: sec.first, last: sec.first + sec.count - 1 });
+    return card;
+  }));
+  gridView.cur = null;
+  paintGrid();
+}
+function paintGrid() {
+  if (!gridData || !chart || !document.body.classList.contains("view-grid")) return;
+  const dt = chart.playing ? (performance.now() - chartAt) / 1000 : 0;
+  const abs = chart.beat + dt * chart.bpm / 60;
+  const bar = chart.bar + Math.floor(abs / chart.num);
+  const frac = (abs % chart.num) / chart.num;
+  const hit = gridView.cells.find((c) => c.bar === bar) ?? null;
+  if (hit?.el !== gridView.cur) {
+    gridView.cur?.removeAttribute("aria-current");
+    gridView.cur?.classList.remove("cur");
+    gridView.cur = hit?.el ?? null;
+    gridView.cur?.classList.add("cur");
+    gridView.cur?.setAttribute("aria-current", "true");
+    for (const c of gridView.cards) c.el.classList.toggle("cur", bar >= c.first && bar <= c.last);
+    if (hit) hit.el.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }
+  if (hit) {
+    if (!gridView.mark) { gridView.mark = document.createElement("i"); gridView.mark.setAttribute("aria-hidden", "true"); }
+    if (gridView.mark.parentNode !== hit.el) hit.el.append(gridView.mark);
+    gridView.mark.style.left = Math.round(Math.max(0, Math.min(1, frac)) * 50) * 2 + "%";
+  }
+}
+setInterval(paintGrid, 100);
+
+
 // Niveau du clic du métronome dans mon casque (tout à gauche : plus de clic). Chaque musicien règle le sien.
 const clickLvl = document.getElementById("click-lvl"), clickOut = document.getElementById("click-out");
 let clickTimer = null;
@@ -587,6 +689,7 @@ async function poll() {
     layoutTablet();
     laySources = [...new Set(st.sources.map((x) => x.name))];
     showChart(st.chart);
+    showGrid(st.grid, !!st.remote);
     showClick(st.click_db);
     showRemote(st.remote);
     showTabs(!!st.mix);

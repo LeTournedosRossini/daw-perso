@@ -734,3 +734,48 @@ fn the_mixing_desk_tablet_can_talk_and_choose_returns_only_with_the_desk_right()
     assert_eq!(rig.mix(r#"{"talk":"oui"}"#), 400);
     assert_eq!(rig.mix(r#"{"talk_target":2}"#), 400);
 }
+
+#[test]
+fn the_grid_view_gives_one_card_per_section_and_one_cell_per_bar_and_a_bar_can_be_reached() {
+    let mut rig = Rig::new();
+    // Sans accord : une grille de cases vides pour chaque section (Intro et Refrain de quatre mesures chacune).
+    rig.settle();
+    let g = rig.state()["grid"].clone();
+    let secs = g["sections"].as_array().unwrap();
+    assert_eq!(secs.len(), 2);
+    assert_eq!((secs[0]["name"].clone(), secs[0]["first"].clone(), secs[0]["count"].clone()), ("Intro".into(), 1.into(), 4.into()));
+    assert_eq!((secs[1]["name"].clone(), secs[1]["first"].clone(), secs[1]["count"].clone()), ("Refrain".into(), 5.into(), 4.into()));
+    assert_eq!(secs[1]["at"], 8.0);
+    assert!(secs[0]["cells"].as_array().unwrap().iter().all(|c| c.as_array().unwrap().is_empty()));
+
+    // Des accords : un par mesure dans l'intro, deux dans la première mesure du refrain, le même répété ensuite.
+    let track = serde_json::json!({
+        "format": "flibuste-carte", "version": 1,
+        "chords": [
+            { "at": [0, 1], "dur": [1, 1], "root": "D", "quality": "m7", "bass": null },
+            { "at": [1, 1], "dur": [1, 1], "root": "G", "quality": "7", "bass": "B" },
+            { "at": [2, 1], "dur": [1, 1], "root": "C", "quality": "M7", "bass": null },
+            { "at": [3, 1], "dur": [1, 1], "nc": true },
+            { "at": [4, 1], "dur": [1, 2], "root": "A", "quality": "m", "bass": null },
+            { "at": [9, 2], "dur": [1, 2], "root": "F", "quality": "", "bass": null },
+            { "at": [5, 1], "dur": [2, 1], "root": "C", "quality": "", "bass": null }
+        ]
+    });
+    let ev = rig.h.command_json(&serde_json::json!({ "type": "set_chords", "track": track }).to_string());
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    rig.settle();
+    let g = rig.state()["grid"].clone();
+    let cells = |s: usize| -> Vec<Vec<String>> { g["sections"][s]["cells"].as_array().unwrap().iter().map(|c| c.as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect()).collect() };
+    let owned = |v: &[&[&str]]| -> Vec<Vec<String>> { v.iter().map(|c| c.iter().map(|s| s.to_string()).collect()).collect() };
+    assert_eq!(cells(0), owned(&[&["Dm7"], &["G7/B"], &["CM7"], &["N.C."]]));
+    assert_eq!(cells(1), owned(&[&["Am", "F"], &["C"], &["C"], &[]]));
+
+    // Aller à une mesure : droit de télécommande requis ; la mesure 3 commence à 4 s (192 000 échantillons).
+    assert_eq!(rig.cmd(r#"{"cmd":"bar","bar":3}"#), 403);
+    rig.set_role(1);
+    assert_eq!(rig.cmd(r#"{"cmd":"bar","bar":3}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["chart"]["pos"], 4.0);
+    assert_eq!(rig.cmd(r#"{"cmd":"bar","bar":0}"#), 400);
+    assert_eq!(rig.cmd(r#"{"cmd":"bar"}"#), 400);
+}

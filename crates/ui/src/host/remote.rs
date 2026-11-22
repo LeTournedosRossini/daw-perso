@@ -16,6 +16,15 @@ use crate::protocol::{Command, Event, TransportAction};
 /// Combien de temps le dernier refus reste affiché sur la tablette.
 const MSG_SECONDS: u64 = 8;
 
+/// Nom d'un accord tel qu'on l'affiche aux musiciens (`Dm7`, `G7/B`, `N.C.`).
+fn chord_label(c: &daw_session::chords::ChordEv) -> String {
+    if c.nc {
+        "N.C.".to_owned()
+    } else {
+        format!("{}{}{}", c.root.name(), c.quality, c.bass.map(|b| format!("/{}", b.name())).unwrap_or_default())
+    }
+}
+
 impl Host {
     /// Le bloc `remote` de l'état d'une page à rôle « transport » : ce qu'elle affiche (état, mesure, sections, pré-roll, métronome, dernier refus).
     pub(super) fn remote_state(&self) -> serde_json::Value {
@@ -67,7 +76,7 @@ impl Host {
             .take(10)
             .filter_map(|c| {
                 let end = c.start.checked_add(c.len)?;
-                let name = if c.nc { "N.C.".to_owned() } else { format!("{}{}{}", c.root.name(), c.quality, c.bass.map(|b| format!("/{}", b.name())).unwrap_or_default()) };
+                let name = chord_label(c);
                 Some(serde_json::json!({ "name": name, "nc": c.nc, "at": (secs(c.start)? * 1000.0).round() / 1000.0, "end": (secs(end)? * 1000.0).round() / 1000.0 }))
             })
             .collect();
@@ -88,6 +97,54 @@ impl Host {
             "section": section,
             "next_section": next_section,
         }))
+    }
+
+    /// La grille du morceau, pour la vue « Grille » des tablettes de retour (comme la page « Structure » du lecteur multipiste de l'école) : une carte
+    /// par section de la forme, une case par mesure avec le ou les accords qui y sonnent. Sans structure, une seule carte « Morceau » couvre les
+    /// accords. `None` sans accord ni section. `bar` : numéro de la mesure (à partir de 1), `chords` : noms dans l'ordre, sans répétition.
+    pub(super) fn grid_state(&self) -> Option<serde_json::Value> {
+        use daw_core_types::time::Frac;
+        let track = self.session.chord_track();
+        let structure = self.session.structure();
+        if track.chords.is_empty() && structure.is_empty() {
+            return None;
+        }
+        let rate = self.session.sample_rate();
+        let (tm, mm) = (self.session.tempo_map(), self.session.meter_map());
+        let secs = |f: Frac| tm.to_samples(f, rate).map(|s| s as f64 / f64::from(rate));
+        let bar_of = |f: Frac| mm.locate(f).map(|(b, _)| b);
+        // Les zones à afficher : (nom, couleur, catégorie, début, fin).
+        let mut zones: Vec<(String, Option<String>, Frac, Frac)> = structure.iter().filter_map(|s| Some((s.name.clone(), s.color.clone(), s.at, s.at.checked_add(s.dur)?))).collect();
+        if zones.is_empty() {
+            let end = track.chords.iter().filter_map(|c| c.start.checked_add(c.len)).max()?;
+            zones.push(("Morceau".into(), None, Frac::ZERO, end));
+        }
+        let mut sections = Vec::new();
+        let mut total = 0usize;
+        for (index, (name, color, at, end)) in zones.into_iter().enumerate() {
+            let first = bar_of(at)?;
+            // La dernière mesure est celle qui contient le dernier instant de la zone (la fin elle-même appartient à la suivante).
+            let last_bar = mm.locate(end).map(|(b, w)| if w == Frac::ZERO && b > first { b - 1 } else { b })?.max(first);
+            let count = (last_bar - first + 1) as usize;
+            total += count;
+            if total > 2_000 {
+                break;
+            }
+            let mut cells = Vec::with_capacity(count);
+            for b in first..=last_bar {
+                let (bs, be) = (mm.bar_start(b)?, mm.bar_start(b + 1)?);
+                let mut names: Vec<String> = Vec::new();
+                for c in track.chords.iter().filter(|c| c.start < be && c.start.checked_add(c.len).is_some_and(|e| e > bs)) {
+                    let n = chord_label(c);
+                    if names.last() != Some(&n) {
+                        names.push(n);
+                    }
+                }
+                cells.push(names);
+            }
+            sections.push(serde_json::json!({ "index": index, "name": name, "color": color, "first": first + 1, "count": count, "at": secs(at)?, "cells": cells }));
+        }
+        Some(serde_json::json!({ "rev": self.session.chord_revision(), "sections": sections }))
     }
 
     /// Les prises entre lesquelles un musicien peut choisir, pour une tablette à droit de télécommande : par piste, les derniers groupes de
@@ -180,6 +237,17 @@ impl Host {
                 match self.session.tempo_map().to_samples(sec.at, rate) {
                     Some(pos) => self.command(Command::Seek { pos }),
                     None => Vec::new(),
+                }
+            }
+            RemoteCmd::Bar(n) => {
+                let rate = self.session.sample_rate();
+                let target = n.checked_sub(1).and_then(|b| self.session.meter_map().bar_start(b)).and_then(|f| self.session.tempo_map().to_samples(f, rate));
+                match target {
+                    Some(pos) => self.command(Command::Seek { pos }),
+                    None => {
+                        self.remote_msg = Some((Instant::now(), "mesure inconnue".into()));
+                        Vec::new()
+                    }
                 }
             }
             RemoteCmd::PreRoll(bars) => {
