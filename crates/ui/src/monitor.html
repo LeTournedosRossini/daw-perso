@@ -293,10 +293,23 @@
   #remote .tk-btn.has { border-left: 5px solid var(--accent); }
 .talkbtn.on { background: #d33; color: #fff; border-color: #f66; }
   .talk .talkhint { opacity: .7; font-size: 12px; }
+
+  /* Affichage choisi par la tablette (mémorisé par adresse) */
+  body.hide-chart #chart, body.hide-click #clickrow, body.hide-hint #hint, body.hide-groups #list .grp, body.hide-chmore .ch-more, body.hide-remote #remote,
+  body.hide-markers #remote .mk, body.hide-takes #r-takes, body.hide-secs #r-secs { display: none !important; }
+  #lay-btn { position: fixed; top: 6px; right: 8px; z-index: 40; width: 34px; height: 34px; border-radius: 17px; opacity: .75; padding: 0; }
+  #laypanel { position: fixed; inset: 0 0 auto auto; top: 46px; right: 8px; z-index: 60; max-width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 60px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 40px rgba(0,0,0,.45); display: none; }
+  #laypanel.on { display: block; }
+  #laypanel h3 { margin: 8px 0 4px; font-size: 13px; opacity: .8; }
+  #laypanel label { display: flex; gap: 8px; align-items: center; padding: 7px 0; font-size: 15px; }
+  #laypanel label input { width: 20px; height: 20px; }
+  #laypanel .lay-top { display: flex; justify-content: space-between; align-items: center; }
 </style>
 </head>
 <body>
 <h1 id="title">Mon retour</h1>
+<button id="lay-btn" aria-label="Choisir ce qui s'affiche" title="Choisir ce qui s'affiche sur cette tablette" aria-expanded="false">⚙</button>
+<div id="laypanel" role="dialog" aria-label="Affichage"></div>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="chart" aria-label="Accords"><div class="ch-top"><span class="ch-sec" id="ch-sec"></span><span id="ch-sec2"></span><span class="ch-pos" id="ch-pos"></span></div><div class="ch-main"><span class="ch-now" id="ch-now"></span><span class="ch-next" id="ch-next"></span><span class="ch-in" id="ch-in"></span></div><div class="ch-bar"><i id="ch-prog"></i></div><div class="ch-more" id="ch-more"></div></div>
 <div id="clickrow"><span>♩ Clic</span><input id="click-lvl" type="range" min="-60" max="6" step="1" aria-label="Niveau du clic dans mon casque"><output id="click-out"></output></div>
@@ -504,6 +517,65 @@ clickLvl.addEventListener("input", () => {
 });
 clickLvl.addEventListener("dblclick", () => { clickLvl.value = "-60"; clickLvl.dispatchEvent(new Event("input")); });
 
+
+// ---- Affichage : chaque tablette choisit ce qu'elle montre (mémorisé par adresse, sur cet appareil) ---------------------------------------
+const LAYOUT_ITEMS = [
+  ["chart", "Carte des accords et de la section"], ["chmore", "Accords à venir (sous l'accord en cours)"], ["click", "Niveau du clic"], ["groups", "Groupes de sources"], ["hint", "Texte d'aide"],
+  ["remote", "Transport (lecture, enregistrement, pré-roll)"], ["markers", "Boutons « Bonne » et « À refaire »"], ["takes", "Bouton « Prises »"], ["secs", "Cartes des sections"],
+];
+const layKey = "layout-" + base;
+let layHidden = (() => { try { const v = JSON.parse(store.get(layKey) ?? "{}"); return { items: Array.isArray(v.items) ? v.items.filter((x) => typeof x === "string") : [], sources: Array.isArray(v.sources) ? v.sources.filter((x) => typeof x === "string") : [] }; } catch { return { items: [], sources: [] }; } })();
+let laySources = [];
+function applyLayout() {
+  for (const [k] of LAYOUT_ITEMS) document.body.classList.toggle("hide-" + k, layHidden.items.includes(k));
+  const off = new Set(layHidden.sources);
+  for (const r of rows.values()) { const n = r.root.querySelector(".name")?.textContent ?? ""; r.root.style.display = off.has(n) ? "none" : ""; }
+}
+new MutationObserver(applyLayout).observe(document.getElementById("list"), { childList: true });
+function saveLayout() { store.put(layKey, JSON.stringify(layHidden)); applyLayout(); }
+function buildLayPanel() {
+  const box = document.getElementById("laypanel");
+  box.replaceChildren();
+  const top = document.createElement("div");
+  top.className = "lay-top";
+  top.innerHTML = "<strong>Affichage</strong>";
+  const close = document.createElement("button");
+  close.textContent = "✕";
+  close.setAttribute("aria-label", "Fermer");
+  close.addEventListener("click", () => toggleLay(false));
+  top.append(close);
+  box.append(top);
+  const mk = (label, shown, change) => {
+    const l = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = shown;
+    cb.addEventListener("change", () => change(cb.checked));
+    l.append(cb, document.createTextNode(label));
+    return l;
+  };
+  for (const [k, label] of LAYOUT_ITEMS) box.append(mk(label, !layHidden.items.includes(k), (on) => { layHidden.items = layHidden.items.filter((x) => x !== k); if (!on) layHidden.items.push(k); saveLayout(); }));
+  if (laySources.length) {
+    const h = document.createElement("h3");
+    h.textContent = "Sources affichées";
+    box.append(h);
+    for (const n of laySources) box.append(mk(n, !layHidden.sources.includes(n), (on) => { layHidden.sources = layHidden.sources.filter((x) => x !== n); if (!on) layHidden.sources.push(n); saveLayout(); }));
+  }
+  const reset = document.createElement("button");
+  reset.textContent = "Tout afficher";
+  reset.addEventListener("click", () => { layHidden = { items: [], sources: [] }; saveLayout(); buildLayPanel(); });
+  box.append(reset);
+}
+function toggleLay(on) {
+  const box = document.getElementById("laypanel");
+  const open = on ?? !box.classList.contains("on");
+  if (open) buildLayPanel();
+  box.classList.toggle("on", open);
+  document.getElementById("lay-btn").setAttribute("aria-expanded", open ? "true" : "false");
+}
+document.getElementById("lay-btn").addEventListener("click", () => toggleLay());
+applyLayout();
+
 async function poll() {
   try {
     const res = await fetch(base + "/state", { cache: "no-store" });
@@ -513,6 +585,7 @@ async function poll() {
     fxState = st;
     followOrientation(); // (l'événement du navigateur peut manquer : on vérifie aussi à chaque lecture de l'état)
     layoutTablet();
+    laySources = [...new Set(st.sources.map((x) => x.name))];
     showChart(st.chart);
     showClick(st.click_db);
     showRemote(st.remote);
