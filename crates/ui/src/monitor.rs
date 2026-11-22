@@ -191,6 +191,8 @@ pub enum RemoteCmd {
     PlayPreRoll(bool),
     /// Pose un marqueur de repère à la position de lecture : `good` (« Bonne prise », vert), `retake` (« À refaire », rouge) ou `plain`.
     Marker(MarkerKind),
+    /// Rend active la prise `clip` (identifiant des clips de la page : les clips de notes valent 1 000 000 + numéro) et place la tête à son début.
+    Take(u64),
 }
 
 /// Les trois sortes de marqueur qu'une tablette peut poser.
@@ -213,6 +215,7 @@ fn parse_remote(v: &serde_json::Value) -> Option<RemoteCmd> {
         "preroll" => RemoteCmd::PreRoll(n("bars").filter(|b| *b <= 8)?),
         "click" => RemoteCmd::Click(v["on"].as_bool()?),
         "playpreroll" => RemoteCmd::PlayPreRoll(v["on"].as_bool()?),
+        "take" => RemoteCmd::Take(v["clip"].as_u64().filter(|c| *c < 2_000_000_000)?),
         "marker" => RemoteCmd::Marker(match v["kind"].as_str()? {
             "good" => MarkerKind::Good,
             "retake" => MarkerKind::Retake,

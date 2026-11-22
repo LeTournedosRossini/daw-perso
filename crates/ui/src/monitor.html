@@ -278,6 +278,19 @@
   #remote .mk.good { --c: #2fb457; }
   #remote .mk.retake { --c: #e5484d; }
   #remote .mk.flash { background: var(--c); color: #fff; }
+  /* Choix de la prise active depuis la tablette. */
+  #takepanel { display: none; position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h, 0px) + var(--sec-h, 0px)); max-height: 55vh; overflow-y: auto; padding: 10px 12px; background: var(--panel); border-top: 2px solid var(--accent); z-index: 32; box-shadow: 0 -6px 20px rgba(0,0,0,.35); }
+  #takepanel.on { display: block; }
+  #takepanel h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  #takepanel h3 button { margin-left: auto; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+  #takepanel .tk-track { margin: 8px 0 2px; font-weight: 700; border-left: 6px solid var(--c, var(--accent)); padding-left: 8px; }
+  #takepanel .tk-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; align-items: center; }
+  #takepanel .tk-row small { color: var(--muted); margin-right: 4px; }
+  #takepanel .tk-row button { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  #takepanel .tk-row button.act { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #takepanel .tk-row button small { display: block; font-weight: 400; color: inherit; opacity: .75; margin: 0; }
+  #takepanel .tk-none { color: var(--muted); }
+  #remote .tk-btn.has { border-left: 5px solid var(--accent); }
 </style>
 </head>
 <body>
@@ -298,7 +311,7 @@
   <div class="bar"><button id="r-start" aria-label="Retour au début">⏮</button><button id="r-play" aria-label="Lecture / pause" aria-pressed="false">▶</button><button id="r-stop" aria-label="Arrêt">■</button><button id="r-rec" aria-label="Enregistrer : maintenir appuyé">●<i></i></button></div>
   <div class="stat"><span id="r-state">Arrêt</span><b id="r-bar">Mesure 1</b></div>
   <div class="msg" id="r-msg"></div>
-  <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-good" class="mk good" title="Pose un marqueur « Bonne prise » à la position de lecture" aria-label="Marqueur : bonne prise">✓ Bonne</button><button id="r-retake" class="mk retake" title="Pose un marqueur « À refaire » à la position de lecture" aria-label="Marqueur : à refaire">↻ À refaire</button><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
+  <div class="line"><span title="L'enregistrement (et la lecture si « Lecture » est allumé) démarre ce nombre de mesures avant la tête">Pré-roll</span><button id="r-pre" aria-label="Pré-roll en mesures"></button><button id="r-preplay" aria-pressed="false" title="Applique aussi le pré-roll à la lecture normale">Lecture</button><span style="margin-left:auto"></span><button id="r-takes" class="tk-btn" title="Choisir la prise qui joue (la tête se place au début de la prise)" aria-label="Prises">Prises</button><button id="r-good" class="mk good" title="Pose un marqueur « Bonne prise » à la position de lecture" aria-label="Marqueur : bonne prise">✓ Bonne</button><button id="r-retake" class="mk retake" title="Pose un marqueur « À refaire » à la position de lecture" aria-label="Marqueur : à refaire">↻ À refaire</button><button id="r-click" aria-pressed="false" aria-label="Métronome">♩ Clic</button></div>
   <div class="secs" id="r-secs"></div>
 </div>
 <div id="automenu" role="dialog" aria-label="Automation" hidden>
@@ -307,6 +320,7 @@
   <div class="am-modes" id="am-modes"></div>
   <div class="am-hint" id="am-hint"></div>
 </div>
+<div id="takepanel" role="dialog" aria-label="Prises"><h3><span>Choisir une prise</span><button id="tk-close" aria-label="Fermer">✕</button></h3><div id="tk-body"></div></div>
 <div id="secpanel"></div>
 <div id="tbar"><span id="tb-remote"></span><button id="tb-secs" aria-pressed="false">Sections</button><span class="sp"></span><span id="tb-bank"></span><button id="tb-edit">Édition</button><button id="tb-me" title="Revenir à l'écran « Mon retour »">Retour</button><button id="tb-full" title="Plein écran" hidden>⛶</button></div>
 <div id="tabs" role="tablist"><button id="tab-me" role="tab" aria-selected="true">Mon retour</button><button id="tab-mix" role="tab" aria-selected="false">Régie</button></div>
@@ -548,12 +562,67 @@ async function poll() {
 // ---- télécommande (page d'un retour à rôle « transport ») -----------------------------------------------------------------
 const cmd = (body) => fetch(base + "/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
 const el = (id) => document.getElementById(id);
-let remoteShape = "", recHold = null;
+let remoteShape = "", recHold = null, takesOpen = false, takesData = null;
 const HOLD_MS = 700; // enregistrer demande un appui long : un contact involontaire ne lance pas une prise
+// Prises : par piste, les derniers groupes ; une pression choisit la prise (annulable côté ordinateur) et place la tête à son début.
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + ":" + String(s).padStart(2, "0");
+}
+function drawTakes() {
+  if (!takesOpen) drawTakes.shape = "";
+  const panel = el("takepanel"), body = el("tk-body"), btn = el("r-takes");
+  const tracks = takesData ?? [];
+  const count = tracks.reduce((n, t) => n + t.groups.length, 0);
+  btn.textContent = count ? "Prises (" + count + ")" : "Prises";
+  btn.classList.toggle("has", count > 0);
+  panel.classList.toggle("on", takesOpen);
+  if (!takesOpen) return;
+  // Rien à refaire si rien n'a changé : remplacer les boutons à chaque lecture de l'état avalerait un appui en cours.
+  const shape = JSON.stringify(tracks);
+  if (shape === drawTakes.shape && body.childElementCount) return;
+  drawTakes.shape = shape;
+  const rows = [];
+  for (const t of tracks) {
+    const h = document.createElement("div");
+    h.className = "tk-track";
+    h.style.setProperty("--c", t.color || "var(--accent)");
+    h.textContent = t.name;
+    rows.push(h);
+    for (const g of t.groups) {
+      const row = document.createElement("div");
+      row.className = "tk-row";
+      const lab = document.createElement("small");
+      lab.textContent = "mesure " + g.bar;
+      row.append(lab);
+      for (const k of g.takes) {
+        const b = document.createElement("button");
+        b.textContent = k.label;
+        const small = document.createElement("small");
+        small.textContent = fmtTime(k.at) + " · " + Math.round(k.len) + " s";
+        b.append(small);
+        b.classList.toggle("act", k.active);
+        b.setAttribute("aria-pressed", String(k.active));
+        b.addEventListener("click", () => cmd({ cmd: "take", clip: k.clip }));
+        row.append(b);
+      }
+      rows.push(row);
+    }
+  }
+  if (!rows.length) {
+    const none = document.createElement("div");
+    none.className = "tk-none";
+    none.textContent = "Aucune piste n'a plusieurs prises pour l'instant.";
+    rows.push(none);
+  }
+  body.replaceChildren(...rows);
+}
 function wireRemote() {
   el("r-start").addEventListener("click", () => cmd({ cmd: "start" }));
   el("r-play").addEventListener("click", () => cmd({ cmd: "toggle" }));
   el("r-stop").addEventListener("click", () => cmd({ cmd: "stop" }));
+  el("r-takes").addEventListener("click", () => { takesOpen = !takesOpen; drawTakes(); });
+  el("tk-close").addEventListener("click", () => { takesOpen = false; drawTakes(); });
   for (const [id, kind] of [["r-good", "good"], ["r-retake", "retake"]]) {
     el(id).addEventListener("click", () => {
       cmd({ cmd: "marker", kind });
@@ -588,6 +657,8 @@ function showRemote(r) {
   const msg = el("r-msg");
   msg.textContent = r.msg || "";
   msg.classList.toggle("on", !!r.msg);
+  takesData = r.takes ?? null;
+  drawTakes();
   const shape = JSON.stringify([r.sections, r.recording]);
   if (shape !== remoteShape) {
     remoteShape = shape;

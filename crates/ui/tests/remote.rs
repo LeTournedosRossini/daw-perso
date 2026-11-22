@@ -684,3 +684,20 @@ fn a_transport_tablet_drops_good_take_and_retake_markers_at_the_play_head() {
     assert_eq!(by("Marqueur").color, None);
     assert!(list.iter().all(|m| m.at == [1, 1]), "tous à la position de lecture (une ronde) : {list:?}");
 }
+
+#[test]
+fn the_take_command_of_a_tablet_needs_the_remote_right_and_refuses_what_is_not_a_take() {
+    let mut rig = Rig::new();
+    assert_eq!(rig.cmd(r#"{"cmd":"take","clip":0}"#), 403, "sans le droit de télécommande");
+    rig.set_role(1);
+    assert!(rig.state()["remote"]["takes"].is_null(), "rien à choisir : pas de prises");
+    assert_eq!(rig.cmd(r#"{"cmd":"take","clip":0}"#), 200, "le corps est valide");
+    let st = {
+        rig.settle();
+        rig.state()
+    };
+    assert!(st["remote"]["msg"].as_str().is_some(), "un clip qui n'est pas une prise : le refus est montré sur la tablette : {st}");
+    assert_eq!(rig.cmd(r#"{"cmd":"take"}"#), 400);
+    assert_eq!(rig.cmd(r#"{"cmd":"take","clip":-3}"#), 400);
+    assert_eq!(rig.cmd(r#"{"cmd":"take","clip":"a"}"#), 400);
+}

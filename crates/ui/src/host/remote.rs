@@ -33,6 +33,7 @@ impl Host {
             "armed": armed,
             "bar": bar,
             "sections": sections,
+            "takes": self.takes_state(),
             "pre_roll_bars": if self.metro.pre_roll_unit == PreRollUnit::Bars { self.metro.pre_roll_bars } else { 0 },
             "click": self.metro.enabled,
             "play_pre_roll": self.prefs.transport.play_pre_roll,
@@ -89,6 +90,76 @@ impl Host {
         }))
     }
 
+    /// Les prises entre lesquelles un musicien peut choisir, pour une tablette à droit de télécommande : par piste, les derniers groupes de
+    /// prises (trois au plus), chacun avec les prises qui **recouvrent la plus récente** (la nouvelle prise et ce qu'elle a remplacé ou ses
+    /// concurrentes d'un enregistrement en boucle) ; seulement s'il y en a deux ou plus. `None` quand il n'y a rien à choisir.
+    pub(super) fn takes_state(&self) -> Option<serde_json::Value> {
+        use super::MIDI_CLIP_BASE;
+        let g = self.session.graph();
+        let rate = f64::from(self.session.sample_rate());
+        let (tm, mm) = (self.session.tempo_map(), self.session.meter_map());
+        let bar_at = |sample: u64| tm.to_frac(sample, self.session.sample_rate()).and_then(|f| mm.locate(f)).map_or(1, |(b, _)| b + 1);
+        let mut tracks = Vec::new();
+        for &id in self.session.display_order() {
+            let Some(n) = g.nodes.get(id.0 as usize) else { continue };
+            if !matches!(n.kind, daw_engine::NodeKind::Track(_)) {
+                continue;
+            }
+            // (identifiant du clip, groupe, début, longueur, muet) des clips en groupe de prises, audio puis notes.
+            let mut members: Vec<(u64, u32, u64, u64, bool)> = Vec::new();
+            for (k, c) in n.clips.iter().enumerate() {
+                if c.take_group != 0 {
+                    members.push((self.session.clip_ids(id)[k].0, c.take_group, c.start, c.len, c.muted));
+                }
+            }
+            for (k, mid) in self.session.midi_clip_ids(id).iter().enumerate() {
+                let (mc, Some(mclip)) = (&n.midi_clips[k], self.session.midi_clip(*mid)) else { continue };
+                if mclip.take_group != 0 {
+                    members.push((MIDI_CLIP_BASE + mid.0, mclip.take_group, mc.start, mc.len, mclip.muted));
+                }
+            }
+            let mut group_ids: Vec<u32> = members.iter().map(|m| m.1).collect();
+            group_ids.sort_unstable();
+            group_ids.dedup();
+            let mut groups = Vec::new();
+            for gid in group_ids.into_iter().rev().take(3) {
+                let all: Vec<_> = members.iter().filter(|m| m.1 == gid).collect();
+                let Some(newest) = all.iter().max_by_key(|m| m.0) else { continue };
+                let (s, e) = (newest.2, newest.2 + newest.3);
+                let mut cands: Vec<_> = all.iter().filter(|m| m.2 < e && s < m.2 + m.3).collect();
+                if cands.len() < 2 {
+                    continue;
+                }
+                cands.sort_by_key(|m| m.0);
+                let takes: Vec<serde_json::Value> = cands.iter().take(8).enumerate().map(|(rank, m)| serde_json::json!({ "clip": m.0, "label": format!("Prise {}", rank + 1), "active": !m.4, "at": (m.2 as f64 / rate * 1000.0).round() / 1000.0, "len": (m.3 as f64 / rate * 100.0).round() / 100.0 })).collect();
+                groups.push(serde_json::json!({ "id": gid, "bar": bar_at(s), "takes": takes }));
+            }
+            if !groups.is_empty() {
+                tracks.push(serde_json::json!({ "node": id.0, "name": n.name, "color": self.session.node_color(id), "groups": groups }));
+            }
+        }
+        (!tracks.is_empty()).then(|| serde_json::Value::Array(tracks))
+    }
+
+    /// Choisit la prise (une action annulable, comme depuis la page) puis place la tête au début de cette prise.
+    pub(super) fn remote_take(&mut self, clip: u64) -> Vec<Event> {
+        let mut events = self.command(Command::SetActiveTake { clip });
+        if !events.iter().any(|e| matches!(e, Event::Error { .. })) {
+            let start = self.session.graph().nodes.iter().find_map(|n| {
+                if clip >= super::MIDI_CLIP_BASE {
+                    let mid = daw_session::MidiClipId(clip - super::MIDI_CLIP_BASE);
+                    self.session.midi_clip_ids(NodeId(n.id.0)).iter().position(|m| *m == mid).map(|k| n.midi_clips[k].start)
+                } else {
+                    self.session.clip_ids(NodeId(n.id.0)).iter().position(|c| c.0 == clip).map(|k| n.clips[k].start)
+                }
+            });
+            if let Some(pos) = start {
+                events.extend(self.command(Command::Seek { pos }));
+            }
+        }
+        events
+    }
+
     /// Une commande d'une tablette autorisée. Les refus de l'hôte (aucune piste armée, enregistrement en cours…) sont gardés pour la tablette.
     pub(super) fn remote_request(&mut self, ret: u32, cmd: RemoteCmd) -> Vec<Event> {
         // Le rôle est relu ici aussi : il a pu changer entre la requête et ce tick.
@@ -120,6 +191,7 @@ impl Host {
                 prefs.transport.play_pre_roll = on;
                 self.command(Command::SetPrefs { prefs })
             }
+            RemoteCmd::Take(clip) => self.remote_take(clip),
             RemoteCmd::Marker(kind) => {
                 let (name, color) = match kind {
                     MarkerKind::Good => ("Bonne prise", Some("#2fb457")),
@@ -391,5 +463,64 @@ impl Host {
         let mut events = self.command(Command::Transport { action: TransportAction::Stop });
         events.push(Event::Error { command: "auto_stop".into(), message });
         events
+    }
+}
+
+#[cfg(test)]
+mod take_tests {
+
+    use daw_core_types::NodeId;
+    use daw_engine::{AudioData, Clip, Engine};
+
+    use crate::demo::demo_session;
+    use crate::{Event, Host};
+
+    const SR: u32 = 48_000;
+
+    fn take(frames: usize, start: u64) -> Clip {
+        let data = AudioData::new(SR, vec![vec![0.1; frames]]).unwrap();
+        Clip::new(data, start, 0, frames as u64, 1.0)
+    }
+
+    #[test]
+    fn the_tablet_lists_the_takes_over_the_newest_one_and_choosing_one_activates_it_and_moves_the_head_there() {
+        let (engine, handle) = Engine::new(SR, 64);
+        let (session, meta) = demo_session(SR);
+        std::mem::forget(engine);
+        let mut h = Host::new(handle, session, meta).unwrap();
+        assert!(h.takes_state().is_none(), "rien à choisir au départ");
+
+        // Une piste de la démonstration : trois prises successives sur la même zone (chacune recouvre la précédente).
+        let node = h.session.display_order().iter().copied().find(|id| h.session.graph().nodes[id.0 as usize].name == "Voix").expect("piste Voix");
+        let zone = 480_000u64;
+        let a = h.session.record_over(node, take(20_000, zone)).unwrap();
+        let b = h.session.record_over(node, take(20_000, zone)).unwrap();
+        let c = h.session.record_over(node, take(20_000, zone)).unwrap();
+        let takes = h.takes_state().expect("trois prises sur la même zone");
+        let t = &takes.as_array().unwrap()[0];
+        assert_eq!(t["name"], "Voix");
+        let g = &t["groups"].as_array().unwrap()[0];
+        let list = g["takes"].as_array().unwrap();
+        assert_eq!(list.len(), 3, "{takes}");
+        assert_eq!(list.iter().map(|x| x["label"].as_str().unwrap()).collect::<Vec<_>>(), ["Prise 1", "Prise 2", "Prise 3"]);
+        let active: Vec<bool> = list.iter().map(|x| x["active"].as_bool().unwrap()).collect();
+        assert_eq!(active, [false, false, true], "la dernière prise est la prise active");
+        assert_eq!(list[0]["clip"], a.0);
+        assert_eq!(list[2]["clip"], c.0);
+        assert_eq!(list[0]["at"], 10.0, "480 000 échantillons à 48 kHz = 10 s");
+        assert_eq!(g["bar"], 6, "10 s à 120 bpm = la mesure 6");
+
+        // Choisir la première : elle devient active, la tête se place à son début, un seul pas d'annulation.
+        let ev = h.remote_take(a.0);
+        assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+        assert!(ev.iter().any(|e| matches!(e, Event::Position { pos: 480_000, .. })), "la tête est au début de la prise (10 s) : {ev:?}");
+        let list = h.takes_state().unwrap()[0]["groups"][0]["takes"].clone();
+        let active: Vec<bool> = list.as_array().unwrap().iter().map(|x| x["active"].as_bool().unwrap()).collect();
+        assert_eq!(active, [true, false, false]);
+        let _ = b;
+        assert!(h.session.can_undo());
+        // Un clip qui n'est pas une prise : refusé, sans déplacement.
+        let ev = h.remote_take(987_654);
+        assert!(ev.iter().any(|e| matches!(e, Event::Error { .. })));
     }
 }
