@@ -72,7 +72,18 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    /// Charge la bibliothèque et appelle `clap_entry.init`. Sous macOS tout cela se fait **sur le fil principal de l'application** (voir
+    /// `main_thread`), comme la création des plugins : les plugins JUCE rattachent leur fil de messages au fil qui les initialise.
     pub fn open(path: &Path) -> Result<Bundle, LoadError> {
+        struct Out(Result<Bundle, LoadError>);
+        // SAFETY: un `Bundle` ne contient qu'un pointeur vers l'entrée statique du plugin, valide tant que la bibliothèque est chargée (et elle
+        // l'est : elle appartient au `Bundle`) ; il est déjà partagé entre fils (`Arc<Bundle>`).
+        unsafe impl Send for Out {}
+        let path = path.to_owned();
+        main_thread::run(move || Out(Bundle::open_here(&path))).map(|o| o.0).unwrap_or(Err(LoadError::Load("fil principal indisponible".into())))
+    }
+
+    fn open_here(path: &Path) -> Result<Bundle, LoadError> {
         let cpath = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| LoadError::BadPath)?;
         // Sous macOS un `.clap` est un dossier (bundle) : on charge l'exécutable qu'il contient, et on garde le chemin du bundle
         // pour `init`, comme l'exige la spécification.
@@ -162,12 +173,22 @@ impl Bundle {
 
 impl Drop for Bundle {
     fn drop(&mut self) {
-        // SAFETY: `entry` est encore valide (la bibliothèque n'est déchargée qu'après, par la destruction de `_lib`).
-        unsafe {
-            if let Some(deinit) = (*self.entry).deinit {
-                deinit();
+        // SAFETY: `entry` est encore valide (la bibliothèque n'est déchargée qu'après, par la destruction de `_lib`). `deinit` répond à `init` :
+        // sur le fil principal sous macOS (voir `open`). Si l'exécuteur refuse la tâche (application qui se ferme), rien n'est fait.
+        struct Entry(*const clap_plugin_entry);
+        // SAFETY: l'appelant attend la fin de la tâche ; le pointeur reste valide.
+        unsafe impl Send for Entry {}
+        impl Entry {
+            fn get(&self) -> *const clap_plugin_entry {
+                self.0
             }
         }
+        let e = Entry(self.entry);
+        let _ = main_thread::run(move || unsafe {
+            if let Some(deinit) = (*e.get()).deinit {
+                deinit();
+            }
+        });
     }
 }
 

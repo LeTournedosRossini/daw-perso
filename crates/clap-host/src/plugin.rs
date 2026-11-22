@@ -619,22 +619,25 @@ impl Drop for Core {
     fn drop(&mut self) {
         self.gui_destroy(); // la spécification exige de détruire l'interface avant le plugin
         let life = self.life.load(Ordering::Acquire);
-        // SAFETY: `raw` valide et jamais utilisé après ; arrêt dans l'ordre imposé par la spécification.
-        unsafe {
+        // SAFETY: `raw` valide et jamais utilisé après ; arrêt dans l'ordre imposé par la spécification, sur le fil principal (voir `activate`).
+        // Si l'exécuteur refuse la tâche (application qui se ferme) l'instance n'est pas détruite : le processus s'arrête de toute façon.
+        let rp = SendPtr(self.raw as *const clap_plugin);
+        let _ = crate::main_thread::run(move || unsafe {
+            let raw = rp.get();
             if life >= 2 {
-                if let Some(s) = (*self.raw).stop_processing {
-                    s(self.raw);
+                if let Some(s) = (*raw).stop_processing {
+                    s(raw);
                 }
             }
             if life >= 1 {
-                if let Some(d) = (*self.raw).deactivate {
-                    d(self.raw);
+                if let Some(d) = (*raw).deactivate {
+                    d(raw);
                 }
             }
-            if let Some(d) = (*self.raw).destroy {
-                d(self.raw);
+            if let Some(d) = (*raw).destroy {
+                d(raw);
             }
-        }
+        });
     }
 }
 
@@ -1217,8 +1220,23 @@ fn zeroed_slot() -> Slot {
     Slot::Param(unsafe { std::mem::zeroed() })
 }
 
+/// Pointeur brut qu'on confie à une tâche du « fil principal » (voir `main_thread`). L'appelant attend la fin de la tâche : le pointeur reste
+/// valide pendant tout son usage. `get` oblige la fermeture à capturer la structure entière (et non son champ, qui n'est pas `Send`).
+struct SendPtr<T>(*const T);
+// SAFETY: voir ci-dessus ; le pointeur n'est utilisé que par la tâche, pendant que l'appelant attend.
+unsafe impl<T> Send for SendPtr<T> {}
+impl<T> SendPtr<T> {
+    fn get(&self) -> *const T {
+        self.0
+    }
+}
+
 impl Plugin {
     /// Crée l'instance et appelle `init` (fil principal).
+    ///
+    /// Sous macOS la création et `init` **partent sur le fil principal de l'application** (voir `main_thread`) : les plugins JUCE rattachent leur
+    /// « fil de messages » au fil qui les crée, et l'interface (`gui.create`, toujours sur le fil principal) l'attendrait alors à jamais si
+    /// le plugin avait été créé sur le fil moteur, qui ne fait tourner aucune boucle d'événements d'AppKit.
     pub fn instantiate(bundle: &Arc<Bundle>, plugin_id: &str) -> Result<Plugin, PluginError> {
         let id = std::ffi::CString::new(plugin_id).map_err(|_| PluginError::UnknownPlugin)?;
         let factory = bundle.factory().ok_or(PluginError::CreateFailed)?;
@@ -1244,17 +1262,25 @@ impl Plugin {
         });
         let out_events = Box::new(clap_output_events { ctx: &*shared as *const HostShared as *mut c_void, try_push: Some(out_events_try_push) });
 
-        // SAFETY: `factory` valide tant que le bundle vit ; `host` reste à la même adresse jusqu'à la destruction de l'instance.
-        let raw = unsafe {
-            let f = &*factory;
-            let create = f.create_plugin.ok_or(PluginError::CreateFailed)?;
-            create(factory, &*host, id.as_ptr())
-        };
+        // SAFETY (tâche) : `factory` est valide tant que le bundle vit ; `host` et `id` restent valides jusqu'à la fin de la tâche, que l'appelant
+        // attend ; `host` garde la même adresse jusqu'à la destruction de l'instance.
+        let (fp, hp, ip) = (SendPtr(factory), SendPtr(&*host as *const clap_host), SendPtr(id.as_ptr()));
+        let (rawp, inited) = crate::main_thread::run(move || unsafe {
+            let f = &*fp.get();
+            let Some(create) = f.create_plugin else { return (SendPtr(std::ptr::null::<clap_plugin>()), false) };
+            let raw = create(fp.get(), hp.get(), ip.get());
+            if raw.is_null() {
+                return (SendPtr(raw), false);
+            }
+            // `raw` vient d'être créé et n'a pas encore reçu `init`.
+            let inited = (*raw).init.map_or(false, |init| init(raw));
+            (SendPtr(raw), inited)
+        })
+        .ok_or(PluginError::CreateFailed)?;
+        let raw = rawp.get();
         if raw.is_null() {
             return Err(PluginError::UnknownPlugin);
         }
-        // SAFETY: `raw` vient d'être créé et n'a pas encore reçu `init`.
-        let inited = unsafe { (*raw).init.map_or(false, |init| init(raw)) };
         // Le noyau possède désormais le plugin : même si `init` a échoué, sa destruction (exigée par la spécification)
         // se fait à la disparition du noyau.
         let core = Arc::new(Core { raw, life: std::sync::atomic::AtomicU8::new(0), _host: host, shared, gui_open: AtomicBool::new(false), _bundle: Arc::clone(bundle) });
@@ -1346,8 +1372,10 @@ impl Plugin {
         if self.life != Life::Created {
             return Err(PluginError::State("déjà activé"));
         }
-        // SAFETY: `raw` valide, état Created.
-        let ok = unsafe { (*self.core.raw).activate.map_or(false, |a| a(self.core.raw, sample_rate, 1, max_frames.max(1))) };
+        // SAFETY: `raw` valide, état Created ; `activate` est un appel « fil principal » de la spécification (fil principal sous macOS).
+        let rp = SendPtr(self.core.raw as *const clap_plugin);
+        let frames = max_frames.max(1);
+        let ok = crate::main_thread::run(move || unsafe { (*rp.get()).activate.map_or(false, |a| a(rp.get(), sample_rate, 1, frames)) }).unwrap_or(false);
         if !ok {
             return Err(PluginError::ActivateFailed);
         }
@@ -1363,12 +1391,13 @@ impl Plugin {
     pub fn deactivate(&mut self) {
         self.stop_processing();
         if self.life == Life::Activated {
-            // SAFETY: `raw` valide, état Activated.
-            unsafe {
-                if let Some(d) = (*self.core.raw).deactivate {
-                    d(self.core.raw);
+            // SAFETY: `raw` valide, état Activated ; appel « fil principal » (voir `activate`).
+            let rp = SendPtr(self.core.raw as *const clap_plugin);
+            let _ = crate::main_thread::run(move || unsafe {
+                if let Some(d) = (*rp.get()).deactivate {
+                    d(rp.get());
                 }
-            }
+            });
             self.set_life(Life::Created);
         }
     }

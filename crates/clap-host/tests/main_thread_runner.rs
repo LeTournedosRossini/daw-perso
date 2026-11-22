@@ -31,7 +31,12 @@ fn every_interface_call_runs_on_the_main_thread_and_blocks_until_done() {
     assert!(main_thread::has_runner());
 
     let bundle = Arc::new(Bundle::from_static_entry(daw_test_plugin::entry()).unwrap());
-    let p = Plugin::instantiate(&bundle, PLUGIN_ID.to_str().unwrap()).unwrap();
+    // Création et `init` partent aussi sur le fil principal (les plugins JUCE y rattachent leur fil de messages), puis `activate`.
+    let created = JOBS.load(Ordering::SeqCst);
+    let mut p = Plugin::instantiate(&bundle, PLUGIN_ID.to_str().unwrap()).unwrap();
+    assert_eq!(JOBS.load(Ordering::SeqCst) - created, 1, "création + init : un seul envoi");
+    p.activate(48_000.0, 64).unwrap();
+    assert_eq!(JOBS.load(Ordering::SeqCst) - created, 2, "activation sur le fil principal");
     let h = p.handle();
     gui::clear_log();
 
@@ -67,6 +72,13 @@ fn every_interface_call_runs_on_the_main_thread_and_blocks_until_done() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(gui::take_log().iter().any(|l| l.starts_with("timer")), "le minuteur {id} a battu");
+    assert_eq!(ON_MAIN.load(Ordering::SeqCst), JOBS.load(Ordering::SeqCst));
+    // Désactivation et destruction reviennent aussi sur le fil principal.
+    let before_drop = JOBS.load(Ordering::SeqCst);
+    p.deactivate();
+    drop(p);
+    drop(h);
+    assert!(JOBS.load(Ordering::SeqCst) - before_drop >= 2, "deactivate et destroy sur le fil principal");
     assert_eq!(ON_MAIN.load(Ordering::SeqCst), JOBS.load(Ordering::SeqCst));
     drop(main); // la boucle s'arrête avec le processus de test
 }
