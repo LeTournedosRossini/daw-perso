@@ -303,6 +303,9 @@
   #laypanel h3 { margin: 8px 0 4px; font-size: 13px; opacity: .8; }
   #laypanel label { display: flex; gap: 8px; align-items: center; padding: 7px 0; font-size: 15px; }
   #laypanel label input { width: 20px; height: 20px; }
+  #laypanel .lay-tp { display: flex; gap: 6px; align-items: center; margin: 8px 0; }
+  #laypanel .lay-tp span { flex: 1; font-size: 14px; }
+  #laypanel .lay-tp button { width: 38px; height: 34px; }
   #laypanel .lay-top { display: flex; justify-content: space-between; align-items: center; }
 
   /* Vue « Grille » (comme la page Structure du lecteur multipiste) : une carte par section, une case par mesure */
@@ -495,6 +498,24 @@ function buildGroup(g) {
 
 
 // Accords qui passent : l'état donne la position et la liste des accords à venir ; la page prolonge elle-même la position entre deux lectures.
+// Transposition d'affichage (capodastre) : décale tous les accords de N demi-tons sur cette tablette seulement ; mémorisée par adresse.
+const FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+const SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const FLAT_MAJOR = new Set([1, 3, 5, 8, 10]); // Db, Eb, F, Ab, Bb ; un accord mineur : Eb, F, Bb seulement (C#m, F#m, G#m en dièses). Toute la ligne de l'accord (basse comprise) suit
+let tpose = 0;
+try { tpose = Math.max(-11, Math.min(11, Number(localStorage.getItem("tpose-" + location.pathname.replace(/\/$/, ""))) || 0)); } catch { /* pas de mémoire : pas de transposition */ }
+const pcOf = (n, by) => (NOTE_PC[n[0]] + (n[1] === "#" || n[1] === "\u266f" ? 1 : n[1] ? -1 : 0) + by + 120) % 12;
+/** Nom d'accord transposé (`Dm7`, `G7/B` ; `N.C.` et tout ce qui n'est pas un accord reste tel quel). */
+function tr(name) {
+  if (!tpose || !name) return name;
+  const m = /^([A-G][#b\u266f\u266d]?)(.*?)(?:\/([A-G][#b\u266f\u266d]?))?$/.exec(name);
+  if (!m) return name;
+  const root = pcOf(m[1], tpose);
+  const minor = /^m(?!aj)/.test(m[2]);
+  const table = (minor ? [3, 5, 10].includes(root) : FLAT_MAJOR.has(root)) ? FLAT_NAMES : SHARP_NAMES;
+  return table[root] + m[2] + (m[3] ? "/" + table[pcOf(m[3], tpose)] : "");
+}
 let chart = null, chartAt = 0;
 function showChart(c) {
   chart = c ?? null;
@@ -525,14 +546,14 @@ function drawChart() {
   for (let k = 0; k < list.length; k++) if (list[k].at <= pos + 1e-6) i = k;
   const cur = i >= 0 && pos < list[i].end ? list[i] : null;
   const nxt = list[i + 1] ?? (cur ? null : list[0]);
-  el("ch-now").textContent = cur ? cur.name : "—";
-  el("ch-next").textContent = nxt ? "→ " + nxt.name : "";
+  el("ch-now").textContent = cur ? tr(cur.name) : "—";
+  el("ch-next").textContent = nxt ? "→ " + tr(nxt.name) : "";
   const to = nxt ? Math.max(0, (nxt.at - pos) * chart.bpm / 60) : null;
   const soon = chart.playing && to !== null && to <= 2;
   root.classList.toggle("soon", soon);
   el("ch-in").textContent = chart.playing && to !== null && to <= 16 ? "dans " + Math.ceil(to - 1e-6) + " temps" : "";
   el("ch-prog").style.width = (cur ? Math.min(1, Math.max(0, (pos - cur.at) / (cur.end - cur.at))) * 100 : 0) + "%";
-  el("ch-more").textContent = list.slice(i + 2, i + 7).map((c) => c.name).join("   ");
+  el("ch-more").textContent = list.slice(i + 2, i + 7).map((c) => tr(c.name)).join("   ");
 }
 setInterval(drawChart, 100);
 
@@ -572,7 +593,7 @@ function showGrid(grid, remote) {
   if (!has) return;
   gridData = grid;
   gridView.remote = remote;
-  const key = JSON.stringify([songRev, grid.sections.map((x) => [x.name, x.first, x.count]), remote]);
+  const key = JSON.stringify([songRev, tpose, grid.sections.map((x) => [x.name, x.first, x.count]), remote]);
   if (key === gridView.rev) return;
   gridView.rev = key;
   const box = document.getElementById("gridview");
@@ -594,7 +615,7 @@ function showGrid(grid, remote) {
     sec.cells.forEach((names, k) => {
       const c = document.createElement("div");
       c.className = "gcell" + (names.length === 1 && names[0] === prev ? " same" : "") + (names.length > 2 ? " multi" : "");
-      c.textContent = names.join(" ") || "–";
+      c.textContent = names.map(tr).join(" ") || "–";
       if (names.length) prev = names[names.length - 1];
       const bar = sec.first + k;
       if (remote) c.addEventListener("click", () => cmd({ cmd: "bar", bar }));
@@ -641,7 +662,7 @@ function showLyrics(ly, remote) {
   if (!ly || !ly.verses.length) { box.replaceChildren(); lyricsView.key = ""; lyricsView.lines = []; return; }
   const verses = ly.verses.map((v) => v.verse);
   if (lyricsView.verse == null || !verses.includes(lyricsView.verse)) lyricsView.verse = Number(store.get("lyverse-" + base)) && verses.includes(Number(store.get("lyverse-" + base))) ? Number(store.get("lyverse-" + base)) : verses[0];
-  const key = JSON.stringify([songRev, lyricsView.verse, remote]);
+  const key = JSON.stringify([songRev, tpose, lyricsView.verse, remote]);
   if (key === lyricsView.key) return;
   lyricsView.key = key;
   lyricsView.remote = remote;
@@ -661,7 +682,7 @@ function showLyrics(ly, remote) {
       d.className = "lyinst";
       d.innerHTML = '<span class="il">Instrumental</span><small></small><span class="ic"></span>';
       d.querySelector("small").textContent = "mesure" + (it.count > 1 ? "s " + it.bar + "–" + (it.bar + it.count - 1) : " " + it.bar);
-      d.querySelector(".ic").textContent = it.chords.join("  ");
+      d.querySelector(".ic").textContent = it.chords.map(tr).join("  ");
       d.addEventListener("click", seek);
       nodes.push(d);
       lyricsView.lines.push({ el: d, at: it.at, words: [] });
@@ -674,7 +695,7 @@ function showLyrics(ly, remote) {
     const words = it.words.map((w) => {
       const sp = document.createElement("span");
       sp.className = "lw";
-      const c = document.createElement("span"); c.className = "lc"; c.setAttribute("aria-hidden", "true"); c.textContent = w.c ?? "";
+      const c = document.createElement("span"); c.className = "lc"; c.setAttribute("aria-hidden", "true"); c.textContent = w.c ? tr(w.c) : "";
       const t = document.createElement("span"); t.className = "lt"; t.textContent = w.t + " ";
       sp.append(c, t);
       l.append(sp);
@@ -745,6 +766,14 @@ function applyLayout() {
   for (const r of rows.values()) { const n = r.root.querySelector(".name")?.textContent ?? ""; r.root.style.display = off.has(n) ? "none" : ""; }
 }
 new MutationObserver(applyLayout).observe(document.getElementById("list"), { childList: true });
+function applyTranspose() {
+  drawChart();
+  gridView.rev = -1;
+  lyricsView.key = "";
+  if (songData) showGrid(songData.grid, gridView.remote);
+  const t = document.getElementById("title");
+  if (t) t.textContent = (fxState?.name ?? t.textContent.replace(/ · transposé.*$/, "")) + (tpose ? " · transposé " + (tpose > 0 ? "+" : "") + tpose : "");
+}
 function saveLayout() { store.put(layKey, JSON.stringify(layHidden)); applyLayout(); }
 function buildLayPanel() {
   const box = document.getElementById("laypanel");
@@ -767,6 +796,17 @@ function buildLayPanel() {
     l.append(cb, document.createTextNode(label));
     return l;
   };
+  const tp = document.createElement("div");
+  tp.className = "lay-tp";
+  const tpLabel = document.createElement("span");
+  const paintTp = () => { tpLabel.textContent = "Transposition des accords : " + (tpose > 0 ? "+" : "") + tpose + " demi-ton" + (Math.abs(tpose) > 1 ? "s" : ""); };
+  const step = (d) => { tpose = Math.max(-11, Math.min(11, tpose + d)); store.put("tpose-" + base, String(tpose)); paintTp(); applyTranspose(); };
+  const minus = document.createElement("button"); minus.textContent = "−"; minus.setAttribute("aria-label", "Un demi-ton plus bas"); minus.addEventListener("click", () => step(-1));
+  const plus = document.createElement("button"); plus.textContent = "+"; plus.setAttribute("aria-label", "Un demi-ton plus haut"); plus.addEventListener("click", () => step(1));
+  const zero = document.createElement("button"); zero.textContent = "0"; zero.setAttribute("aria-label", "Pas de transposition"); zero.addEventListener("click", () => { tpose = 0; store.put("tpose-" + base, "0"); paintTp(); applyTranspose(); });
+  paintTp();
+  tp.append(tpLabel, minus, plus, zero);
+  box.append(tp);
   for (const [k, label] of LAYOUT_ITEMS) box.append(mk(label, !layHidden.items.includes(k), (on) => { layHidden.items = layHidden.items.filter((x) => x !== k); if (!on) layHidden.items.push(k); saveLayout(); }));
   if (laySources.length) {
     const h = document.createElement("h3");
@@ -808,7 +848,7 @@ async function poll() {
     showMix(st.mix);
     showFx(st);
     document.getElementById("lost").classList.remove("on");
-    document.getElementById("title").textContent = st.name;
+    document.getElementById("title").textContent = st.name + (tpose ? " · transposé " + (tpose > 0 ? "+" : "") + tpose : "");
     document.title = st.name;
     const list = document.getElementById("list");
     const gs = st.groups ?? [];
