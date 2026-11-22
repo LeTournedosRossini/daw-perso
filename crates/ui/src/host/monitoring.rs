@@ -141,7 +141,8 @@ impl Host {
     pub(super) fn monitor_publish(&mut self) {
         let returns = self.monitor_returns();
         let chart = self.chart_state();
-        let grid = self.grid_state();
+        let song = self.song_state();
+        let song_rev = self.monitor.as_mut().map_or(0, |m| m.publish_song(song));
         let g = self.session.graph();
         let mut out = Vec::new();
         for (ret, name) in &returns {
@@ -174,9 +175,7 @@ impl Host {
             if let Some(c) = &chart {
                 state["chart"] = c.clone();
             }
-            if let Some(gr) = &grid {
-                state["grid"] = gr.clone();
-            }
+            state["song_rev"] = song_rev.into();
             if self.monitor_role_expired(*ret) {
                 state["expired"] = true.into();
             }

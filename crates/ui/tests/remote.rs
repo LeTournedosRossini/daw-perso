@@ -87,6 +87,13 @@ impl Rig {
         self.settle();
     }
 
+    /// La grille et les paroles du morceau, servies à part de l'état (`GET …/song`).
+    fn song(&self) -> serde_json::Value {
+        let (status, body) = http(self.port, "GET", &format!("{}/song", self.path), "");
+        assert_eq!(status, 200);
+        serde_json::from_str(&body).unwrap()
+    }
+
     fn state(&self) -> serde_json::Value {
         let (status, body) = http(self.port, "GET", &format!("{}/state", self.path), "");
         assert_eq!(status, 200);
@@ -740,7 +747,7 @@ fn the_grid_view_gives_one_card_per_section_and_one_cell_per_bar_and_a_bar_can_b
     let mut rig = Rig::new();
     // Sans accord : une grille de cases vides pour chaque section (Intro et Refrain de quatre mesures chacune).
     rig.settle();
-    let g = rig.state()["grid"].clone();
+    let g = rig.song()["song"]["grid"].clone();
     let secs = g["sections"].as_array().unwrap();
     assert_eq!(secs.len(), 2);
     assert_eq!((secs[0]["name"].clone(), secs[0]["first"].clone(), secs[0]["count"].clone()), ("Intro".into(), 1.into(), 4.into()));
@@ -764,7 +771,7 @@ fn the_grid_view_gives_one_card_per_section_and_one_cell_per_bar_and_a_bar_can_b
     let ev = rig.h.command_json(&serde_json::json!({ "type": "set_chords", "track": track }).to_string());
     assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
     rig.settle();
-    let g = rig.state()["grid"].clone();
+    let g = rig.song()["song"]["grid"].clone();
     let cells = |s: usize| -> Vec<Vec<String>> { g["sections"][s]["cells"].as_array().unwrap().iter().map(|c| c.as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect()).collect() };
     let owned = |v: &[&[&str]]| -> Vec<Vec<String>> { v.iter().map(|c| c.iter().map(|s| s.to_string()).collect()).collect() };
     assert_eq!(cells(0), owned(&[&["Dm7"], &["G7/B"], &["CM7"], &["N.C."]]));
@@ -778,4 +785,54 @@ fn the_grid_view_gives_one_card_per_section_and_one_cell_per_bar_and_a_bar_can_b
     assert_eq!(rig.state()["chart"]["pos"], 4.0);
     assert_eq!(rig.cmd(r#"{"cmd":"bar","bar":0}"#), 400);
     assert_eq!(rig.cmd(r#"{"cmd":"bar"}"#), 400);
+}
+
+#[test]
+fn the_lyrics_view_gives_lines_of_words_with_their_chords_and_instrumental_blocks() {
+    let mut rig = Rig::new();
+    rig.settle();
+    assert!(rig.song()["song"]["lyrics"].is_null(), "pas de paroles : rien");
+    let rev0 = rig.state()["song_rev"].as_u64().unwrap();
+    // Accords : Dm7 une mesure sur deux, G7 sinon, sur les 8 mesures. Paroles : « ma-man est » dans la mesure 1, « la plus belle » mesure 2,
+    // rien aux mesures 3 et 4 (instrumental), « chan-te » au début du refrain (mesure 5).
+    let chords: Vec<serde_json::Value> = (0..8).map(|k| serde_json::json!({ "at": [k, 1], "dur": [1, 1], "root": if k % 2 == 0 { "D" } else { "G" }, "quality": if k % 2 == 0 { "m7" } else { "7" }, "bass": null })).collect();
+    let track = serde_json::json!({ "format": "flibuste-carte", "version": 1, "chords": chords });
+    rig.h.command_json(&serde_json::json!({ "type": "set_chords", "track": track }).to_string());
+    let syl = |at: [i64; 2], text: &str, hyphen: bool, verse: u8| serde_json::json!({ "at": at, "text": text, "hyphen": hyphen, "verse": verse });
+    let syllables = serde_json::json!([
+        syl([0, 1], "ma", true, 1), syl([1, 4], "man", false, 1), syl([1, 2], "est", false, 1),
+        syl([1, 1], "la", false, 1), syl([5, 4], "plus", false, 1), syl([3, 2], "belle", false, 1),
+        syl([4, 1], "chan", true, 1), syl([17, 4], "te", false, 1),
+        syl([0, 1], "deuxième", false, 2)
+    ]);
+    let ev = rig.h.command_json(&serde_json::json!({ "type": "set_lyrics", "syllables": syllables }).to_string());
+    assert!(!ev.iter().any(|e| matches!(e, Event::Error { .. })), "{ev:?}");
+    rig.settle();
+    assert!(rig.state()["song_rev"].as_u64().unwrap() > rev0, "le numéro de version change avec le contenu");
+    let l = rig.song()["song"]["lyrics"].clone();
+    let verses = l["verses"].as_array().unwrap();
+    assert_eq!(verses.len(), 2);
+    let items = verses[0]["items"].as_array().unwrap();
+    let kinds: Vec<&str> = items.iter().map(|i| i["k"].as_str().unwrap()).collect();
+    // Intro : deux lignes de deux mesures (« ma-man est la plus belle » se coupe à la mesure 3 ; ici une ligne par paire de mesures), puis un
+    // refrain qui commence à la mesure 5.
+    assert_eq!(kinds, ["line", "inst", "line", "inst"], "{items:?}");
+    let words = |i: usize| -> Vec<String> { items[i]["words"].as_array().unwrap().iter().map(|w| w["t"].as_str().unwrap().to_owned()).collect() };
+    assert_eq!(words(0), ["maman", "est", "la", "plus", "belle"]);
+    assert_eq!(words(2), ["chante"]);
+    assert_eq!(items[0]["section"], "Intro");
+    assert_eq!(items[2]["section"], "Refrain");
+    assert_eq!(items[0]["words"][0]["c"], "Dm7", "le premier mot porte son accord");
+    assert!(items[0]["words"][1]["c"].is_null(), "pas d'accord répété tant qu'il ne change pas");
+    assert_eq!(items[0]["words"][2]["c"], "G7", "« la » ouvre la mesure 2 : l'accord change");
+    assert!(items[0]["words"][3]["c"].is_null(), "« plus » reste sur G7");
+    assert_eq!((items[1]["bar"].as_u64(), items[1]["count"].as_u64()), (Some(3), Some(2)), "mesures 3 et 4 sans chant");
+    assert_eq!(items[1]["chords"], serde_json::json!(["Dm7", "G7"]));
+    assert_eq!(items[0]["at"], 0.0);
+    assert_eq!(items[2]["bar"], 5);
+    let last = &items[3];
+    assert_eq!((last["bar"].as_u64(), last["count"].as_u64()), (Some(6), Some(3)), "mesures 6 à 8 sans chant");
+    // Le couplet 2 a son propre jeu de lignes.
+    assert_eq!(verses[1]["verse"], 2);
+    assert_eq!(verses[1]["items"][0]["words"][0]["t"], "deuxième");
 }

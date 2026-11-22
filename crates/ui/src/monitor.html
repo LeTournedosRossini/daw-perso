@@ -312,7 +312,28 @@
   #viewsw button[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
   #gridview { display: none; gap: 10px; }
   body.view-grid #gridview { display: grid; }
-  body.view-grid #list, body.view-grid #hint, body.view-grid #clickrow { display: none !important; }
+  body.view-grid #list, body.view-grid #hint, body.view-grid #clickrow, body.view-lyrics #list, body.view-lyrics #hint, body.view-lyrics #clickrow { display: none !important; }
+  #lyricsview { display: none; }
+  body.view-lyrics #lyricsview { display: block; }
+  body.tab-mix #lyricsview { display: none; }
+  #lyricsview .lybar { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  #lyricsview .lybar button { height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  #lyricsview .lybar button[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lysec { margin: 12px 0 2px; font-size: 12px; opacity: .65; text-transform: uppercase; letter-spacing: .04em; }
+  .lyline { display: block; padding: 6px 8px 6px 10px; border-left: 4px solid transparent; border-radius: 4px; font-size: 1.1rem; line-height: 1.25; cursor: pointer; }
+  .lyline.cur { border-left-color: var(--accent); font-weight: 700; font-size: 1.25rem; }
+  .lyline.has-ch { padding-top: 8px; }
+  .lw { display: inline-flex; flex-direction: column; vertical-align: bottom; white-space: pre; }
+  .lw .lc { color: var(--accent); font-weight: 700; font-size: .85em; line-height: 1.3; padding-right: .3em; }
+  .lyline.has-ch .lc { min-height: 1.3em; }
+  .lw.sung .lt { color: var(--accent); }
+  body.ly-nochords .lw .lc { display: none; }
+  body.ly-nochords .lw { display: inline; white-space: normal; }
+  .lyinst { padding: 8px 10px; margin: 4px 0; border: 1px dashed var(--line); border-radius: 8px; opacity: .85; cursor: pointer; }
+  .lyinst.cur { border-style: solid; border-color: var(--accent); }
+  .lyinst .il { font-weight: 700; }
+  .lyinst .ic { color: var(--accent); font-weight: 700; margin-left: 8px; }
+  .lyinst small { opacity: .65; margin-left: 6px; }
   body.tab-mix #viewsw, body.tab-mix #gridview { display: none; }
   .gcard { border: 1px solid var(--line); border-left: 8px solid var(--c, var(--accent)); border-radius: 12px; background: var(--panel); padding: 8px 10px; }
   .gcard.cur { box-shadow: inset 0 0 0 2px var(--c, var(--accent)); }
@@ -332,7 +353,8 @@
 <div id="laypanel" role="dialog" aria-label="Affichage"></div>
 <p id="hint">Règle le niveau de chaque source dans ton casque. M coupe, S isole (pour toi seulement).</p>
 <div id="chart" aria-label="Accords"><div class="ch-top"><span class="ch-sec" id="ch-sec"></span><span id="ch-sec2"></span><span class="ch-pos" id="ch-pos"></span></div><div class="ch-main"><span class="ch-now" id="ch-now"></span><span class="ch-next" id="ch-next"></span><span class="ch-in" id="ch-in"></span></div><div class="ch-bar"><i id="ch-prog"></i></div><div class="ch-more" id="ch-more"></div></div>
-<div id="viewsw" role="group" aria-label="Vue"><button id="vw-mix" aria-pressed="true">Mix</button><button id="vw-grid" aria-pressed="false">Grille</button></div>
+<div id="viewsw" role="group" aria-label="Vue"><button id="vw-mix" aria-pressed="true">Mix</button><button id="vw-grid" aria-pressed="false">Grille</button><button id="vw-lyrics" aria-pressed="false" hidden>Paroles</button></div>
+<div id="lyricsview" aria-label="Paroles"></div>
 <div id="gridview" aria-label="Grille du morceau"></div>
 <div id="clickrow"><span>♩ Clic</span><input id="click-lvl" type="range" min="-60" max="6" step="1" aria-label="Niveau du clic dans mon casque"><output id="click-out"></output></div>
 <div id="expired">Les droits de cette adresse (télécommande, régie) ont expiré : elle ne règle plus que ce retour. Demande à la personne qui gère le logiciel de les renouveler.</div>
@@ -517,23 +539,40 @@ setInterval(drawChart, 100);
 // ---- Vue « Grille » : une carte par section, une case par mesure avec son accord ; la mesure qui joue est en couleur ---------------------------
 const gridView = { rev: -1, cells: [], cards: [], cur: null, mark: null, remote: false };
 let gridData = null;
-function setView(grid) {
-  document.body.classList.toggle("view-grid", grid);
-  document.getElementById("vw-mix").setAttribute("aria-pressed", grid ? "false" : "true");
-  document.getElementById("vw-grid").setAttribute("aria-pressed", grid ? "true" : "false");
-  store.put("view-" + base, grid ? "grid" : "mix");
+let songData = null, songRev = -1, songFetching = false;
+function setView(view) {
+  document.body.classList.toggle("view-grid", view === "grid");
+  document.body.classList.toggle("view-lyrics", view === "lyrics");
+  for (const [id, v] of [["vw-mix", "mix"], ["vw-grid", "grid"], ["vw-lyrics", "lyrics"]]) document.getElementById(id).setAttribute("aria-pressed", view === v ? "true" : "false");
+  store.put("view-" + base, view);
   paintGrid();
+  lyricsPaint(true);
 }
-document.getElementById("vw-mix").addEventListener("click", () => setView(false));
-document.getElementById("vw-grid").addEventListener("click", () => setView(true));
+document.getElementById("vw-mix").addEventListener("click", () => setView("mix"));
+document.getElementById("vw-grid").addEventListener("click", () => setView("grid"));
+document.getElementById("vw-lyrics").addEventListener("click", () => setView("lyrics"));
+async function fetchSong(rev) {
+  if (songFetching) return;
+  songFetching = true;
+  try {
+    const res = await fetch(base + "/song", { cache: "no-store" });
+    if (res.ok) { const d = await res.json(); songData = d.song; songRev = d.rev; gridView.rev = -1; lyricsView.key = ""; }
+  } catch { /* nouvelle tentative au prochain état */ }
+  songFetching = false;
+}
 function showGrid(grid, remote) {
   const has = !!grid && grid.sections.length > 0;
-  document.getElementById("viewsw").classList.toggle("on", has);
-  if (!has) { document.body.classList.remove("view-grid"); gridData = null; document.getElementById("gridview").replaceChildren(); gridView.rev = -1; return; }
+  const hasLy = !!songData?.lyrics?.verses?.length;
+  document.getElementById("viewsw").classList.toggle("on", has || hasLy);
+  document.getElementById("vw-grid").hidden = !has;
+  document.getElementById("vw-lyrics").hidden = !hasLy;
+  showLyrics(songData?.lyrics, remote);
+  if (!has) { document.body.classList.remove("view-grid"); gridData = null; document.getElementById("gridview").replaceChildren(); gridView.rev = -1; }
+  if (!showGrid.init && (has || hasLy)) { showGrid.init = true; const v = store.get("view-" + base); setView(v === "grid" && has ? "grid" : v === "lyrics" && hasLy ? "lyrics" : "mix"); }
+  if (!has) return;
   gridData = grid;
   gridView.remote = remote;
-  if (!showGrid.init) { showGrid.init = true; setView(store.get("view-" + base) === "grid"); }
-  const key = JSON.stringify([grid.rev, grid.sections.map((x) => [x.name, x.first, x.count]), remote]);
+  const key = JSON.stringify([songRev, grid.sections.map((x) => [x.name, x.first, x.count]), remote]);
   if (key === gridView.rev) return;
   gridView.rev = key;
   const box = document.getElementById("gridview");
@@ -592,6 +631,78 @@ function paintGrid() {
   }
 }
 setInterval(paintGrid, 100);
+
+// ---- Vue « Paroles » : lignes de texte, accord au-dessus du mot, ligne en cours en gras, mots chantés en couleur -----------------------------
+const lyricsView = { key: "", verse: null, lines: [], cur: null, remote: false };
+let lyNoChords = store.get("lynochords-" + base) === "1";
+document.body.classList.toggle("ly-nochords", lyNoChords);
+function showLyrics(ly, remote) {
+  const box = document.getElementById("lyricsview");
+  if (!ly || !ly.verses.length) { box.replaceChildren(); lyricsView.key = ""; lyricsView.lines = []; return; }
+  const verses = ly.verses.map((v) => v.verse);
+  if (lyricsView.verse == null || !verses.includes(lyricsView.verse)) lyricsView.verse = Number(store.get("lyverse-" + base)) && verses.includes(Number(store.get("lyverse-" + base))) ? Number(store.get("lyverse-" + base)) : verses[0];
+  const key = JSON.stringify([songRev, lyricsView.verse, remote]);
+  if (key === lyricsView.key) return;
+  lyricsView.key = key;
+  lyricsView.remote = remote;
+  lyricsView.lines = [];
+  lyricsView.cur = null;
+  const bar = document.createElement("div");
+  bar.className = "lybar";
+  const mk = (label, pressed, click) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", pressed ? "true" : "false"); b.addEventListener("click", click); return b; };
+  if (verses.length > 1) for (const v of verses) bar.append(mk("Couplet " + v, v === lyricsView.verse, () => { lyricsView.verse = v; store.put("lyverse-" + base, String(v)); lyricsView.key = ""; showLyrics(songData?.lyrics, remote); }));
+  bar.append(mk("Accords", !lyNoChords, () => { lyNoChords = !lyNoChords; store.put("lynochords-" + base, lyNoChords ? "1" : "0"); document.body.classList.toggle("ly-nochords", lyNoChords); lyricsView.key = ""; showLyrics(songData?.lyrics, remote); }));
+  const nodes = [bar];
+  let lastSection = null;
+  for (const it of ly.verses.find((v) => v.verse === lyricsView.verse).items) {
+    const seek = () => { if (remote) cmd({ cmd: "bar", bar: it.bar }); };
+    if (it.k === "inst") {
+      const d = document.createElement("div");
+      d.className = "lyinst";
+      d.innerHTML = '<span class="il">Instrumental</span><small></small><span class="ic"></span>';
+      d.querySelector("small").textContent = "mesure" + (it.count > 1 ? "s " + it.bar + "–" + (it.bar + it.count - 1) : " " + it.bar);
+      d.querySelector(".ic").textContent = it.chords.join("  ");
+      d.addEventListener("click", seek);
+      nodes.push(d);
+      lyricsView.lines.push({ el: d, at: it.at, words: [] });
+      continue;
+    }
+    if (it.section && it.section !== lastSection) { const h = document.createElement("div"); h.className = "lysec"; h.textContent = it.section; nodes.push(h); }
+    lastSection = it.section ?? lastSection;
+    const l = document.createElement("div");
+    l.className = "lyline" + (it.words.some((w) => w.c) ? " has-ch" : "");
+    const words = it.words.map((w) => {
+      const sp = document.createElement("span");
+      sp.className = "lw";
+      const c = document.createElement("span"); c.className = "lc"; c.setAttribute("aria-hidden", "true"); c.textContent = w.c ?? "";
+      const t = document.createElement("span"); t.className = "lt"; t.textContent = w.t + " ";
+      sp.append(c, t);
+      l.append(sp);
+      return { el: sp, at: w.at };
+    });
+    l.addEventListener("click", seek);
+    nodes.push(l);
+    lyricsView.lines.push({ el: l, at: it.at, words });
+  }
+  document.getElementById("lyricsview").replaceChildren(...nodes);
+}
+function lyricsPaint(force) {
+  if (!document.body.classList.contains("view-lyrics") || !chart || !lyricsView.lines.length) return;
+  const pos = chart.pos + (chart.playing ? (performance.now() - chartAt) / 1000 : 0);
+  let i = -1;
+  for (let k = 0; k < lyricsView.lines.length; k++) if (lyricsView.lines[k].at <= pos + 1e-6) i = k;
+  const hit = i >= 0 ? lyricsView.lines[i] : null;
+  if (hit?.el !== lyricsView.cur || force) {
+    lyricsView.cur?.classList.remove("cur");
+    lyricsView.cur = hit?.el ?? null;
+    lyricsView.cur?.classList.add("cur");
+    const r = lyricsView.cur?.getBoundingClientRect();
+    if (r && (r.top < 80 || r.bottom > innerHeight - 140)) lyricsView.cur.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }
+  if (hit) for (const w of hit.words) w.el.classList.toggle("sung", w.at <= pos + 1e-6);
+}
+setInterval(lyricsPaint, 100);
+
 
 
 // Niveau du clic du métronome dans mon casque (tout à gauche : plus de clic). Chaque musicien règle le sien.
@@ -689,7 +800,8 @@ async function poll() {
     layoutTablet();
     laySources = [...new Set(st.sources.map((x) => x.name))];
     showChart(st.chart);
-    showGrid(st.grid, !!st.remote);
+    if (st.song_rev !== songRev) fetchSong(st.song_rev);
+    showGrid(songData?.grid, !!st.remote);
     showClick(st.click_db);
     showRemote(st.remote);
     showTabs(!!st.mix);

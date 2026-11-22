@@ -144,7 +144,121 @@ impl Host {
             }
             sections.push(serde_json::json!({ "index": index, "name": name, "color": color, "first": first + 1, "count": count, "at": secs(at)?, "cells": cells }));
         }
-        Some(serde_json::json!({ "rev": self.session.chord_revision(), "sections": sections }))
+        Some(serde_json::json!({ "sections": sections }))
+    }
+
+    /// Les paroles du morceau en lignes de texte avec leurs accords, pour la vue « Paroles » des tablettes (comme la page Paroles du lecteur
+    /// multipiste de l'école). Les syllabes n'ont pas de notion de ligne : une ligne commence à chaque section, toutes les deux mesures à partir du
+    /// début de la section, et après une mesure vide au moins. Un mot réunit les syllabes liées par un tiret. Entre les lignes, un passage sans chant
+    /// de deux mesures ou plus devient un bloc « instrumental » avec ses accords. Un jeu par couplet. `None` sans paroles.
+    pub(super) fn lyrics_state(&self) -> Option<serde_json::Value> {
+        use daw_core_types::time::Frac;
+        let syl = self.session.lyrics();
+        if syl.is_empty() {
+            return None;
+        }
+        let track = self.session.chord_track();
+        let structure = self.session.structure();
+        let rate = self.session.sample_rate();
+        let (tm, mm) = (self.session.tempo_map(), self.session.meter_map());
+        let secs = |f: Frac| tm.to_samples(f, rate).map(|s| s as f64 / f64::from(rate)).unwrap_or(0.0);
+        let bar_of = |f: Frac| mm.locate(f).map_or(0, |(b, _)| b);
+        let chord_at = |f: Frac| track.chords.iter().find(|c| c.start <= f && c.start.checked_add(c.len).is_some_and(|e| f < e)).map(chord_label);
+        let chords_in_bars = |from: u32, count: u32| -> Vec<String> {
+            let (Some(bs), Some(be)) = (mm.bar_start(from), mm.bar_start(from + count)) else { return Vec::new() };
+            let mut names: Vec<String> = Vec::new();
+            for c in track.chords.iter().filter(|c| c.start < be && c.start.checked_add(c.len).is_some_and(|e| e > bs)) {
+                let n = chord_label(c);
+                if names.last() != Some(&n) {
+                    names.push(n);
+                }
+            }
+            names
+        };
+        // La section d'un instant : (indice, première mesure de la section).
+        let section_of = |f: Frac| structure.iter().position(|s| s.at <= f && s.at.checked_add(s.dur).is_some_and(|e| f < e)).map(|i| (i, bar_of(structure[i].at)));
+        // Dernière mesure qui contient un accord (la fin exacte d'un accord appartient à la mesure suivante).
+        let song_end_bar = track.chords.iter().filter_map(|c| c.start.checked_add(c.len)).max().and_then(|e| mm.locate(e).map(|(b, w)| if w == Frac::ZERO { b.saturating_sub(1) } else { b }));
+        let mut verses: Vec<u8> = syl.iter().map(|s| s.verse).collect();
+        verses.sort_unstable();
+        verses.dedup();
+        let mut out = Vec::new();
+        let mut total_words = 0usize;
+        for verse in verses {
+            // Les mots du couplet : (début, texte, première mesure).
+            let mut words: Vec<(Frac, String)> = Vec::new();
+            let mut open: Option<(Frac, String)> = None;
+            for s in syl.iter().filter(|s| s.verse == verse) {
+                let w = open.get_or_insert((s.at, String::new()));
+                w.1.push_str(&s.text);
+                if !s.hyphen {
+                    words.push(open.take().unwrap());
+                }
+            }
+            words.extend(open);
+            total_words += words.len();
+            if total_words > 6_000 {
+                break;
+            }
+            // Les lignes.
+            let mut lines: Vec<Vec<(Frac, String)>> = Vec::new();
+            let mut prev: Option<(Frac, Option<(usize, u32)>)> = None;
+            for (at, text) in words {
+                let sec = section_of(at);
+                let bar = bar_of(at);
+                let brk = match prev {
+                    None => true,
+                    Some((pat, psec)) => {
+                        let pbar = bar_of(pat);
+                        let key = |sec: Option<(usize, u32)>, b: u32| sec.map_or(b / 2, |(_, first)| b.saturating_sub(first) / 2);
+                        sec.map(|x| x.0) != psec.map(|x| x.0) || key(sec, bar) != key(psec, pbar) || bar.saturating_sub(pbar) >= 2
+                    }
+                };
+                if brk {
+                    lines.push(Vec::new());
+                }
+                lines.last_mut().unwrap().push((at, text));
+                prev = Some((at, sec));
+            }
+            let mut items: Vec<serde_json::Value> = Vec::new();
+            let mut next_free: u32 = 0; // première mesure pas encore couverte
+            let gap = |items: &mut Vec<serde_json::Value>, from: u32, to: u32| {
+                if to >= from + 2 {
+                    let at = mm.bar_start(from).map_or(0.0, &secs);
+                    items.push(serde_json::json!({ "k": "inst", "bar": from + 1, "count": to - from, "at": at, "chords": chords_in_bars(from, to - from) }));
+                }
+            };
+            for line in &lines {
+                let first_bar = bar_of(line[0].0);
+                let last_bar = bar_of(line[line.len() - 1].0);
+                gap(&mut items, next_free, first_bar);
+                let section = section_of(line[0].0).map(|(i, _)| structure[i].name.clone());
+                let mut last_chord: Option<String> = None;
+                let w: Vec<serde_json::Value> = line
+                    .iter()
+                    .map(|(at, text)| {
+                        let c = chord_at(*at);
+                        let shown = c.clone().filter(|n| last_chord.as_ref() != Some(n));
+                        if c.is_some() {
+                            last_chord = c;
+                        }
+                        serde_json::json!({ "t": text, "at": secs(*at), "c": shown })
+                    })
+                    .collect();
+                items.push(serde_json::json!({ "k": "line", "bar": first_bar + 1, "at": secs(line[0].0), "section": section, "words": w }));
+                next_free = last_bar + 1;
+            }
+            if let Some(end) = song_end_bar {
+                gap(&mut items, next_free, end + 1);
+            }
+            out.push(serde_json::json!({ "verse": verse, "items": items }));
+        }
+        Some(serde_json::json!({ "verses": out }))
+    }
+
+    /// Ce que les tablettes vont chercher à part de l'état, parce que c'est lourd et change rarement : la grille et les paroles.
+    pub(super) fn song_state(&self) -> String {
+        serde_json::json!({ "grid": self.grid_state(), "lyrics": self.lyrics_state() }).to_string()
     }
 
     /// Les prises entre lesquelles un musicien peut choisir, pour une tablette à droit de télécommande : par piste, les derniers groupes de

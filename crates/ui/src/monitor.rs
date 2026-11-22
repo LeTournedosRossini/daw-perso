@@ -334,6 +334,8 @@ pub struct JournalEntry {
 struct Shared {
     /// jeton → (nœud du retour, instantané JSON de son mix, rôle).
     returns: HashMap<String, (u32, String, u8)>,
+    /// La grille et les paroles du morceau (communes à tous les retours), avec leur numéro de version.
+    song: (u64, String),
     /// (jeton, route) → seau à jetons.
     buckets: HashMap<(String, &'static str), Bucket>,
     /// client → (début de la minute, demandes à une adresse inconnue).
@@ -460,6 +462,15 @@ impl Monitor {
     }
 
     /// Publie l'instantané JSON du mix d'un retour (ce que la tablette lira).
+    /// Publie la grille et les paroles du morceau ; rend leur numéro de version (qui ne change que si le contenu change).
+    pub fn publish_song(&mut self, json: String) -> u64 {
+        let mut sh = self.shared.lock().unwrap();
+        if sh.song.1 != json {
+            sh.song = (sh.song.0 + 1, json);
+        }
+        sh.song.0
+    }
+
     pub fn publish(&mut self, ret: u32, json: String, role: u8) {
         if let Some(token) = self.tokens.get(&ret) {
             self.shared.lock().unwrap().returns.insert(token.clone(), (ret, json, role));
@@ -566,6 +577,13 @@ fn serve(server: Arc<Server>, shared: Arc<Mutex<Shared>>, tx: Sender<SetRequest>
             (Method::Get, ["r", token, "state"]) => match known(token) {
                 Some((_, json, _)) => Response::from_string(json).with_header(header("Content-Type", "application/json; charset=utf-8")),
                 None => unknown("GET état d'une adresse inconnue"),
+            },
+            (Method::Get, ["r", token, "song"]) => match known(token) {
+                Some(_) => {
+                    let (rev, json) = shared.lock().unwrap().song.clone();
+                    Response::from_string(format!("{{\"rev\":{rev},\"song\":{json}}}")).with_header(header("Content-Type", "application/json; charset=utf-8"))
+                }
+                None => unknown("GET morceau d'une adresse inconnue"),
             },
             (Method::Post, ["r", token, "cmd"]) => post(&mut req, &shared, &tx, ip, token, "cmd"),
             (Method::Post, ["r", token, "mix"]) => post(&mut req, &shared, &tx, ip, token, "mix"),
