@@ -42,6 +42,8 @@ pub enum SetRequest {
     Mix { ret: u32, cmd: MixCmd },
     /// Réglages fins : un plugin d'une piste (seulement avec le droit `ROLE_FINE`).
     Fx { ret: u32, cmd: FxCmd },
+    /// Régie : parler / se taire (maintien : à répéter toutes les 500 ms) et/ou viser ou ne plus viser un retour (`target` = (retour, oui/non)).
+    Talk { ret: u32, active: Option<bool>, target: Option<(u32, bool)> },
     /// Régie : muet, solo et/ou niveau (décalage absolu −12 à +12 dB) d'un groupe de **pistes** du projet (seulement avec le droit `ROLE_MIXER`).
     MixGroup { ret: u32, group: u32, mute: Option<bool>, solo: Option<bool>, offset_db: Option<f64> },
 }
@@ -142,6 +144,20 @@ fn parse_fx(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
 }
 
 /// Lit le corps d'un réglage de groupe de la régie : `group` plus au moins un de `mute`, `solo`, `offset_db`.
+/// Lit une demande de talkback d'une tablette de régie : `{ talk: bool }` et/ou `{ talk_target: retour, on: bool }`.
+fn parse_talk(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
+    let active = match v.get("talk") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Bool(b)) => Some(*b),
+        _ => return None,
+    };
+    let target = match v.get("talk_target") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(n) => Some((n.as_u64().filter(|n| *n <= u32::MAX as u64)? as u32, v["on"].as_bool()?)),
+    };
+    (active.is_some() || target.is_some()).then_some(SetRequest::Talk { ret, active, target })
+}
+
 fn parse_mix_group(ret: u32, v: &serde_json::Value) -> Option<SetRequest> {
     let group = v["group"].as_u64().filter(|n| *n <= u32::MAX as u64)? as u32;
     let flag = |k: &str| match &v[k] {
@@ -508,6 +524,7 @@ fn post(req: &mut tiny_http::Request, shared: &Mutex<Shared>, tx: &Sender<SetReq
         "cmd" => parse_remote(&v).map(|cmd| SetRequest::Remote { ret, cmd }),
         "fx" => parse_fx(ret, &v),
         "mix" if v["group"].is_u64() => parse_mix_group(ret, &v),
+        "mix" if v.get("talk").is_some() || v.get("talk_target").is_some() => parse_talk(ret, &v),
         "mix" => parse_mix(&v).map(|cmd| SetRequest::Mix { ret, cmd }),
         _ => parse_request(ret, &v),
     });

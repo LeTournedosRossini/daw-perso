@@ -282,6 +282,12 @@ impl Host {
                 }
                 self.mix_group_request(ret, group, mute, solo, offset_db)
             }
+            SetRequest::Talk { ret, active, target } => {
+                if !self.monitor_valid(ret, None) {
+                    return Vec::new();
+                }
+                self.talk_request(ret, active, target)
+            }
             SetRequest::Mix { ret, cmd } => {
                 if !self.monitor_valid(ret, None) {
                     return Vec::new();

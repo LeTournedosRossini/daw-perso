@@ -1038,3 +1038,12 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 /* Repères nommés (marqueurs posés à la main ou depuis une tablette) : sur la même bande que les marqueurs de tempo. */
 #markers .marker.locator { border-left-color: var(--lc, #e0a030); }
 #markers .marker.locator:hover, #markers .marker.locator:focus-visible { background: var(--lc, #e0a030); color: #000; }
+
+/* Talkback de la régie */
+.mixer .mx-talk { display: inline-flex; gap: 3px; }
+.mixer .mx-talk button { height: 24px; padding: 0 8px; }
+.mixer .mx-talk #mx-talk { touch-action: none; user-select: none; min-width: 74px; }
+.mixer .mx-talk #mx-talk.talking { background: #d33; border-color: #f66; color: #fff; }
+.group-dialog fieldset { border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 4px; }
+.group-dialog .row output { min-width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+@media (pointer: coarse) { .mixer .mx-talk button { height: 36px; } }

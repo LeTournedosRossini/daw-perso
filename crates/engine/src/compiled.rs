@@ -221,6 +221,12 @@ struct NodeC {
     /// Verrou de gamme des notes jouées en direct, et touche émise pour chaque touche jouée (pistes seulement ; alloué à la compilation).
     /// Niveau du clic du métronome ajouté à l'entrée de ce retour (0 : aucun).
     click_gain: f32,
+    /// Talkback : niveau de la voix de la régie dans ce retour (0 : pas visé), et ce qui en est calculé pour le bloc en cours
+    /// (voix × enveloppe × niveau, et multiplicateur du reste du mix). Tampons alloués pour les retours seulement.
+    talk_gain: f32,
+    talk_live: bool,
+    talk_buf: Vec<f32>,
+    duck_buf: Vec<f32>,
     scale_lock: crate::scale_lock::ScaleLock,
     lock_map: Option<Box<crate::scale_lock::LockMap>>,
     /// Types de messages en direct reçus pendant le bloc (bits `meters::MIDI_*`), remis à zéro après publication.
@@ -677,6 +683,14 @@ impl NodeC {
     fn compute(&mut self, index: usize, pos: u64, n: usize, playing: bool, inputs: &[&[f32]], meters: Option<&MeterBank>, view: AheadView) {
         self.block_dropped = 0;
         self.playing_now = playing;
+        if self.talk_live {
+            // Voix de la régie : le reste du mix baisse pendant qu'on parle, la voix s'ajoute (puis tout passe par les effets et le fader du retour).
+            for j in 0..n {
+                let (d, v) = (self.duck_buf[j], self.talk_buf[j]);
+                self.l[j] = self.l[j] * d + v;
+                self.r[j] = self.r[j] * d + v;
+            }
+        }
         if self.ahead.phase != Phase::Live {
             self.read_ahead(pos, n, playing, view);
             return self.finish(index, pos, n, meters);
@@ -947,6 +961,11 @@ pub struct CompiledGraph {
     /// Le clic du bloc en cours, au niveau 1 (rempli par le moteur avant `process_with`, vidé après usage).
     click_src: Vec<f32>,
     click_len: usize,
+    /// Talkback : canal d'entrée du micro, enveloppe (rampe), baisse du mix (0 à 1) et enveloppe du bloc.
+    talk_ch: Option<usize>,
+    talk_env: Smoother,
+    talk_duck: f32,
+    talk_env_buf: Vec<f32>,
     /// Transport donné aux plugins (voir `NodeC::time`) ; la boucle y est mise à jour par le moteur avant chaque bloc.
     time: Arc<TimeShared>,
     /// Niveaux de crête rendus à l'interface (après chaque fader) ; `None` : non mesuré.
@@ -1107,6 +1126,10 @@ impl CompiledGraph {
                 vel_in: 0,
                 vel_table: d.vel_curve.table().filter(|_| matches!(d.kind, NodeKind::Track(_))),
                 click_gain: if d.monitor { d.click.clamp(0.0, 4.0) } else { 0.0 },
+                talk_gain: 0.0,
+                talk_live: false,
+                talk_buf: if d.monitor { vec![0.0; max_block] } else { Vec::new() },
+                duck_buf: if d.monitor { vec![0.0; max_block] } else { Vec::new() },
                 scale_lock: if matches!(d.kind, NodeKind::Track(_)) { d.scale_lock } else { Default::default() },
                 lock_map: matches!(d.kind, NodeKind::Track(_)).then(crate::scale_lock::new_map),
                 dyn_cfg: d.input_dyn,
@@ -1159,7 +1182,7 @@ impl CompiledGraph {
             }
         }
         let extra = desc.nodes.iter().filter_map(|d| d.phys).map(|p| usize::from(p.first) + usize::from(p.channels())).max().unwrap_or(2) - 2;
-        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], listen: None, listen_mix: Smoother::new(0.0), listen_l: vec![0.0; max_block], listen_r: vec![0.0; max_block], click_src: vec![0.0; max_block], click_len: 0, time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
+        let mut g = CompiledGraph { phys_bufs: vec![vec![0.0; max_block]; extra], listen: None, listen_mix: Smoother::new(0.0), listen_l: vec![0.0; max_block], listen_r: vec![0.0; max_block], click_src: vec![0.0; max_block], click_len: 0, talk_ch: None, talk_env: Smoother::new(0.0), talk_duck: 0.0, talk_env_buf: vec![0.0; max_block], time, meters: None, nodes, assign: vec![0; order.len()], scratch: Vec::with_capacity(order.len()), order, level_ends, par_blocks: 0, assigned_for: 0, ramp: ramp_frames(sample_rate), max_block, latency: lat_out[0], midi_dropped: 0, controls, ahead_epoch: 0, ahead_rec: EpochRec::default(), resync: false, ahead_underruns: 0, ahead_desyncs: 0, sc_edges };
         g.refresh_sends(0);
         if let Some(p) = ahead {
             g.make_twins(p);
@@ -1201,6 +1224,15 @@ impl CompiledGraph {
         if let Some(i) = old.listen.filter(|&i| self.nodes.get(i).is_some_and(|d| d.kind == NodeKind::Bus)) {
             self.listen = Some(i);
             self.listen_mix = old.listen_mix;
+        }
+        // Le talkback (micro, enveloppe, retours visés) survit à un rechargement du graphe.
+        self.talk_ch = old.talk_ch;
+        self.talk_env = old.talk_env;
+        self.talk_duck = old.talk_duck;
+        for (new, o) in self.nodes.iter_mut().zip(old.nodes.iter()) {
+            if new.is_return && o.is_return {
+                new.talk_gain = o.talk_gain;
+            }
         }
         // Armement et prise d'enregistrement suivent leur piste (même indice) : modifier le routage en pleine prise ne
         // l'interrompt pas.
@@ -1417,6 +1449,46 @@ impl CompiledGraph {
         }
     }
 
+    /// Talkback : `channel` = canal d'entrée du micro (`None` : pas de micro), `active` = la voix passe (rampe de 5 ms),
+    /// `duck` = part du reste du mix retirée pendant qu'on parle (0 à 1).
+    pub fn set_talkback(&mut self, channel: Option<usize>, active: bool, duck: f32) {
+        self.talk_ch = channel;
+        self.talk_duck = if duck.is_finite() { duck.clamp(0.0, 1.0) } else { 0.0 };
+        let ramp = self.ramp;
+        self.talk_env.set_target(if active && channel.is_some() { 1.0 } else { 0.0 }, ramp);
+    }
+
+    /// Niveau de la voix de la régie dans un retour (0 : ce retour n'est pas visé). Ignoré pour un nœud qui n'est pas un retour.
+    pub fn set_return_talk(&mut self, node: usize, gain: f32) {
+        if let Some(d) = self.nodes.get_mut(node).filter(|d| d.is_return) {
+            d.talk_gain = if gain.is_finite() { gain.clamp(0.0, 4.0) } else { 0.0 };
+        }
+    }
+
+    /// Prépare la voix et la baisse du mix de chaque retour visé pour ce bloc (avant le calcul des nœuds).
+    fn prepare_talk(&mut self, inputs: &[&[f32]], n: usize) {
+        let live = self.talk_ch.is_some() && !(self.talk_env.is_settled() && self.talk_env.target() == 0.0);
+        for node in self.nodes.iter_mut() {
+            node.talk_live = live && node.is_return && node.talk_gain > 0.0;
+        }
+        if !live {
+            return;
+        }
+        for j in 0..n {
+            self.talk_env_buf[j] = self.talk_env.next();
+        }
+        let voice: &[f32] = self.talk_ch.and_then(|c| inputs.get(c)).copied().unwrap_or(&[]);
+        let duck = self.talk_duck;
+        for node in self.nodes.iter_mut().filter(|d| d.talk_live) {
+            let g = node.talk_gain;
+            for j in 0..n {
+                let e = self.talk_env_buf[j];
+                node.talk_buf[j] = voice.get(j).copied().unwrap_or(0.0) * e * g;
+                node.duck_buf[j] = 1.0 - duck * e;
+            }
+        }
+    }
+
     /// Vrai si au moins un retour veut le clic (le métronome le fabrique alors même quand il est éteint pour la sortie principale).
     pub fn has_return_click(&self) -> bool {
         self.nodes.iter().any(|d| d.is_return && d.click_gain > 0.0)
@@ -1619,6 +1691,7 @@ impl CompiledGraph {
             }
             self.click_len = 0;
         }
+        self.prepare_talk(inputs, n);
         let view = AheadView { epoch: self.ahead_epoch, rec: self.ahead_rec };
         let timing = pool.is_some();
         self.par_blocks = self.par_blocks.wrapping_add(1);

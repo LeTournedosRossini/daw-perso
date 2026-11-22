@@ -290,6 +290,7 @@ mod monitoring;
 mod plugin_out;
 mod plugin_ui;
 mod stretch;
+mod talkback;
 mod remote;
 mod write;
 
@@ -327,6 +328,8 @@ pub struct Host {
     align: Option<align::AlignJob>,
     /// Écoute de calage en cours (voir `listen_align`).
     listen: Option<align::Listen>,
+    /// Talkback de la régie (voir `host/talkback.rs`).
+    talk: talkback::Talk,
     aligns: Vec<align::AlignRecord>,
     /// Étirement par marqueurs en cours (fil de travail) et fiches des clips étirés.
     stretch: Option<stretch::StretchJob>,
@@ -434,7 +437,7 @@ impl Host {
         handle.load_graph(session.graph())?;
         let nodes = session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
         let meters = handle.meters();
-        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, audio_status: None, driver_latency: None, audio_status_dirty: false, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, recent: Vec::new(), recent_path: None, recent_noted: None, startup_done: false, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
+        let mut host = Host { handle, session, meta, meters, nodes, playing: false, loop_range: None, punch_on: false, bus_listen: None, chord_rev_sent: u32::MAX, monitor: None, monitor_last: Instant::now(), fine_hot: false, monitor_generation: 0, group_offsets: HashMap::new(), group_offsets_generation: 0, peak_hold: HashMap::new(), listen: None, talk: Default::default(), align: None, aligns: Vec::new(), stretch: None, stretches: Vec::new(), midi_act: HashMap::new(), midi_act_sent: BTreeMap::new(), midi_devices: Vec::new(), loop_rec_on: false, peaks: HashMap::new(), auto_crossfade: true, preview: None, project_dir: None, name: "Sans titre".into(), dirty: false, generation: 0, kept_plugins: Vec::new(), resolver: default_resolver(), last_structure: 0, catalog: None, scan: None, plugin_cache: None, scan_rx: None, audio_inputs: 0, audio_outputs: 0, audio_status: None, driver_latency: None, audio_status_dirty: false, record_compensation: 0, recording: None, midi_in: None, metro: Metro { enabled: false, only_recording: false, volume: 0.8, count_in_bars: 0, pre_roll: 0.0, post_roll: 0.0, pre_roll_bars: 0, pre_roll_unit: prefs::PreRollUnit::Seconds }, prefs: Prefs::default(), prefs_path: None, prefs_dirty: false, last_prefs_save: Instant::now(), runtime: None, click_key: String::new(), stop_at: None, export: None, import: None, convert: None, window_system: None, plugin_windows: Vec::new(), gui_cache: Default::default(), write_arms: Vec::new(), plugin_values: HashMap::new(), window_places: BTreeMap::new(), clipboard: Vec::new(), autosave_root: None, autosave_every: Duration::from_secs(60), last_autosave: Instant::now(), recovery_offer: None, recent: Vec::new(), recent_path: None, recent_noted: None, startup_done: false, remote_msg: None, paused: false, head_hint: None, play_origin: None, bank: crate::control_pages::Bank::new(), bank_path: None, bank_error: None, remote_open: HashMap::new(), monitor_grants: HashMap::new() };
         host.refresh_click();
         host.apply_metronome();
         Ok(host)
@@ -494,7 +497,7 @@ impl Host {
                         }
                     }
                 }
-                events.extend(vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.prefs_event(), self.control_pages_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event(), self.recent_event()]);
+                events.extend(vec![self.project_event(), self.history_event(), self.file_event(Vec::new()), self.metronome_event(), self.talkback_event(), self.prefs_event(), self.control_pages_event(), self.punch_event(), self.loop_record_event(), self.chords_event(Vec::new()), Self::chord_catalog_event(), self.recent_event()]);
                 events.extend(self.recovery_offer.take());
                 events
             }
@@ -1500,6 +1503,8 @@ impl Host {
                 self.handle.send(EngineCommand::Panic);
                 vec![self.position_event()]
             }
+            Command::SetTalkback { channel, level_db, duck_db, targets } => self.set_talkback(channel, level_db, duck_db, targets),
+            Command::Talk { active } => self.talk(active),
             Command::SetListen { node } => {
                 if let Some(n) = node {
                     let is_bus = self.session.graph().nodes.get(n as usize).is_some_and(|d| d.kind == daw_engine::NodeKind::Bus);
@@ -1618,6 +1623,7 @@ impl Host {
             events.push(self.project_event()); // le pilote vient d'annoncer ses latences : le bandeau les affiche
         }
         events.extend(self.midi_activity_tick());
+        events.extend(self.talk_tick());
         events.extend(self.monitor_tick());
         // Le balayage des plugins installés est fini : on envoie l'inventaire.
         if let Some(list) = self.scan_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -2341,6 +2347,7 @@ impl Host {
     /// suivi tenait lui aussi à des numéros).
     fn resync_nodes(&mut self) {
         self.clear_bus_listen();
+        self.clear_talk();
         let old = self.nodes.len();
         self.last_structure = self.session.structure_version();
         self.nodes = self.session.graph().nodes.iter().map(|n| NodeState { gain: n.params.gain, pan: n.params.pan, mute: n.params.mute, solo: n.params.solo, invert: n.params.invert, arm: false }).collect();
@@ -2492,6 +2499,7 @@ impl Host {
             self.handle.send(EngineCommand::SetInput { node, armed: false, monitor: false, source: RecordSource::Left });
         }
         self.clear_bus_listen();
+        self.clear_talk();
         self.handle.send(EngineCommand::Stop);
         self.handle.send(EngineCommand::Seek(0));
         self.handle.send(EngineCommand::SetLoop(None));

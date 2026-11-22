@@ -209,6 +209,13 @@ export function validateCommand(m) {
       return Number.isInteger(m.insert) && m.insert >= 0 && (m.view === "native" || m.view === "web") ? null : "set_plugin_view : insert (numéro) et view (native ou web)";
     case "set_listen":
       return m.node === null || (Number.isInteger(m.node) && m.node > 0) ? null : "set_listen : node est le numéro d'un bus ou d'un retour, ou null";
+    case "set_talkback":
+      if (m.channel !== null && !(Number.isInteger(m.channel) && m.channel >= 1 && m.channel <= 32)) return "set_talkback : channel de 1 à 32, ou null";
+      if (!Number.isFinite(m.level_db) || m.level_db < -60 || m.level_db > 12) return "set_talkback : level_db de −60 à +12";
+      if (!Number.isFinite(m.duck_db) || m.duck_db < 0 || m.duck_db > 60) return "set_talkback : duck_db de 0 à 60";
+      return Array.isArray(m.targets) && m.targets.length <= 64 && m.targets.every((n) => Number.isInteger(n) && n > 0) ? null : "set_talkback : targets (au plus 64 retours, pas la sortie principale)";
+    case "talk":
+      return typeof m.active === "boolean" ? null : "talk : active est un booléen";
     case "set_punch":
       return typeof m.enabled === "boolean" ? null : "set_punch : enabled est un booléen";
     case "get_project":

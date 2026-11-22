@@ -63,6 +63,10 @@ pub enum Command {
     SetListen { node: u32 },
     /// Niveau du clic du métronome dans un retour (0 : aucun clic).
     SetReturnClick { node: u32, gain: f32 },
+    /// Talkback : canal d'entrée du micro (`u32::MAX` : aucun), voix active (push-to-talk), part du mix retirée pendant la parole (0 à 1).
+    SetTalkback { channel: u32, active: bool, duck: f32 },
+    /// Niveau de la voix de la régie dans un retour (0 : pas visé).
+    SetReturnTalk { node: u32, gain: f32 },
 }
 
 enum Msg {
@@ -339,6 +343,8 @@ impl Engine {
             Command::SetInsertBypass { insert, bypass } => self.graph.set_insert_bypass(insert, bypass),
             Command::Panic => self.graph.panic(),
             Command::SetReturnClick { node, gain } => self.graph.set_return_click(node as usize, gain),
+            Command::SetTalkback { channel, active, duck } => self.graph.set_talkback((channel != u32::MAX).then_some(channel as usize), active, duck),
+            Command::SetReturnTalk { node, gain } => self.graph.set_return_talk(node as usize, gain),
             Command::SetListen { node } => self.graph.set_listen((node != u32::MAX).then_some(node as usize)),
         }
     }

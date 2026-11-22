@@ -291,6 +291,8 @@
   #takepanel .tk-row button small { display: block; font-weight: 400; color: inherit; opacity: .75; margin: 0; }
   #takepanel .tk-none { color: var(--muted); }
   #remote .tk-btn.has { border-left: 5px solid var(--accent); }
+.talkbtn.on { background: #d33; color: #fff; border-color: #f66; }
+  .talk .talkhint { opacity: .7; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -1211,6 +1213,60 @@ const laterGroup = (group, patch) => {
     for (const [g, p] of batch) postMix({ group: g, ...p });
   }, 60);
 };
+// Talkback : maintenir « Parler » pour que la voix du micro de la régie parte dans les retours cochés (le micro se choisit sur l'ordinateur).
+// La page redit « je parle » toutes les 500 ms ; l'hôte coupe la voix sans nouvelle pendant 1,5 s.
+const talkTile = { root: null, btn: null, list: null, hint: null, holding: false, timer: null, key: "" };
+function talkStop() {
+  if (!talkTile.holding) return;
+  talkTile.holding = false;
+  clearInterval(talkTile.timer);
+  postMix({ talk: false });
+  talkTile.btn?.classList.remove("on");
+}
+function buildTalk() {
+  const root = document.createElement("div");
+  root.className = "mx grp talk";
+  root.style.setProperty("--c", "#d33");
+  root.innerHTML = '<div class="row"><span class="name">Talkback</span></div><button class="talkbtn" type="button">Parler</button><div class="talkret"></div><div class="talkhint"></div>';
+  const btn = root.querySelector(".talkbtn");
+  btn.style.cssText = "touch-action:none;user-select:none;min-height:56px;font-size:16px;margin:6px 0";
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    btn.setPointerCapture?.(e.pointerId);
+    if (talkTile.holding) return;
+    talkTile.holding = true;
+    btn.classList.add("on");
+    postMix({ talk: true });
+    talkTile.timer = setInterval(() => postMix({ talk: true }), 500);
+  });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) btn.addEventListener(ev, talkStop);
+  window.addEventListener("blur", talkStop);
+  Object.assign(talkTile, { root, btn, list: root.querySelector(".talkret"), hint: root.querySelector(".talkhint") });
+  return talkTile;
+}
+function showTalk(talk) {
+  if (!talk) return null;
+  const t = talkTile.root ? talkTile : buildTalk();
+  const key = JSON.stringify(talk.returns);
+  if (key !== t.key) {
+    t.key = key;
+    t.list.replaceChildren(...talk.returns.map((r) => {
+      const l = document.createElement("label");
+      l.style.cssText = "display:flex;gap:6px;align-items:center;padding:6px 0";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.id = r.id;
+      cb.addEventListener("change", () => postMix({ talk_target: r.id, on: cb.checked }));
+      l.append(cb, document.createTextNode(r.name));
+      return l;
+    }));
+  }
+  for (const cb of t.list.querySelectorAll("input")) if (document.activeElement !== cb) cb.checked = talk.targets.includes(Number(cb.dataset.id));
+  t.hint.textContent = !talk.ready ? "Choisis le micro sur l'ordinateur (⚙ du mixeur)." : talk.targets.length ? "" : "Coche au moins un retour.";
+  t.btn.classList.toggle("on", talkTile.holding || !!talk.active);
+  t.btn.disabled = !talk.ready || !talk.targets.length;
+  return t.root;
+}
 function buildMixGroup(g) {
   const root = document.createElement("div");
   root.className = "mx grp";
@@ -1230,14 +1286,15 @@ function buildMixGroup(g) {
 }
 function showMix(mix) {
   const box = el("mixlist");
-  if (!mix) { mixRows.clear(); mixGroupRows.clear(); mixShape = ""; box.replaceChildren(); return; }
+  if (!mix) { mixRows.clear(); mixGroupRows.clear(); mixShape = ""; talkStop(); box.replaceChildren(); return; }
   const groups = mix.groups ?? [];
-  const shape = JSON.stringify([mix.nodes.map((n) => [n.id, n.name, n.kind, n.color, (n.inserts ?? []).length, !!n.auto]), groups.map((g) => [g.id, g.name, g.color])]);
+  const talkRoot = showTalk(mix.talk);
+  const shape = JSON.stringify([!!talkRoot, mix.nodes.map((n) => [n.id, n.name, n.kind, n.color, (n.inserts ?? []).length, !!n.auto]), groups.map((g) => [g.id, g.name, g.color])]);
   if (shape !== mixShape) {
     mixShape = shape;
     mixRows.clear();
     mixGroupRows.clear();
-    box.replaceChildren(...groups.map((g) => buildMixGroup(g).root), ...mix.nodes.map((n) => buildMix(n).root));
+    box.replaceChildren(...(talkRoot ? [talkRoot] : []), ...groups.map((g) => buildMixGroup(g).root), ...mix.nodes.map((n) => buildMix(n).root));
     for (const g of groups) mixGroupRows.get(g.id).root.querySelector(".name").textContent = g.name;
   }
   for (const g of groups) {

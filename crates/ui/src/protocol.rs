@@ -387,6 +387,12 @@ pub enum Command {
     /// l'ignore. `null` : fin de l'écoute. Une seule écoute à la fois ; refusé pour une piste ou pour la sortie principale. Pas enregistré
     /// dans le projet ; défait par tout changement de structure (ajout ou suppression de nœuds), « Nouveau » et « Ouvrir ».
     SetListen { node: Option<u32> },
+    /// Talkback de la régie : `channel` = entrée de la carte qui sert de micro (à partir de 1, `null` : aucun), `level_db` = niveau de la voix dans
+    /// les retours (−60 à +12), `duck_db` = baisse du reste de leur mix pendant la parole (0 à 60), `targets` = retours qui l'entendent. Réglage de
+    /// session, non enregistré ; effacé par un changement de structure, « Nouveau » et « Ouvrir ».
+    SetTalkback { channel: Option<u32>, level_db: f64, duck_db: f64, targets: Vec<u32> },
+    /// Parle (`true`) ou se tait (`false`). Maintien : il faut répéter `true` toutes les 500 ms ; sans nouvelle pendant 1,5 s la voix est coupée.
+    Talk { active: bool },
     /// Arrête l'aperçu et rend à l'utilisateur sa lecture, sa position, sa boucle et ses solos.
     StopPreview,
     /// Exporte le mixage ou les stems en fichiers (WAV ou FLAC), sur un fil de travail : la lecture reste possible. Progression par
@@ -534,6 +540,8 @@ impl Command {
             Command::StopPreview => "stop_preview",
             Command::Panic => "panic",
             Command::SetListen { .. } => "set_listen",
+            Command::SetTalkback { .. } => "set_talkback",
+            Command::Talk { .. } => "talk",
             Command::ListPlugins => "list_plugins",
             Command::AddPlugin { .. } => "add_plugin",
             Command::RemovePlugin { .. } => "remove_plugin",
@@ -855,6 +863,21 @@ impl Command {
                 }
                 if !dynamics.to_engine().is_valid() {
                     return Err("set_track_dynamics : porte −90 à −20 dB, seuil −60 à 0 dB, rapport 1 à 20, attaque 0,1 à 100 ms, relâchement 10 à 2 000 ms, compensation 0 à 24 dB".into());
+                }
+                Ok(())
+            }
+            Command::SetTalkback { channel, level_db, duck_db, targets } => {
+                if channel.is_some_and(|c| c == 0 || c > 32) {
+                    return Err("set_talkback : entrée de 1 à 32 (ou null)".into());
+                }
+                if !level_db.is_finite() || !(-60.0..=12.0).contains(level_db) {
+                    return Err("set_talkback : level_db de −60 à +12".into());
+                }
+                if !duck_db.is_finite() || !(0.0..=60.0).contains(duck_db) {
+                    return Err("set_talkback : duck_db de 0 à 60".into());
+                }
+                if targets.len() > 64 || targets.contains(&0) {
+                    return Err("set_talkback : au plus 64 retours, pas la sortie principale".into());
                 }
                 Ok(())
             }
@@ -1651,6 +1674,8 @@ pub enum Event {
     AlignSettings { settings: String },
     /// Écoute de calage active ou terminée (`what` : voir `listen_align`).
     Listen { active: bool, what: String },
+    /// Talkback : micro (entrée à partir de 1), niveau et baisse en dB, retours visés, parole en cours.
+    Talkback { channel: Option<u32>, level_db: f64, duck_db: f64, targets: Vec<u32>, active: bool },
     Import { active: bool, progress: f64, done: u32, total: u32, current: String, clips: Vec<ImportedClip>, warnings: Vec<String>, cancelled: bool, error: Option<String> },
     Error { command: String, message: String },
 }

@@ -65,6 +65,7 @@ export class MockEngine extends EngineClient {
     this.pos = 0;
     this.playing = false;
     this.loop = null;
+    this.talk = { channel: null, level_db: 0, duck_db: 12, targets: [], active: false }; // talkback de la régie
     this.punchOn = false; // punch allumé : record enregistre exactement dans la zone bleue (la boucle)
     this.waves = new Map();
     this.preview = null; // aperçu sonore d'un fondu en cours (voir `#startPreview`)
@@ -1134,6 +1135,7 @@ export class MockEngine extends EngineClient {
         this.#emitRecent();
         this.#emitControlPages();
         this.emit("metronome", { ...this.metronome });
+        this.emit("talkback", { ...this.talk });
         this.#emitChords();
         this.emit("chord_catalog", MOCK_CHORD_CATALOG);
         this.#emitPunch();
@@ -1283,6 +1285,8 @@ export class MockEngine extends EngineClient {
         break;
       }
       case "add_track": {
+        this.talk = { ...this.talk, targets: [], active: false };
+        this.emit("talkback", { ...this.talk });
         this.listenNode = null; // les numéros de nœuds changent : l'écoute est défaite, comme dans l'hôte
         this.#endPreview(true, false);
         return this.#edit(msg.kind === "return" ? "Ajouter un retour" : msg.kind === "bus" ? "Ajouter un bus" : "Ajouter une piste", msg, () => {
@@ -1890,6 +1894,22 @@ export class MockEngine extends EngineClient {
         if (msg.node !== null && n?.kind !== "bus") return (this.emit("error", { command: "set_listen", message: "seul un bus ou un retour peut être écouté" }), false);
         this.listenNode = msg.node;
         this.#emitProject();
+        break;
+      }
+      case "set_talkback": {
+        const bad = msg.targets.find((id) => !this.node(id)?.is_return);
+        if (bad !== undefined) return (this.emit("error", { command: "set_talkback", message: `le nœud ${bad} n'est pas un retour de monitoring` }), false);
+        if (msg.channel !== null && msg.channel > this.project.audio_inputs) return (this.emit("error", { command: "set_talkback", message: `entrée ${msg.channel} inexistante : le pilote en a ouvert ${this.project.audio_inputs}` }), false);
+        this.talk = { channel: msg.channel, level_db: msg.level_db, duck_db: msg.duck_db, targets: [...new Set(msg.targets)].sort((a, b) => a - b), active: this.talk.active && msg.channel !== null };
+        this.emit("talkback", { ...this.talk });
+        break;
+      }
+      case "talk": {
+        if (msg.active && (this.talk.channel === null || this.talk.targets.length === 0)) return (this.emit("error", { command: "talk", message: "choisis d'abord l'entrée du micro et au moins un retour" }), false);
+        if (this.talk.active !== msg.active) {
+          this.talk.active = msg.active;
+          this.emit("talkback", { ...this.talk });
+        }
         break;
       }
       case "set_punch":

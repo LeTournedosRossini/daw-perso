@@ -262,7 +262,10 @@ impl Host {
                 serde_json::json!({ "id": gr.id, "name": gr.name, "color": gr.color, "count": members.len(), "mute": all(&|s| s.mute), "solo": any_solo, "offset_db": self.group_offset(gr.id, None) })
             })
             .collect();
-        serde_json::json!({ "nodes": nodes, "groups": groups })
+        // Talkback : la tablette de régie voit l'état, les retours qu'elle peut viser et si un micro est choisi (il se choisit sur l'ordinateur).
+        let returns: Vec<serde_json::Value> = order.iter().filter_map(|id| g.nodes.get(id.0 as usize).filter(|n| n.monitor).map(|n| serde_json::json!({ "id": id.0, "name": n.name }))).collect();
+        let talk = serde_json::json!({ "ready": self.talk.channel.is_some(), "active": self.talk.until.is_some(), "targets": self.talk.targets, "returns": returns });
+        serde_json::json!({ "nodes": nodes, "groups": groups, "talk": talk })
     }
 
     /// Le mode d'automation d'une cible : l'armement d'écriture (`touch`, `latch`, `write`) s'il y en a un, sinon le mode de sa courbe (`read`, `trim`, `off`), sinon `none`.

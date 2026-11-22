@@ -701,3 +701,36 @@ fn the_take_command_of_a_tablet_needs_the_remote_right_and_refuses_what_is_not_a
     assert_eq!(rig.cmd(r#"{"cmd":"take","clip":-3}"#), 400);
     assert_eq!(rig.cmd(r#"{"cmd":"take","clip":"a"}"#), 400);
 }
+
+#[test]
+fn the_mixing_desk_tablet_can_talk_and_choose_returns_only_with_the_desk_right() {
+    let mut rig = Rig::new();
+    rig.h.set_audio_inputs(2);
+    // Sans le droit de régie : refusé, et pas de bloc talkback dans l'état.
+    assert_eq!(rig.mix(r#"{"talk":true}"#), 403);
+    assert!(rig.state()["mix"].is_null());
+    rig.set_role(2);
+    // L'état montre le retour visé possible ; le micro n'est pas choisi : la parole est refusée avec son message.
+    let st = rig.state();
+    assert_eq!(st["mix"]["talk"]["ready"], false);
+    assert_eq!(st["mix"]["talk"]["returns"].as_array().unwrap().len(), 1);
+    assert_eq!(rig.mix(r#"{"talk":true}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["talk"]["active"], false);
+    // Le micro se règle sur l'ordinateur ; la tablette vise le retour puis parle.
+    rig.h.command_json(r#"{"type":"set_talkback","channel":2,"level_db":0,"duck_db":12,"targets":[]}"#);
+    assert_eq!(rig.mix(&format!(r#"{{"talk_target":{},"on":true}}"#, rig.bus)), 200);
+    assert_eq!(rig.mix(r#"{"talk":true}"#), 200);
+    rig.settle();
+    let t = rig.state()["mix"]["talk"].clone();
+    assert_eq!((t["ready"].clone(), t["active"].clone(), t["targets"].clone()), (true.into(), true.into(), serde_json::json!([rig.bus])));
+    assert_eq!(rig.mix(r#"{"talk":false}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["talk"]["active"], false);
+    // Un nœud qui n'est pas un retour ne peut pas être visé ; corps illisibles → 400.
+    assert_eq!(rig.mix(r#"{"talk_target":1,"on":true}"#), 200);
+    rig.settle();
+    assert_eq!(rig.state()["mix"]["talk"]["targets"], serde_json::json!([rig.bus]));
+    assert_eq!(rig.mix(r#"{"talk":"oui"}"#), 400);
+    assert_eq!(rig.mix(r#"{"talk_target":2}"#), 400);
+}
