@@ -165,11 +165,49 @@ fn create_view(ns_window: usize, area: (f64, f64, f64, f64)) -> Result<usize, St
     }
 }
 
-/// Replace (et montre ou cache) la zone. Fil principal seulement.
+/// Hauteur réelle (en points) de la vue mère de `view`. Sert à inverser l'ordonnée avec la vraie hauteur de la vue de contenu, et non
+/// avec celle que Tauri annonce pour la fenêtre (qui peut inclure la barre de titre).
+///
+/// # Safety
+/// `view` doit être une `NSView` valide ; fil principal.
+unsafe fn superview_height(view: Id) -> Option<f64> {
+    let parent = msg(view, b"superview\0");
+    if parent.is_null() {
+        return None;
+    }
+    let sel = sel_registerName(b"bounds\0".as_ptr() as *const c_char);
+    let mut r = NsRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 };
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Sur x86-64 une structure de 32 octets est rendue par un pointeur caché : variante `_stret`.
+        extern "C" {
+            fn objc_msgSend_stret();
+        }
+        let f: unsafe extern "C" fn(*mut NsRect, Id, Id) = std::mem::transmute(objc_msgSend_stret as *const ());
+        f(&mut r, parent, sel);
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let f: unsafe extern "C" fn(Id, Id) -> NsRect = std::mem::transmute(objc_msgSend as *const ());
+        r = f(parent, sel);
+    }
+    if r.h.is_finite() && r.h > 0.0 {
+        Some(r.h)
+    } else {
+        None
+    }
+}
+
+/// Replace (et montre ou cache) la zone. `area` est au format haut-gauche `(x, haut, largeur, hauteur)` ; l'ordonnée AppKit est
+/// calculée ici avec la hauteur réelle de la vue mère. Fil principal seulement.
 fn place_view(view: usize, area: (f64, f64, f64, f64), visible: bool) {
     // SAFETY: fil principal ; `view` est une `NSView` créée par `create_view`, qui vit jusqu'à `destroy_view`.
     unsafe {
-        msg_rect(view as Id, b"setFrame:\0", NsRect { x: area.0, y: area.1, w: area.2, h: area.3 });
+        let y = match superview_height(view as Id) {
+            Some(h) => (h - area.1 - area.3).max(0.0),
+            None => area.1, // repli : l'appelant a déjà converti
+        };
+        msg_rect(view as Id, b"setFrame:\0", NsRect { x: area.0, y, w: area.2, h: area.3 });
         msg_bool(view as Id, b"setHidden:\0", !visible);
     }
 }
@@ -299,7 +337,9 @@ impl Inner {
         if self.view == 0 {
             return;
         }
-        let rect = area_rect(self.client(), self.origin());
+        // Format haut-gauche : `place_view` inverse l'ordonnée avec la vraie hauteur de la vue de contenu.
+        let (c, o) = (self.client(), self.origin());
+        let rect = (o.0 as f64, o.1 as f64, c.0.saturating_sub(o.0).max(1) as f64, c.1.saturating_sub(o.1).max(1) as f64);
         let visible = self.shown && self.area_visible;
         if self.placed == Some((rect, visible)) {
             return;
