@@ -198,8 +198,18 @@ pub struct PendingInsertLane {
     pub mode: daw_engine::AutoMode,
 }
 
+/// Envoi pris après un effet, lu dans un projet : l'effet (désigné par sa place dans la chaîne du nœud) est recréé par l'appelant, qui
+/// rattache ensuite le point de captation avec [`Session::attach_send_tap`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingSendTap {
+    pub node: NodeId,
+    pub to: NodeId,
+    pub chain_index: usize,
+}
+
 pub struct Session {
     pending_insert_lanes: Vec<PendingInsertLane>,
+    pending_send_taps: Vec<PendingSendTap>,
     graph: GraphDesc,
     /// Identifiants des clips, parallèles à `NodeDesc::clips` de chaque nœud (indexés par numéro de nœud).
     ids: Vec<Vec<ClipId>>,
@@ -305,7 +315,7 @@ impl Session {
         let inputs = vec![nodes::NodeInput::default(); graph.nodes.len()];
         let node_group = vec![0u32; graph.nodes.len()];
         let node_group_len = graph.nodes.len();
-        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), markers: Vec::new(), next_marker_id: 1, groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
+        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), pending_send_taps: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), markers: Vec::new(), next_marker_id: 1, groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
         let _ = s.sync_all(); // identique à l'entrée (conversion exacte) ; sinon le graphe reste tel quel
         s
     }
@@ -329,6 +339,23 @@ impl Session {
     /// Courbes de paramètres de plugins lues dans le projet et pas encore rattachées (voir [`PendingInsertLane`]) ; vide ensuite.
     pub fn take_pending_insert_lanes(&mut self) -> Vec<PendingInsertLane> {
         std::mem::take(&mut self.pending_insert_lanes)
+    }
+
+    /// Points de captation d'envois lus dans le projet et pas encore rattachés (voir [`PendingSendTap`]) ; vide ensuite.
+    pub fn take_pending_send_taps(&mut self) -> Vec<PendingSendTap> {
+        std::mem::take(&mut self.pending_send_taps)
+    }
+
+    /// Rattache (sans historique) un envoi à la sortie de l'effet `insert` de son nœud : pour un projet qu'on ouvre.
+    pub fn attach_send_tap(&mut self, node: NodeId, to: NodeId, insert: u32) -> Result<(), SessionError> {
+        let n = node.0 as usize;
+        let nd = self.graph.nodes.get_mut(n).ok_or(SessionError::UnknownNode(node))?;
+        if !nd.inserts.iter().any(|i| i.id == insert) {
+            return Err(SessionError::Routing("effet introuvable".to_owned()));
+        }
+        let s = nd.sends.iter_mut().find(|s| s.to == to).ok_or_else(|| SessionError::Routing("envoi introuvable".to_owned()))?;
+        s.tap = daw_engine::SendTap::AfterInsert(insert);
+        self.sync_node(n)
     }
 
     /// Rattache (sans historique) la courbe d'un paramètre du plugin `insert` : pour un projet qu'on ouvre. Remplace une courbe

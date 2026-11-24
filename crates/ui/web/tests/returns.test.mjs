@@ -77,7 +77,7 @@ test("vues du mixeur et vue « Mix de X »", () => {
   e.send({ type: "set_send", node: guitar.id, to: marie.id, pre: true });
   const src = mixSources(project(), project().nodes.find((n) => n.id === marie.id));
   assert.ok(!src.some((s) => s.node.id === marie.id), "pas le retour lui-même");
-  assert.deepEqual(src.find((s) => s.node.name === "Guitare").send, { to: marie.id, gain: 0.5, pre: true, mute: false, solo: false });
+  assert.deepEqual(src.find((s) => s.node.name === "Guitare").send, { to: marie.id, gain: 0.5, pre: true, tap: "pre_fader", tap_insert: null, follow: false, mute: false, solo: false });
   assert.equal(src.find((s) => s.node.name === "Basse").send, null);
   assert.ok(isReturn(project().nodes.find((n) => n.id === marie.id)));
   assert.notEqual(structureKey(project()), structureKey({ ...project(), nodes: project().nodes.map((n) => ({ ...n, phys: null })) }), "la structure change avec la sortie d'un retour");

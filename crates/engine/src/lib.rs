@@ -29,7 +29,7 @@ pub use engine::{Command, Engine, EngineHandle, LoadError};
 pub use dynamics::InputDynamics;
 pub use velocity::VelocityCurve;
 pub use scale_lock::ScaleLock;
-pub use graph::{GraphDesc, GraphError, NodeDesc, NodeKind, NodeParams, PhysOut, SendDesc, TrackFormat, MAX_OUT_CHANNELS};
+pub use graph::{GraphDesc, GraphError, NodeDesc, NodeKind, NodeParams, PhysOut, SendDesc, SendTap, TrackFormat, MAX_OUT_CHANNELS};
 pub use metronome::{Click, ClickTrack, CountIn};
 pub use record::{RecordReceiver, RecordSource, RecordStatus, MAX_INPUTS};
 pub use meters::{MeterBank, MAX_METERED};

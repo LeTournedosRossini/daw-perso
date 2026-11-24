@@ -468,6 +468,15 @@ export function validateCommand(m) {
         if (!Number.isInteger(m.output.first) || m.output.first < 3) return "add_track : output.first (à partir de 3)";
       }
       return m.name === undefined ? null : checkName(m.name, "add_track");
+    case "add_parallel":
+    case "set_send_tap": {
+      if (!isInt(m.node) || m.node === 0) return `${m.type} : node (piste ou bus, pas la sortie principale)`;
+      if (m.type === "set_send_tap" && !isInt(m.to)) return "set_send_tap : to doit être un entier";
+      if (!["input", "after_insert", "pre_fader", "post_fader"].includes(m.tap)) return `${m.type} : tap « ${m.tap} » inconnu (input, after_insert, pre_fader ou post_fader)`;
+      if (m.tap === "after_insert" && !isInt(m.insert)) return `${m.type} : tap « after_insert » demande « insert »`;
+      if (m.tap !== "after_insert" && m.insert !== undefined) return `${m.type} : « insert » ne se donne qu'avec tap « after_insert »`;
+      return m.name === undefined || m.type === "set_send_tap" ? null : checkName(m.name, "add_parallel");
+    }
     case "delete_track":
     case "move_track":
       if (!isInt(m.node) || m.node === 0) return `${m.type} : node (piste ou bus, pas la sortie principale)`;

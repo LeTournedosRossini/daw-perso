@@ -591,6 +591,7 @@ impl NodeC {
             out_delay: super::DelayLine::new(0),
             sends: Vec::new(),
             aux: Vec::new(),
+            taps: Vec::new(),
             pre_l: Vec::new(),
             pre_r: Vec::new(),
             clips: Vec::new(),

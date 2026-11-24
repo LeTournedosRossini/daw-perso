@@ -91,6 +91,17 @@ struct SendC {
     aud: Smoother,
     /// Envoi issu d'un port de sortie auxiliaire d'un plugin : indice dans `NodeC::aux` du tampon qui sert de source.
     aux: Option<usize>,
+    /// Envoi pris avant les effets ou après l'un d'eux : indice dans `NodeC::taps` du tampon qui sert de source.
+    tap: Option<usize>,
+    /// Suit le muet de la piste et son exclusion par un solo (piste parallèle).
+    follow: bool,
+}
+
+/// Le signal d'une piste à un point de sa chaîne d'effets, copié pendant le bloc (point 0 : avant les effets ; `k + 1` : après l'effet `k`).
+struct TapBuf {
+    point: usize,
+    l: Vec<f32>,
+    r: Vec<f32>,
 }
 
 /// Ce qu'un port de sortie auxiliaire d'un effet a produit pendant le bloc en cours (rempli juste après l'effet, lu au routage).
@@ -104,6 +115,23 @@ struct AuxBuf {
 /// Les sorties auxiliaires branchées d'un nœud : `(indice de l'effet, indice du port auxiliaire, nœud destinataire)`.
 fn aux_dests(d: &crate::graph::NodeDesc) -> Vec<(usize, usize, usize)> {
     d.inserts.iter().enumerate().flat_map(|(k, ins)| ins.aux.iter().enumerate().filter_map(move |(p, t)| t.map(|t| (k, p, t.0 as usize)))).collect()
+}
+
+/// Point de la chaîne d'effets que prend un envoi (0 : avant les effets ; `k + 1` : après l'effet de rang `k`) ; `None` : envoi ordinaire.
+fn send_point(d: &crate::graph::NodeDesc, s: &crate::graph::SendDesc) -> Option<usize> {
+    match s.tap {
+        crate::graph::SendTap::Auto => None,
+        crate::graph::SendTap::Input => Some(0),
+        crate::graph::SendTap::AfterInsert(id) => d.inserts.iter().position(|x| x.id == id).map(|k| k + 1),
+    }
+}
+
+/// Les points distincts de la chaîne d'effets que des envois du nœud prennent (un tampon par point).
+fn tap_points(d: &crate::graph::NodeDesc) -> Vec<usize> {
+    let mut v: Vec<usize> = d.sends.iter().filter_map(|s| send_point(d, s)).collect();
+    v.sort_unstable();
+    v.dedup();
+    v
 }
 
 struct InsertC {
@@ -203,6 +231,7 @@ struct NodeC {
     out_delay: DelayLine,
     sends: Vec<SendC>,
     aux: Vec<AuxBuf>,
+    taps: Vec<TapBuf>,
     /// Signal avant le fader, copié seulement si un envoi « avant fader » existe (sinon vides : rien d'alloué).
     pre_l: Vec<f32>,
     pre_r: Vec<f32>,
@@ -584,6 +613,7 @@ impl NodeC {
             return self.run_inserts_automated(pos, n);
         }
         let transport = self.time.info_at(pos, self.sr, self.playing_now);
+        self.capture_tap(0, 0, n);
         for k in 0..self.inserts.len() {
             let ins = &mut self.inserts[k];
             if let Some(effect) = ins.effect.as_mut() {
@@ -613,6 +643,15 @@ impl NodeC {
                 std::mem::swap(&mut self.l, &mut self.scratch_l);
                 std::mem::swap(&mut self.r, &mut self.scratch_r);
             }
+            self.capture_tap(k + 1, 0, n);
+        }
+    }
+
+    /// Copie le signal courant vers le tampon du point `point` (s'il y a un envoi qui le prend), pour les échantillons `a..b`.
+    fn capture_tap(&mut self, point: usize, a: usize, b: usize) {
+        for t in self.taps.iter_mut().filter(|t| t.point == point) {
+            t.l[a..b].copy_from_slice(&self.l[a..b]);
+            t.r[a..b].copy_from_slice(&self.r[a..b]);
         }
     }
 
@@ -634,9 +673,13 @@ impl NodeC {
                 }
             }
             let transport = self.time.info_at(abs, self.sr, self.playing_now);
+            self.capture_tap(0, a, b);
             for k in 0..self.inserts.len() {
                 let ins = &mut self.inserts[k];
-                let Some(effect) = ins.effect.as_mut() else { continue };
+                let Some(effect) = ins.effect.as_mut() else {
+                    self.capture_tap(k + 1, a, b);
+                    continue;
+                };
                 effect.set_transport(&transport, self.sr);
                 effect.set_chords(&self.chords);
                 if let Some(sc) = ins.sc.as_ref().filter(|_| effect.has_sidechain()) {
@@ -668,6 +711,7 @@ impl NodeC {
                 self.inserts[k].apply_bypass(&self.l[a..b], &self.r[a..b], &mut self.scratch_l[a..b], &mut self.scratch_r[a..b]);
                 self.l[a..b].copy_from_slice(&self.scratch_l[a..b]);
                 self.r[a..b].copy_from_slice(&self.scratch_r[a..b]);
+                self.capture_tap(k + 1, a, b);
             }
             a = b;
         }
@@ -785,7 +829,7 @@ impl NodeC {
 
     /// Ce nœud peut-il être calculé en avance ? Une piste sans armement ni prise, qui a de quoi faire (effets ou notes).
     fn ahead_eligible(&self) -> bool {
-        self.twin.is_some() && !self.armed && self.tap.is_none() && self.midi_tap.is_none()
+        self.twin.is_some() && !self.armed && self.tap.is_none() && self.midi_tap.is_none() && self.taps.is_empty()
     }
 
     /// Gain, panoramique et mute appliqués sur place.
@@ -845,7 +889,7 @@ fn two_mut<T>(s: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
 fn route(nodes: &mut [NodeC], src: usize, dst: usize, n: usize, send: Option<usize>, pos: u64) {
     let (s, d) = two_mut(nodes, src, dst);
     let live_monitor = s.armed && s.monitor;
-    let NodeC { l, r, pre_l, pre_r, sends, out_delay, aux, .. } = s;
+    let NodeC { l, r, pre_l, pre_r, sends, out_delay, aux, taps, .. } = s;
     match send {
         None if live_monitor => {
             // Piste écoutée en direct : pas de compensation de latence, pour garder l'écoute aussi courte que possible (y compris vers les
@@ -863,13 +907,14 @@ fn route(nodes: &mut [NodeC], src: usize, dst: usize, n: usize, send: Option<usi
             }
         }
         Some(k) => {
-            let SendC { gain, delay, pre, auto, aud, aux: aux_idx, .. } = &mut sends[k];
-            let aux_k: Option<usize> = *aux_idx;
+            let SendC { gain, delay, pre, auto, aud, aux: aux_idx, tap: tap_idx, .. } = &mut sends[k];
+            let (aux_k, tap_k): (Option<usize>, Option<usize>) = (*aux_idx, *tap_idx);
             let source = |pre: bool| -> (&[f32], &[f32]) {
-                match aux_k {
-                    Some(a) => (&aux[a].l, &aux[a].r),
-                    None if pre => (pre_l, pre_r),
-                    None => (l, r),
+                match (aux_k, tap_k) {
+                    (Some(a), _) => (&aux[a].l, &aux[a].r),
+                    (None, Some(t)) => (&taps[t].l, &taps[t].r),
+                    (None, None) if pre => (pre_l, pre_r),
+                    (None, None) => (l, r),
                 }
             };
             // Audibilité : 1 ou 0, lissée ; hors rampe c'est une constante (cas courant : aucun surcoût par échantillon).
@@ -1043,16 +1088,40 @@ impl CompiledGraph {
         // latence d'entrée n'est que celle de ses arêtes. La chaîne latérale est alignée plus bas, par un retard sur le signal de la source
         // quand celle-ci est en avance sur le signal principal de l'effet ; en retard, elle ne peut pas être avancée.
         let out_edges = desc.out_edges();
+        // Latence du signal d'un envoi à son point de captation : celle de l'entrée du nœud plus les effets qui précèdent le point.
+        let insert_lat: Vec<Vec<u32>> = inserts.iter().map(|v| v.iter().map(|x| x.latency).collect()).collect();
+        let tap_latency = |lat_in: &[u32], i: usize, s: &crate::graph::SendDesc| -> u32 {
+            let node = &desc.nodes[i];
+            match s.tap {
+                crate::graph::SendTap::Auto => lat_in[i] + own[i],
+                crate::graph::SendTap::Input => lat_in[i],
+                crate::graph::SendTap::AfterInsert(id) => {
+                    let upto = node.inserts.iter().position(|x| x.id == id).map_or(node.inserts.len(), |k| k + 1);
+                    lat_in[i] + insert_lat[i][..upto].iter().sum::<u32>()
+                }
+            }
+        };
         for &i in &order {
             lat_out[i] = lat_in[i] + own[i];
             let node = &desc.nodes[i];
-            for t in node.main_output().into_iter().chain(node.sends.iter().map(|s| s.to)).chain(node.inserts.iter().flat_map(|x| x.aux.iter().flatten().copied())) {
+            for t in node.main_output().into_iter().chain(node.inserts.iter().flat_map(|x| x.aux.iter().flatten().copied())) {
                 lat_in[t.0 as usize] = lat_in[t.0 as usize].max(lat_out[i]);
+            }
+            for s in &node.sends {
+                let l = tap_latency(&lat_in, i, s);
+                lat_in[s.to.0 as usize] = lat_in[s.to.0 as usize].max(l);
             }
         }
         let edge_delay = |src: usize, dst: usize| -> usize {
             if desc.pdc {
                 (lat_in[dst] - lat_out[src]) as usize
+            } else {
+                0
+            }
+        };
+        let send_delay = |src: usize, s: &crate::graph::SendDesc| -> usize {
+            if desc.pdc {
+                (lat_in[s.to.0 as usize] - tap_latency(&lat_in, src, s)) as usize
             } else {
                 0
             }
@@ -1108,9 +1177,10 @@ impl CompiledGraph {
                 sends: d
                     .sends
                     .iter()
-                    .map(|s| SendC { to: s.to.0 as usize, gain: Smoother::new(s.gain), auto: d.automation.iter().find(|l| l.target == (AutoTarget::SendGain { to: s.to }) && l.mode != AutoMode::Off).cloned(), delay: DelayLine::new(edge_delay(i, s.to.0 as usize)), pre: s.pre, mute: s.mute, solo: s.solo, aud: Smoother::new(1.0), aux: None })
-                    .chain(aux_dests(d).into_iter().enumerate().map(|(a, (_, _, to))| SendC { to, gain: Smoother::new(1.0), auto: None, delay: DelayLine::new(edge_delay(i, to)), pre: true, mute: false, solo: false, aud: Smoother::new(1.0), aux: Some(a) }))
+                    .map(|s| SendC { to: s.to.0 as usize, gain: Smoother::new(s.gain), auto: d.automation.iter().find(|l| l.target == (AutoTarget::SendGain { to: s.to }) && l.mode != AutoMode::Off).cloned(), delay: DelayLine::new(send_delay(i, s)), pre: s.pre, mute: s.mute, solo: s.solo, aud: Smoother::new(1.0), aux: None, tap: tap_points(d).iter().position(|&p| Some(p) == send_point(d, s)), follow: s.follow })
+                    .chain(aux_dests(d).into_iter().enumerate().map(|(a, (_, _, to))| SendC { to, gain: Smoother::new(1.0), auto: None, delay: DelayLine::new(edge_delay(i, to)), pre: true, mute: false, solo: false, aud: Smoother::new(1.0), aux: Some(a), tap: None, follow: false }))
                     .collect(),
+                taps: tap_points(d).into_iter().map(|point| TapBuf { point, l: vec![0.0; max_block], r: vec![0.0; max_block] }).collect(),
                 aux: aux_dests(d).into_iter().map(|(insert, port, _)| AuxBuf { insert, port, l: vec![0.0; max_block], r: vec![0.0; max_block] }).collect(),
                 pre_l: vec![0.0; if d.sends.iter().any(|s| s.pre) || is_sc_source[i] { max_block } else { 0 }],
                 pre_r: vec![0.0; if d.sends.iter().any(|s| s.pre) || is_sc_source[i] { max_block } else { 0 }],
@@ -1553,7 +1623,7 @@ impl CompiledGraph {
             for s in 0..self.nodes[i].sends.len() {
                 let (to, mute, solo, is_aux) = {
                     let x = &self.nodes[i].sends[s];
-                    (x.to, x.mute, x.solo, x.aux.is_some())
+                    (x.to, x.mute, x.solo, x.aux.is_some() || x.follow)
                 };
                 let source_ok = !(is_aux && source_silent);
                 if !self.nodes.get(to).is_some_and(|d| d.is_return) {

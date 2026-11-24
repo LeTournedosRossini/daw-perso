@@ -257,6 +257,11 @@ pub enum Command {
     /// retour seulement) donne tout de suite la sortie sur la carte son : le tout est **un seul** pas d'annulation. Sans `name` :
     /// « Piste N », « Bus N » ou « Retour N ».
     AddTrack { kind: String, name: Option<String>, #[serde(default)] output: Option<ReturnOutput> },
+    /// Piste parallèle d'une piste ou d'un bus : un bus qui prend le signal du parent à `tap` (`input`, `after_insert` avec `insert`,
+    /// `pre_fader`, `post_fader`), dirigé là où va le parent ; se tait avec lui. Une action annulable.
+    AddParallel { node: u32, tap: String, #[serde(default)] insert: Option<u32>, #[serde(default)] name: Option<String> },
+    /// Change le point de captation de l'envoi de `node` vers `to` (mêmes valeurs que `add_parallel`).
+    SetSendTap { node: u32, to: u32, tap: String, #[serde(default)] insert: Option<u32> },
     /// Supprime une piste ou un bus avec ses clips, son automation et ses effets. Les nœuds qui y étaient dirigés repartent vers la
     /// sortie principale, ses envois sont supprimés. Annulable : tout revient, plugins avec leur état.
     DeleteTrack { node: u32 },
@@ -556,6 +561,8 @@ impl Command {
             Command::SetPluginParam { .. } => "set_plugin_param",
             Command::GetPluginParamText { .. } => "get_plugin_param_text",
             Command::AddTrack { .. } => "add_track",
+            Command::AddParallel { .. } => "add_parallel",
+            Command::SetSendTap { .. } => "set_send_tap",
             Command::DeleteTrack { .. } => "delete_track",
             Command::RenameTrack { .. } => "rename_track",
             Command::SetTrackColor { .. } => "set_track_color",
@@ -937,6 +944,14 @@ impl Command {
             Command::GetPluginParamText { value, .. } if !value.is_finite() => Err("get_plugin_param_text : value doit être un nombre fini".into()),
             Command::SetControlPage { plugin_id, name, params } => crate::control_pages::validate(&crate::control_pages::PageEntry { plugin_id: plugin_id.clone(), name: name.clone(), params: params.clone() }).map_err(|e| format!("set_control_page : {e}")),
             Command::SetPluginParam { value, .. } if !value.is_finite() => Err("set_plugin_param : value doit être un nombre fini".into()),
+            Command::AddParallel { tap, insert, name, .. } => {
+                check_tap("add_parallel", tap, *insert)?;
+                match name {
+                    Some(n) => check_name(n, "add_parallel"),
+                    None => Ok(()),
+                }
+            }
+            Command::SetSendTap { tap, insert, .. } => check_tap("set_send_tap", tap, *insert),
             Command::AddTrack { kind, name, output } => {
                 if !matches!(kind.as_str(), "mono" | "stereo" | "bus" | "return") {
                     return Err(format!("add_track : kind « {kind} » inconnu (mono, stereo, bus ou return)"));
@@ -1372,6 +1387,11 @@ pub struct SendInfo {
     pub to: u32,
     pub gain: f32,
     pub pre: bool,
+    /// Point de captation : `input`, `after_insert` (avec `tap_insert`), `pre_fader` ou `post_fader`.
+    pub tap: String,
+    pub tap_insert: Option<u32>,
+    /// L'envoi suit le muet de sa piste : c'est celui d'une piste parallèle.
+    pub follow: bool,
     /// Envoi coupé / en solo dans sa destination.
     pub mute: bool,
     pub solo: bool,
@@ -1759,4 +1779,14 @@ fn group_fields_ok(name: Option<&String>, color: Option<&str>, nodes: Option<&Ve
         }
     }
     Ok(())
+}
+
+fn check_tap(command: &str, tap: &str, insert: Option<u32>) -> Result<(), String> {
+    match (tap, insert) {
+        ("input" | "pre_fader" | "post_fader", None) => Ok(()),
+        ("input" | "pre_fader" | "post_fader", Some(_)) => Err(format!("{command} : « insert » ne se donne qu'avec tap « after_insert »")),
+        ("after_insert", Some(_)) => Ok(()),
+        ("after_insert", None) => Err(format!("{command} : tap « after_insert » demande « insert »")),
+        (other, _) => Err(format!("{command} : tap « {other} » inconnu (input, after_insert, pre_fader ou post_fader)")),
+    }
 }

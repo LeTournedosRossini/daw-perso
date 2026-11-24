@@ -304,6 +304,25 @@ struct PhysDto {
     mono: bool,
 }
 
+/// Un point de captation s'écrit `input` ou `after:<place de l'effet dans la chaîne du nœud>` : les identifiants des effets changent à
+/// chaque ouverture (les plugins sont recréés), leur place non.
+fn tap_to_text(t: daw_engine::SendTap, inserts: &[daw_engine::InsertDesc]) -> Option<String> {
+    match t {
+        daw_engine::SendTap::Auto => None,
+        daw_engine::SendTap::Input => Some("input".to_owned()),
+        daw_engine::SendTap::AfterInsert(id) => inserts.iter().position(|i| i.id == id).map(|k| format!("after:{k}")),
+    }
+}
+
+/// Lecture : `after:<place>` n'est pas résolu ici (l'effet n'existe pas encore) ; la place est rendue pour être rattachée plus tard.
+fn tap_from_text(t: Option<&str>) -> (daw_engine::SendTap, Option<usize>) {
+    match t {
+        Some("input") => (daw_engine::SendTap::Input, None),
+        Some(s) => (daw_engine::SendTap::Auto, s.strip_prefix("after:").and_then(|n| n.parse().ok())),
+        None => (daw_engine::SendTap::Auto, None),
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct SendDto {
     to: u32,
@@ -316,6 +335,13 @@ struct SendDto {
     mute: bool,
     #[serde(default)]
     solo: bool,
+    /// Point de captation : absent = selon `pre` ; `"input"` ; `"after:<identifiant de l'effet>"`. Facultatif : un fichier d'avant
+    /// ne l'a pas (pas de changement de version).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tap: Option<String>,
+    /// Suit le muet de la piste (piste parallèle). Absent = faux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    follow: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -706,7 +732,7 @@ impl Session {
                     members: g.of.iter().enumerate().filter(|(_, &gr)| gr != 0).map(|(i, &gr)| [i as u32, gr]).collect(),
                 }),
                 output: n.output.map(|o| o.0),
-                sends: n.sends.iter().map(|s| SendDto { to: s.to.0, gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo }).collect(),
+                sends: n.sends.iter().map(|s| SendDto { to: s.to.0, gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo, tap: tap_to_text(s.tap, &n.inserts), follow: s.follow }).collect(),
                 clips,
                 midi_clips: self.midi[n.id.0 as usize]
                     .iter()
@@ -818,6 +844,7 @@ impl Session {
         }
 
         let mut g = GraphDesc::new();
+        let mut pending_taps: Vec<crate::PendingSendTap> = Vec::new();
         g.pdc = file.pdc;
         let bad = |m: &str| ProjectError::Parse(m.to_owned());
         if file.nodes.first().map(|n| n.kind.as_str()) != Some("master") {
@@ -840,7 +867,17 @@ impl Session {
             node.output = n.output.map(NodeId);
             node.monitor = n.monitor;
             node.phys = n.phys.as_ref().map(|p| daw_engine::PhysOut { first: p.first, stereo: p.stereo, mono: p.mono });
-            node.sends = n.sends.iter().map(|s| daw_engine::SendDesc { to: NodeId(s.to), gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo }).collect();
+            node.sends = n
+                .sends
+                .iter()
+                .map(|s| {
+                    let (tap, place) = tap_from_text(s.tap.as_deref());
+                    if let Some(place) = place {
+                        pending_taps.push(crate::PendingSendTap { node: id, to: NodeId(s.to), chain_index: place });
+                    }
+                    daw_engine::SendDesc { to: NodeId(s.to), gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo, tap, follow: s.follow }
+                })
+                .collect();
             for c in &n.clips {
                 let (data, _) = assets.get(c.asset as usize).ok_or_else(|| bad("clip : fichier audio inconnu"))?;
                 let (mut fade_in, mut fade_out) = (fade_from(&c.fade_in)?, fade_from(&c.fade_out)?);
@@ -883,6 +920,7 @@ impl Session {
 
         // Le graphe de base (sans notes ni courbes) d'abord ; la session y ajoute la version en échantillons.
         let mut s = Session::with_timing(g, rate, timing);
+        s.pending_send_taps = pending_taps;
         for (i, n) in file.nodes.iter().enumerate() {
             for m in &n.midi_clips {
                 let notes = m

@@ -1299,6 +1299,30 @@ export class MockEngine extends EngineClient {
           this.project.nodes.push(node);
         });
       }
+      case "add_parallel": {
+        this.listenNode = null;
+        this.#endPreview(true, false);
+        return this.#edit("Piste parallèle", msg, () => {
+          const parent = this.node(msg.node);
+          if (!parent) throw new Error(`nœud inconnu : ${msg.node}`);
+          if (parent.kind === "master") throw new Error("la sortie principale n'a pas d'envoi");
+          if (msg.tap === "after_insert" && !(parent.inserts ?? []).some((i) => i.id === msg.insert)) throw new Error("pas d'effet de ce numéro sur cette piste");
+          const id = Math.max(...this.project.nodes.map((n) => n.id)) + 1;
+          const color = TRACK_COLORS[(this.project.nodes.length - 1) % TRACK_COLORS.length];
+          this.project.nodes.push({ id, name: msg.name?.trim() || `${parent.name} ∥`, kind: "bus", is_return: false, color, gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: parent.output ?? 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] });
+          (parent.sends ??= []).push({ to: id, gain: 1, pre: msg.tap === "pre_fader", tap: msg.tap, tap_insert: msg.tap === "after_insert" ? msg.insert : null, follow: true });
+        });
+      }
+      case "set_send_tap":
+        return this.#edit("Point de captation d'un envoi", msg, () => {
+          const [n] = this.#sendEnds(msg, false);
+          const s = (n.sends ??= []).find((x) => x.to === msg.to);
+          if (!s) throw new Error(`pas d'envoi vers ${msg.to}`);
+          if (msg.tap === "after_insert" && !(n.inserts ?? []).some((i) => i.id === msg.insert)) throw new Error("pas d'effet de ce numéro sur cette piste");
+          s.tap = msg.tap;
+          s.tap_insert = msg.tap === "after_insert" ? msg.insert : null;
+          s.pre = msg.tap === "pre_fader";
+        });
       case "delete_track": {
         this.listenNode = null;
         this.#endPreview(true, false);
@@ -1385,7 +1409,7 @@ export class MockEngine extends EngineClient {
           n.sends ??= [];
           if (n.sends.some((s) => s.to === to.id)) throw new Error("déjà un envoi vers cette destination");
           if (this.#reaches(to.id, n.id)) throw new Error("cet envoi fermerait une boucle");
-          n.sends.push({ to: to.id, gain: 1, pre: false });
+          n.sends.push({ to: to.id, gain: 1, pre: false, tap: "post_fader", tap_insert: null, follow: false });
         });
       case "remove_send":
         return this.#edit("Supprimer un envoi", msg, () => {
@@ -1402,7 +1426,10 @@ export class MockEngine extends EngineClient {
           return false;
         }
         if (msg.pre !== undefined) {
-          const ok = this.#edit(msg.pre ? "Envoi avant le fader" : "Envoi après le fader", msg, () => (s.pre = msg.pre));
+          const ok = this.#edit(msg.pre ? "Envoi avant le fader" : "Envoi après le fader", msg, () => {
+            s.pre = msg.pre;
+            if (s.tap === "pre_fader" || s.tap === "post_fader" || s.tap === undefined) s.tap = msg.pre ? "pre_fader" : "post_fader";
+          });
           if (!ok) return false;
         }
         if (msg.mute !== undefined || msg.solo !== undefined) {

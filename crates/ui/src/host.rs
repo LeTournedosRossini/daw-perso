@@ -1331,6 +1331,35 @@ impl Host {
                 events.extend(self.finish_edit(name, r));
                 events
             }
+            Command::AddParallel { node, tap, insert, name: given } => {
+                if let Some(refused) = self.refuse_while_recording(name) {
+                    return refused;
+                }
+                let g = self.session.graph();
+                let Some(parent) = g.nodes.get(node as usize) else { return error(format!("nœud inconnu : {node}")) };
+                let parent_name = parent.name.clone();
+                let (tap, pre) = match tap_from_command(&tap, insert) {
+                    Ok(x) => x,
+                    Err(e) => return error(e),
+                };
+                let label = given.unwrap_or_else(|| format!("{parent_name} ∥"));
+                let color = TRACK_COLORS[(g.nodes.len().saturating_sub(1)) % TRACK_COLORS.len()];
+                let mut events = self.end_preview(true, false);
+                let r = self.session.add_parallel(NodeId(node), tap, pre, &label, color).map(|_| ());
+                events.extend(self.finish_edit(name, r));
+                events
+            }
+            Command::SetSendTap { node, to, tap, insert } => {
+                if let Some(refused) = self.refuse_while_recording(name) {
+                    return refused;
+                }
+                let (tap, pre) = match tap_from_command(&tap, insert) {
+                    Ok(x) => x,
+                    Err(e) => return error(e),
+                };
+                let r = self.session.set_send_tap(NodeId(node), NodeId(to), tap, pre);
+                self.finish_edit(name, r)
+            }
             Command::DeleteTrack { node } => {
                 if let Some(refused) = self.refuse_while_recording(name) {
                     return refused;
@@ -2701,6 +2730,18 @@ impl Host {
                 None => warnings.push("automation d'un paramètre d'un plugin introuvable : courbe ignorée".to_owned()),
             }
         }
+        // Envois pris après un effet (pistes parallèles) : rattachés à l'effet recréé à la même place de la chaîne.
+        for t in session.take_pending_send_taps() {
+            let id = slots.get(&t.node.0).and_then(|s| s.get(t.chain_index)).copied().flatten();
+            match id {
+                Some(id) => {
+                    if let Err(e) = session.attach_send_tap(t.node, t.to, id) {
+                        warnings.push(format!("piste parallèle : point de captation ignoré ({e:?})"));
+                    }
+                }
+                None => warnings.push("piste parallèle : le plugin après lequel elle prend le signal est introuvable, elle prend le signal avant le fader".to_owned()),
+            }
+        }
         // Un projet sans titre repris n'a toujours pas de dossier à lui : il reste « Sans titre », modifié.
         let offer = if recover { None } else { project_io::newer_autosave(&dir) };
         let mut events = self.replace_project(session, meta, loaded.ui.auto_crossfade, if untitled { None } else { Some(dir.clone()) }, kept, warnings);
@@ -3063,7 +3104,7 @@ impl Host {
                             ui_open: self.plugin_ui_open(i.id),
                         })
                         .collect(),
-                    sends: n.sends.iter().map(|s| SendInfo { to: s.to.0, gain: s.gain, pre: s.pre, mute: s.mute, solo: s.solo }).collect(),
+                    sends: n.sends.iter().map(|s| SendInfo { to: s.to.0, gain: s.gain, pre: s.pre, tap: tap_name(s), tap_insert: if let daw_engine::SendTap::AfterInsert(id) = s.tap { Some(id) } else { None }, follow: s.follow, mute: s.mute, solo: s.solo }).collect(),
                     group: self.session.node_group(n.id),
                     automation: self.session.lanes(n.id).iter().filter(|l| match l.target {
                         AutoTarget::SendGain { to } => n.sends.iter().any(|s| s.to == to),
@@ -3173,5 +3214,27 @@ fn lane_mode_name(m: AutoMode) -> &'static str {
         AutoMode::Read => "read",
         AutoMode::Trim => "trim",
         AutoMode::Off => "off",
+    }
+}
+
+/// Point de captation d'un envoi, tel que la page le lit.
+fn tap_name(s: &daw_engine::SendDesc) -> String {
+    match s.tap {
+        daw_engine::SendTap::Input => "input",
+        daw_engine::SendTap::AfterInsert(_) => "after_insert",
+        daw_engine::SendTap::Auto if s.pre => "pre_fader",
+        daw_engine::SendTap::Auto => "post_fader",
+    }
+    .to_owned()
+}
+
+/// Point de captation demandé par une commande : le `SendTap` du moteur et l'indicateur « avant le fader ».
+fn tap_from_command(tap: &str, insert: Option<u32>) -> Result<(daw_engine::SendTap, bool), String> {
+    match (tap, insert) {
+        ("input", _) => Ok((daw_engine::SendTap::Input, false)),
+        ("after_insert", Some(id)) => Ok((daw_engine::SendTap::AfterInsert(id), false)),
+        ("pre_fader", _) => Ok((daw_engine::SendTap::Auto, true)),
+        ("post_fader", _) => Ok((daw_engine::SendTap::Auto, false)),
+        _ => Err(format!("point de captation inconnu : {tap}")),
     }
 }

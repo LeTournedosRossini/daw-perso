@@ -157,6 +157,34 @@ export function openOutputMenu(anchor, { node, project, client }) {
   showMenu(m, anchor);
 }
 
+/** La piste dont `node` est la parallèle (un envoi de la piste vers `node` qui suit son muet), ou `null`. */
+export function parallelParent(project, node) {
+  return (project?.nodes || []).find((n) => (n.sends || []).some((s) => s.to === node.id && s.follow)) || null;
+}
+
+/**
+ * Choix du point où une piste parallèle prend le signal de son parent, dans l'ordre réel du traitement : avant les effets, après l'un
+ * d'eux, après tous (avant le fader), après le fader. Sans `existing` : crée la piste parallèle de `node` ; avec : change le point de
+ * l'envoi `existing` (de `node`, le parent, vers la parallèle `existing.to`).
+ */
+export function openParallelMenu(anchor, { node, client, existing = null }) {
+  const m = menuEl();
+  m.append(heading(existing ? "Prendre le signal…" : "Piste parallèle : prendre le signal…"));
+  const cur = existing ? { tap: existing.tap, insert: existing.tap_insert ?? null } : null;
+  const choose = (tap, insert) => {
+    const extra = insert === undefined ? {} : { insert };
+    if (existing) client.send({ type: "set_send_tap", node: node.id, to: existing.to, tap, ...extra });
+    else client.send({ type: "add_parallel", node: node.id, tap, ...extra });
+  };
+  m.append(item("Avant les effets (signal brut)", () => choose("input"), { checked: cur?.tap === "input" }));
+  for (const ins of node.inserts || []) {
+    m.append(item(`Après « ${ins.name} »`, () => choose("after_insert", ins.id), { checked: cur?.tap === "after_insert" && cur.insert === ins.id }));
+  }
+  m.append(item("Après les effets, avant le fader", () => choose("pre_fader"), { checked: cur?.tap === "pre_fader" }));
+  m.append(item("Après le fader", () => choose("post_fader"), { checked: cur?.tap === "post_fader" }));
+  showMenu(m, anchor);
+}
+
 /**
  * Appui long (0,5 s), clic droit ou, au clavier, Maj+F10 sur le bouton d'armement : ouvre les réglages d'entrée de la piste. L'appui long ne
  * bascule pas l'armement. `ctx()` rend `{ node, project, client }` au moment de l'appel.
@@ -205,6 +233,12 @@ export function openTrackMenu(anchor, { node, project, client }) {
   const m = menuEl();
   if (node.kind !== "bus") m.append(item("Entrée d'enregistrement…", () => setTimeout(() => openInputMenu(anchor, { node, project, client }), 0)));
   if (!node.is_return) m.append(item("Sortie…", () => setTimeout(() => openOutputMenu(anchor, { node, project, client }), 0)));
+  if (node.kind !== "master" && !node.is_return) m.append(item("Piste parallèle…", () => setTimeout(() => openParallelMenu(anchor, { node, project, client }), 0)));
+  const parent = parallelParent(project, node);
+  if (parent) {
+    const existing = parent.sends.find((s) => s.to === node.id && s.follow);
+    m.append(item(`Point de captation (parallèle de « ${parent.name} »)…`, () => setTimeout(() => openParallelMenu(anchor, { node: parent, client, existing }), 0)));
+  }
   m.append(item("Inverser la phase (Ø)", () => client.send({ type: "set_node", node: node.id, invert: !node.invert }), { checked: !!node.invert }));
 
   m.append(heading("Couleur"));

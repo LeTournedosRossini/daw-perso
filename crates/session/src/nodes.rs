@@ -300,7 +300,7 @@ impl Session {
     pub fn add_send(&mut self, node: NodeId, to: NodeId) -> Result<(), SessionError> {
         let n = self.node_index(node)?;
         let mut sends = self.graph.nodes[n].sends.clone();
-        sends.push(daw_engine::SendDesc { to, gain: 1.0, pre: false, mute: false, solo: false });
+        sends.push(daw_engine::SendDesc { to, gain: 1.0, pre: false, mute: false, solo: false, tap: Default::default(), follow: false });
         self.change_sends("Ajouter un envoi", node, sends)
     }
 
@@ -325,6 +325,48 @@ impl Session {
         }
         s.pre = pre;
         self.change_sends(if pre { "Envoi avant le fader" } else { "Envoi après le fader" }, node, sends)
+    }
+
+    /// Crée une **piste parallèle** de `parent` : un bus, dirigé là où va le parent (leurs signaux se somment), qui reçoit un envoi du
+    /// parent pris à `tap` (avant les effets, après l'un d'eux, avant ou après le fader selon `pre`). L'envoi suit le muet du parent.
+    /// Une seule action annulable. Le parent est une piste ou un bus (pas la sortie principale).
+    pub fn add_parallel(&mut self, parent: NodeId, tap: daw_engine::SendTap, pre: bool, name: &str, color: &str) -> Result<NodeId, SessionError> {
+        let p = self.node_index(parent)?;
+        let out = self.graph.nodes[p].output.unwrap_or(NodeId::MASTER);
+        let label = if name.trim().is_empty() { format!("{} ∥", self.graph.nodes[p].name) } else { name.to_owned() };
+        self.group("Piste parallèle", |s| {
+            let bus = s.add_node(NewNode::Bus, &label, color)?;
+            s.set_node_output(bus, out)?;
+            let mut sends = s.graph.nodes[p].sends.clone();
+            sends.push(daw_engine::SendDesc { to: bus, gain: 1.0, pre, mute: false, solo: false, tap, follow: true });
+            s.change_sends("Piste parallèle", parent, sends)?;
+            Ok(bus)
+        })
+    }
+
+    /// Change le point de captation d'un envoi existant (voir `add_parallel`).
+    pub fn set_send_tap(&mut self, node: NodeId, to: NodeId, tap: daw_engine::SendTap, pre: bool) -> Result<(), SessionError> {
+        let n = self.node_index(node)?;
+        let mut sends = self.graph.nodes[n].sends.clone();
+        let s = sends.iter_mut().find(|s| s.to == to).ok_or_else(|| SessionError::Routing(format!("pas d'envoi vers le nœud {}", to.0)))?;
+        if s.tap == tap && s.pre == pre {
+            return Ok(());
+        }
+        s.tap = tap;
+        s.pre = pre;
+        self.change_sends("Point de captation d'un envoi", node, sends)
+    }
+
+    /// L'envoi suit-il le muet de sa piste (piste parallèle) ?
+    pub fn set_send_follow(&mut self, node: NodeId, to: NodeId, follow: bool) -> Result<(), SessionError> {
+        let n = self.node_index(node)?;
+        let mut sends = self.graph.nodes[n].sends.clone();
+        let s = sends.iter_mut().find(|s| s.to == to).ok_or_else(|| SessionError::Routing(format!("pas d'envoi vers le nœud {}", to.0)))?;
+        if s.follow == follow {
+            return Ok(());
+        }
+        s.follow = follow;
+        self.change_sends("Envoi lié au muet de la piste", node, sends)
     }
 
     /// Niveau d'un envoi : hors historique (geste continu, comme le fader d'une piste). Rend `false` si l'envoi n'existe pas.

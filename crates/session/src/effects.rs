@@ -27,6 +27,10 @@ impl Session {
     /// plugin pour qu'il revienne tel qu'il était.
     pub fn remove_effect(&mut self, insert: InsertId, keep_state: &mut dyn FnMut(&InsertDesc) -> InsertFactory) -> Result<(), SessionError> {
         let (n, index) = self.locate_insert(insert).ok_or(SessionError::UnknownInsert(insert))?;
+        if let Some(s) = self.graph.nodes[n].sends.iter().find(|s| s.tap == daw_engine::SendTap::AfterInsert(insert)) {
+            let to = self.graph.nodes[s.to.0 as usize].name.clone();
+            return Err(SessionError::Routing(format!("la piste parallèle « {to} » prend le signal après ce plugin : change son point de captation d'abord")));
+        }
         let mut desc = self.graph.nodes[n].inserts[index].clone();
         desc.factory = keep_state(&desc);
         self.push("Retirer un plugin", Edit::RemoveEffect { node: NodeId(n as u32), index, desc: Box::new(desc) })

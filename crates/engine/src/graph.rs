@@ -46,6 +46,19 @@ impl Default for NodeParams {
     }
 }
 
+/// Où un envoi prend le signal de sa piste, dans l'ordre réel de traitement : avant les effets, après l'un d'eux, après tous les effets
+/// (avant le fader) ou après le fader et le panoramique (signal final de la piste).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SendTap {
+    /// Selon `SendDesc::pre` : après les effets et avant le fader si `pre`, sinon après le fader.
+    #[default]
+    Auto,
+    /// Avant tous les effets : le signal brut (clips, notes jouées, entrée audio).
+    Input,
+    /// Juste après l'effet d'identifiant donné (contournement compris) ; avant les effets suivants.
+    AfterInsert(InsertId),
+}
+
 /// Envoi vers un bus **ou la sortie principale**, en plus de la sortie du nœud. `pre` : pris **avant** le fader (gain, panoramique,
 /// mute et solo de la piste ne le touchent pas : retours casque, mix de monitoring) ; sinon après le fader.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +70,11 @@ pub struct SendDesc {
     pub mute: bool,
     /// Solo dans la destination : si au moins un envoi vers elle est en solo, seuls les envois en solo y sont entendus.
     pub solo: bool,
+    /// Point de captation dans la piste (voir `SendTap`) ; `Auto` : comme avant.
+    pub tap: SendTap,
+    /// L'envoi suit le muet de sa piste et son exclusion par le solo d'une autre piste (piste parallèle : si on coupe la piste, sa
+    /// parallèle se tait aussi). Sans cela un envoi pris avant le fader les ignore (retour casque).
+    pub follow: bool,
 }
 
 /// Sortie physique d'un bus : au lieu d'alimenter la sortie principale, le bus sort sur des canaux de la carte son (retour de
@@ -127,6 +145,8 @@ pub enum GraphError {
     BadPhysOut(NodeId),
     SelfRouting(NodeId),
     DuplicateSend { node: NodeId, to: NodeId },
+    /// Un envoi est pris après un effet que le nœud n'a pas.
+    BadSendTap { node: NodeId, to: NodeId },
     /// La chaîne latérale d'un effet vise la sortie principale ou son propre nœud.
     BadSidechain { node: NodeId, insert: InsertId },
     /// Un port de sortie auxiliaire d'un effet vise autre chose qu'un bus ou la sortie principale, ou son propre nœud.
@@ -268,7 +288,7 @@ impl GraphDesc {
 
     pub fn add_send(&mut self, node: NodeId, to: NodeId, gain: f32) {
         if let Some(n) = self.node_mut(node) {
-            n.sends.push(SendDesc { to, gain, pre: false, mute: false, solo: false });
+            n.sends.push(SendDesc { to, gain, pre: false, mute: false, solo: false, tap: SendTap::Auto, follow: false });
         }
     }
 
@@ -389,6 +409,11 @@ impl GraphDesc {
                 }
                 if !matches!(self.kind_of(s.to)?, NodeKind::Bus | NodeKind::Master) {
                     return Err(GraphError::SendNotBus { node: node.id, to: s.to });
+                }
+                if let SendTap::AfterInsert(id) = s.tap {
+                    if !node.inserts.iter().any(|x| x.id == id) {
+                        return Err(GraphError::BadSendTap { node: node.id, to: s.to });
+                    }
                 }
                 if node.sends[..k].iter().any(|o| o.to == s.to) {
                     return Err(GraphError::DuplicateSend { node: node.id, to: s.to });
