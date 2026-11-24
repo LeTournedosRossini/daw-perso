@@ -68,6 +68,8 @@ fn snapshot() -> Arc<ChordSnapshot> {
 
 fn rig(lock: ScaleLock, with_clip: bool) -> (Engine, daw_engine::EngineHandle, u32, Arc<Mutex<Vec<Ev>>>, GraphDesc) {
     let seen = Arc::new(Mutex::new(Vec::with_capacity(8192))); // réservé : le plugin espion ne doit pas allouer dans le callback
+    // Sous macOS le premier verrouillage d'un `Mutex` alloue : on le fait ici, hors du callback surveillé.
+    drop(seen.lock());
     let s2 = Arc::clone(&seen);
     let factory: InsertFactory = Arc::new(move |_, _, _| Ok(Box::new(Spy(Arc::clone(&s2))) as Box<dyn Insert>));
     let mut g = GraphDesc::new();
