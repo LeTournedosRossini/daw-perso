@@ -130,6 +130,9 @@ pub struct NodeDesc {
     pub scale_lock: crate::scale_lock::ScaleLock,
     /// Niveau du clic du métronome dans ce retour (retours de monitoring seulement ; 0 : pas de clic). Le clic s'ajoute à l'entrée du retour.
     pub click: f32,
+    /// Piste parente (piste parallèle) : simple lien d'organisation (affichage, déplacement, suppression en cascade) ; **le moteur
+    /// audio l'ignore**. Renuméroté avec le reste des références quand des nœuds s'ajoutent ou se retirent.
+    pub parent: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,6 +225,7 @@ impl GraphDesc {
                 vel_curve: Default::default(),
                 scale_lock: Default::default(),
                 click: 0.0,
+                parent: None,
             }],
             pdc: true,
             time_map: Default::default(),
@@ -249,6 +253,7 @@ impl GraphDesc {
             vel_curve: Default::default(),
             scale_lock: Default::default(),
             click: 0.0,
+            parent: None,
         }
     }
 

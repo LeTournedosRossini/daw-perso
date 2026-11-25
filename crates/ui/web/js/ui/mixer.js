@@ -26,6 +26,7 @@ const KEY_H = "daw-mixer-h";
 const KEY_WIDE = "daw-mixer-wide";
 const KEY_ROWS = "daw-mixer-rows";
 const KEY_VIEW = "daw-mixer-view";
+const KEY_FOLDED = "daw-mixer-folded"; // pistes dont les parallèles sont repliées (liste de numéros) : dépliées par défaut
 const KEY_GROUPS_OPEN = "daw-mixer-groups-open"; // groupes dépliés dans la vue « Groupes » (liste d'identifiants)
 
 const get = (k) => {
@@ -104,7 +105,7 @@ export function parseReturnChoice(value) {
 }
 
 /** Les nœuds que montre chaque vue du mixeur (`all`, `tracks`, `buses`, `returns`) ; la sortie principale reste toujours. */
-export function viewNodes(project, view) {
+export function viewNodes(project, view, folded = new Set()) {
   const all = orderedNodes(project);
   const keep = {
     all: () => true,
@@ -112,7 +113,65 @@ export function viewNodes(project, view) {
     buses: (n) => n.kind === "bus" && !n.is_return,
     returns: (n) => isReturn(n),
   }[view];
-  return keep ? all.filter((n) => n.kind === "master" || keep(n)) : all;
+  if (!keep) return all;
+  // Une piste parallèle suit sa famille : elle se montre sous sa parente (dans la vue qui montre celle-ci), sauf si un ancêtre est replié.
+  return all.filter((n) => {
+    if (n.kind === "master") return true;
+    const root = rootOf(project, n);
+    if (!keep(root)) return false;
+    for (let p = n.parent; p != null; p = nodeById(project, p)?.parent) if (folded.has(p)) return false;
+    return true;
+  });
+}
+
+const nodeById = (project, id) => project.nodes.find((n) => n.id === id);
+
+/** La piste « racine » d'une piste parallèle (de proche en proche) ; la piste elle-même si elle n'a pas de parente. */
+export function rootOf(project, n) {
+  let x = n;
+  for (let i = 0; i < project.nodes.length && x.parent != null; i++) {
+    const up = nodeById(project, x.parent);
+    if (!up) break;
+    x = up;
+  }
+  return x;
+}
+
+/** Les parallèles directes d'une piste, dans l'ordre d'affichage. */
+export function childrenOf(project, id) {
+  return orderedNodes(project).filter((n) => n.parent === id);
+}
+
+/** Profondeur d'une piste parallèle (1 : parallèle directe d'une piste ordinaire). 0 pour une piste ordinaire. */
+export function familyDepth(project, n) {
+  let d = 0;
+  for (let x = n; x.parent != null && d <= project.nodes.length; d++) {
+    const up = nodeById(project, x.parent);
+    if (!up) break;
+    x = up;
+  }
+  return d;
+}
+
+/** D'où une piste parallèle prend son signal, en une courte phrase : « avant les effets », « après Compresseur », « après le fader »… */
+export function tapText(project, child) {
+  const parent = child.parent == null ? null : nodeById(project, child.parent);
+  const send = parent?.sends.find((s) => s.to === child.id);
+  if (!send) return "";
+  switch (send.tap) {
+    case "input":
+      return "avant les effets";
+    case "after_insert": {
+      const ins = parent.inserts.find((i) => i.id === send.tap_insert);
+      return ins ? `après ${ins.name}` : "après un effet";
+    }
+    case "pre_fader":
+      return "après les effets";
+    case "post_fader":
+      return "après le fader";
+    default:
+      return send.pre ? "après les effets" : "après le fader";
+  }
 }
 
 /**
@@ -140,7 +199,7 @@ export function mixSources(project, retour) {
 
 /** Signature de ce qui change la structure des tranches (pas les valeurs : celles-ci se mettent à jour sans tout reconstruire). */
 export function structureKey(project) {
-  return JSON.stringify(project.nodes.map((n) => [n.id, n.name, n.kind, n.color, n.output, n.group ?? 0, n.return_groups ? JSON.stringify([n.return_groups.groups.map((g) => [g.id, g.name, g.color]), n.return_groups.members]) : null, n.sends.map((s) => s.to), n.inserts.map((i) => i.name), !!n.is_return, n.phys ? [n.phys.first, n.phys.stereo, n.phys.mono] : null]).concat([project.audio_outputs, (project.groups ?? []).map((g) => [g.id, g.name, g.color])]));
+  return JSON.stringify(project.nodes.map((n) => [n.id, n.name, n.kind, n.color, n.output, n.parent ?? null, n.group ?? 0, n.return_groups ? JSON.stringify([n.return_groups.groups.map((g) => [g.id, g.name, g.color]), n.return_groups.members]) : null, n.sends.map((s) => s.to), n.inserts.map((i) => i.name), !!n.is_return, n.phys ? [n.phys.first, n.phys.stereo, n.phys.mono] : null]).concat([project.audio_outputs, (project.groups ?? []).map((g) => [g.id, g.name, g.color])]));
 }
 
 function closeMenuSafe() {
@@ -164,6 +223,7 @@ export class Mixer {
     this.view = get(KEY_VIEW) || "all"; // vue : all | tracks | buses | returns | mix:<numéro du retour>
     this.mixRefs = new Map(); // vue « Mix de X » : id de la source → éléments de sa tranche
     this.groupRefs = new Map(); // id de groupe → éléments de sa tranche (dans la vue courante)
+    this.folded = new Set(parseIds(get(KEY_FOLDED))); // parentes dont les parallèles sont repliées (par défaut : dépliées)
     this.groupsOpen = new Set(parseIds(get(KEY_GROUPS_OPEN))); // groupes dépliés dans la vue « Groupes »
     this.tabs = this.root.querySelector(".mx-tabs");
     this.wide = get(KEY_WIDE) === "1";
@@ -310,7 +370,7 @@ export class Mixer {
       return;
     }
     if (this.view === "all") for (const g of project.groups ?? []) this.strips.append(this.#groupStrip(g, null));
-    for (const n of viewNodes(project, this.view)) {
+    for (const n of viewNodes(project, this.view, this.folded)) {
       const el = this.#strip(n, project);
       this.strips.append(el);
     }
@@ -617,10 +677,39 @@ export class Mixer {
       tag.style.setProperty("--g", groupColor(this.state.project, grp));
       root.prepend(tag);
     }
+    // Famille : une piste parallèle se montre plus étroite, teintée de la couleur de sa parente ; la parente porte la flèche qui les plie.
+    const kids = childrenOf(project, n.id);
+    if (n.parent != null) {
+      const parent = project.nodes.find((x) => x.id === n.parent);
+      root.classList.add("par");
+      root.style.setProperty("--pc", parent?.color || "var(--muted)");
+      root.style.setProperty("--depth", String(Math.min(familyDepth(project, n), 3)));
+      const tap = document.createElement("div");
+      tap.className = "mx-tap";
+      tap.textContent = `∥ ${tapText(project, n)}`;
+      tap.title = `Piste parallèle de « ${parent?.name ?? "?"} » : son signal est pris ${tapText(project, n)}`;
+      root.prepend(tap);
+    }
+    if (kids.length) {
+      root.classList.add("has-kids");
+      const open = !this.folded.has(n.id);
+      const fold = document.createElement("button");
+      fold.className = "mx-fold";
+      fold.textContent = `${open ? "▾" : "▸"} ${kids.length}`;
+      fold.setAttribute("aria-expanded", String(open));
+      fold.title = open ? `Replier les ${kids.length} piste(s) parallèle(s) de « ${n.name} »` : `Déplier les ${kids.length} piste(s) parallèle(s) de « ${n.name} »`;
+      fold.addEventListener("click", () => {
+        if (!this.folded.delete(n.id)) this.folded.add(n.id);
+        put(KEY_FOLDED, JSON.stringify([...this.folded]));
+        this.key = "";
+        this.render(true);
+      });
+      name.after(fold);
+    }
     if (n.kind !== "master") {
       name.title = "Double-clic : renommer";
       name.addEventListener("dblclick", () => this.#rename(name, n));
-      this.#addGrip(root, n.id);
+      if (n.parent == null) this.#addGrip(root, n.id); // une parallèle reste sous sa parente : pas de poignée pour l'en détacher
     }
     q(".mx-qr").addEventListener("click", (e) => openMonitorPopup(e.currentTarget, this.state, this.client, n));
     const clickIn = q(".mx-click input");

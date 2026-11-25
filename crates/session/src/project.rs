@@ -27,7 +27,7 @@ pub type Migration = fn(&mut Value) -> Result<(), String>;
 /// Historique : v1 = premier format (clips de notes en échantillons) ; v2 = temps musical (cartes des tempos et des
 /// chiffrages, clips de notes et automation en fractions de ronde) ; v3 = événements de contrôle des clips de notes
 /// (contrôleurs, molette de hauteur, pressions) ; v4 = fenêtre visible (`offset`) et fondus de vélocité des clips de notes ; v5 = trois formes de fondu de plus (`s_curve`, `slow`, `fast`) ; v9 = mode des courbes d'automation (`read`, `trim`, `off`) et courbes de niveau d'envoi ; v8 = envois « avant le fader » (`pre`) et vers la sortie principale ; v6 = courbe de fondu continue (`bend`, `smooth`) : les formes de la v5 deviennent des réglages de la courbe de base.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18, v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23];
 pub const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32 + 1;
 
 /// Fournit les données d'un fichier audio à partir du chemin inscrit dans le projet.
@@ -288,6 +288,9 @@ struct NodeDto {
     /// Verrou de gamme des notes jouées en direct (format 22) : `"scale"` ou `"chord"` ; absent, aucun.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scale_lock: Option<String>,
+    /// Piste parente d'une piste parallèle (format 23) : numéro de nœud ; absent, aucune.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent: Option<u32>,
     /// Niveau du clic du métronome dans ce retour (gain linéaire) ; absent : pas de clic. Sans changement de version : champ facultatif.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     click: Option<f32>,
@@ -581,6 +584,11 @@ fn v11_to_v12(_: &mut Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Migration 22 → 23 : lien parent d'une piste parallèle (`parent` du nœud), facultatif : absent = aucun.
+fn v22_to_v23(_: &mut Value) -> Result<(), String> {
+    Ok(())
+}
+
 /// Migration 21 → 22 : verrou de gamme d'une piste (`scale_lock` : `"scale"` ou `"chord"`), facultatif : absent = aucun.
 fn v21_to_v22(_: &mut Value) -> Result<(), String> {
     Ok(())
@@ -722,6 +730,7 @@ impl Session {
                 group: self.node_group.get(n.id.0 as usize).copied().unwrap_or(0),
                 monitor_token: self.monitor_tokens.get(n.id.0 as usize).cloned().unwrap_or_default(),
                 monitor_role: self.monitor_roles.get(n.id.0 as usize).copied().unwrap_or(0),
+                parent: n.parent.map(|p| p.0),
                 scale_lock: match n.scale_lock { daw_engine::ScaleLock::Off => None, daw_engine::ScaleLock::Scale => Some("scale".into()), daw_engine::ScaleLock::Chord => Some("chord".into()) },
                 click: (n.monitor && n.click > 0.0).then_some(n.click),
                 vel_curve: (n.vel_curve != daw_engine::VelocityCurve::default()).then(|| VelCurveDto { enabled: n.vel_curve.enabled, bend: n.vel_curve.bend, smooth: n.vel_curve.smooth, min: n.vel_curve.min, max: n.vel_curve.max, fixed: n.vel_curve.fixed }),
@@ -1040,6 +1049,12 @@ impl Session {
                 let members: Vec<(NodeId, u32)> = rg.members.iter().map(|m| (NodeId(m[0]), m[1])).collect();
                 s.next_group_id = s.next_group_id.max(groups.iter().map(|g| g.id).max().unwrap_or(0));
                 s.set_return_groups("", NodeId(i as u32), Some((groups, members))).map_err(|e| ProjectError::BadGraph(format!("groupes d'un retour : {e:?}")))?;
+            }
+        }
+        // Liens parent-enfant des pistes parallèles (après tous les nœuds : un parent peut venir plus loin dans le fichier).
+        for (i, n) in file.nodes.iter().enumerate() {
+            if let Some(p) = n.parent {
+                s.set_parent_untracked(NodeId(i as u32), Some(NodeId(p))).map_err(|e| ProjectError::BadGraph(format!("piste parente : {e:?}")))?;
             }
         }
         s.graph.compile(rate, 64).map_err(|e: GraphError| ProjectError::BadGraph(e.to_string()))?;

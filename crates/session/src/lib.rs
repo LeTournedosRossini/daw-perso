@@ -132,6 +132,7 @@ pub enum Edit {
     SetOrder { old: Vec<NodeId>, new: Vec<NodeId> },
     /// Sortie physique d'un bus (retour de monitoring) : voir `daw_engine::PhysOut`.
     SetPhys { node: NodeId, old: Option<daw_engine::PhysOut>, new: Option<daw_engine::PhysOut> },
+    SetParent { node: NodeId, old: Option<NodeId>, new: Option<NodeId> },
     /// Insère (ou retire) un effet dans la chaîne d'un nœud.
     AddEffect { node: NodeId, index: usize, desc: Box<daw_engine::InsertDesc> },
     RemoveEffect { node: NodeId, index: usize, desc: Box<daw_engine::InsertDesc> },
@@ -173,6 +174,7 @@ impl Edit {
             Edit::SetSends { node, old, new } => Edit::SetSends { node, old: new, new: old },
             Edit::SetOrder { old, new } => Edit::SetOrder { old: new, new: old },
             Edit::SetPhys { node, old, new } => Edit::SetPhys { node, old: new, new: old },
+            Edit::SetParent { node, old, new } => Edit::SetParent { node, old: new, new: old },
             Edit::AddEffect { node, index, desc } => Edit::RemoveEffect { node, index, desc },
             Edit::RemoveEffect { node, index, desc } => Edit::AddEffect { node, index, desc },
             Edit::MoveEffect { node, from, to } => Edit::MoveEffect { node, from: to, to: from },
@@ -644,7 +646,7 @@ impl Session {
 
     fn apply(&mut self, e: &Edit) -> Result<(), SessionError> {
         match e {
-            Edit::InsertNode { .. } | Edit::RemoveNode { .. } | Edit::SetName { .. } | Edit::SetColor { .. } | Edit::SetOutput { .. } | Edit::SetSends { .. } | Edit::SetOrder { .. } | Edit::SetPhys { .. } => return self.apply_node_edit(e),
+            Edit::InsertNode { .. } | Edit::RemoveNode { .. } | Edit::SetName { .. } | Edit::SetColor { .. } | Edit::SetOutput { .. } | Edit::SetSends { .. } | Edit::SetOrder { .. } | Edit::SetPhys { .. } | Edit::SetParent { .. } => return self.apply_node_edit(e),
             Edit::AddEffect { .. } | Edit::RemoveEffect { .. } | Edit::MoveEffect { .. } => return self.apply_effect_edit(e),
             Edit::InsertClip { node, index, id, clip } => {
                 let n = node.0 as usize;

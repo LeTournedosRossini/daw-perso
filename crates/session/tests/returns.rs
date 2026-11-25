@@ -132,7 +132,7 @@ fn a_version_20_project_keeps_its_returns_a_bus_with_an_output_was_one() {
         .filter(|l| !l.contains("\"monitor\": true"))
         .collect::<Vec<_>>()
         .join("\n")
-        .replace("\"version\": 22", "\"version\": 20");
+        .replace("\"version\": 23", "\"version\": 20");
     let back = Session::from_json(&v20, &NoAudio).unwrap().0;
     assert!(back.graph().nodes[a.0 as usize].monitor, "avec sortie physique : c'était un retour");
     assert!(!back.graph().nodes[b.0 as usize].monitor, "sans sortie physique : un bus");

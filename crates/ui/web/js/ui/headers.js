@@ -50,7 +50,7 @@ export class Headers {
 
   render() {
     this.#renderChordHeads();
-    const rows = orderedRows(this.state.project, this.state.autoOpen, this.state.rollDockNode ?? null, this.state.dockRows ?? this.state.rollRows ?? 4, this.state.takesOpen);
+    const rows = orderedRows(this.state.project, this.state.autoOpen, this.state.rollDockNode ?? null, this.state.dockRows ?? this.state.rollRows ?? 4, this.state.takesOpen, this.state.parOpen);
     const keys = rows.map((r) => r.rowKey ?? String(r.id));
     // Reconstruction seulement si la liste de lignes a changé ; sinon mise à jour sur place (pour ne pas casser un glissement).
     const dockEl = this.state.dockHeadEl ?? this.pianoRoll?.dockHead ?? null;
@@ -193,6 +193,7 @@ export class Headers {
             <button class="m" title="Muet" aria-label="Muet">M</button>
             <button class="s" title="Solo" aria-label="Solo">S</button>
             <button class="r" title="Armer pour l'enregistrement" aria-label="Armer">●</button><button class="rin" title="Entrée d'enregistrement : canal, MIDI, dynamique…" aria-label="Entrée d'enregistrement" aria-haspopup="menu">▾</button>
+            <button class="par" title="Pistes parallèles : afficher ou replier" aria-label="Pistes parallèles" hidden>∥</button>
             <button class="t" title="Prises : afficher ou replier les prises inactives de la piste" aria-label="Prises" hidden>▤</button>
             <button class="a" title="Voie d'automation (volume, panoramique, envois, plugins)" aria-label="Voie d'automation">A</button>
             <button class="more" title="Menu de la piste" aria-label="Menu de la piste" aria-haspopup="menu">⋮</button>
@@ -200,7 +201,7 @@ export class Headers {
         <div class="knobs"></div>
       </div>`;
     const q = (s) => root.querySelector(s);
-    const refs = { witness: createWitness(), t: q(".t"), a: q(".a"), grip: q(".grip"), fx: q(".fx"), rin: q(".rin"), phase: q(".phase"), more: q(".more"), name: q(".name"), kind: q(".kind"), m: q(".m"), s: q(".s"), r: q(".r"), };
+    const refs = { witness: createWitness(), par: q(".par"), t: q(".t"), a: q(".a"), grip: q(".grip"), fx: q(".fx"), rin: q(".rin"), phase: q(".phase"), more: q(".more"), name: q(".name"), kind: q(".kind"), m: q(".m"), s: q(".s"), r: q(".r"), };
     // Volume et panoramique : deux potentiomètres (plus compacts que des curseurs, utilisables au toucher) ; les faders linéaires sont dans le mixeur.
     const send = (patch) => this.client.send({ type: "set_node", node: n.id, ...patch });
     const vol = knobControl("Vol", {
@@ -262,6 +263,12 @@ export class Headers {
     refs.rin.addEventListener("click", () => openInputMenu(refs.rin, { node: this.#node(n.id), project: this.state.project, client: this.client }));
     refs.r.addEventListener("click", () => send({ arm: !this.#node(n.id).arm }));
     refs.a.addEventListener("click", () => this.automation.toggle(n.id));
+    refs.par.addEventListener("click", () => {
+      const open = this.state.parOpen;
+      if (open.has(n.id)) open.delete(n.id);
+      else open.add(n.id);
+      this.#relayout();
+    });
     refs.t.addEventListener("click", () => {
       const open = this.state.takesOpen;
       if (open.has(n.id)) open.delete(n.id);
@@ -387,7 +394,7 @@ export class Headers {
   }
 
   #sync(n) {
-    const { refs } = this.rows.get(n.id);
+    const { root, refs } = this.rows.get(n.id);
     refs.name.textContent = n.name;
     const bus = n.output ? this.#node(n.output) : null;
     // Sur la ligne du titre : seulement ce qui change quelque chose (bus, sortie, routage) ; le format est dans l'info-bulle.
@@ -409,6 +416,14 @@ export class Headers {
     refs.phase.hidden = !n.invert;
     paintWitness(refs.witness, n, this.state.midiAct?.[n.id] ?? 0);
     refs.a.setAttribute("aria-pressed", String(this.state.autoOpen.has(n.id)));
+    const kids = this.state.project.nodes.filter((x) => x.parent === n.id).length;
+    refs.par.hidden = kids === 0;
+    const parOpen = this.state.parOpen.has(n.id);
+    refs.par.textContent = `${parOpen ? "▾" : "▸"} ∥ ${kids}`;
+    refs.par.setAttribute("aria-pressed", String(parOpen));
+    refs.par.title = parOpen ? "Replier les pistes parallèles" : `Afficher les ${kids} piste(s) parallèle(s) dans la timeline`;
+    root.classList.toggle("par-child", n.parent != null);
+    if (n.parent != null) root.style.setProperty("--pc", this.state.project.nodes.find((x) => x.id === n.parent)?.color || "var(--muted)");
     const takes = n.mutedClips?.length ?? 0;
     refs.t.hidden = takes === 0;
     refs.t.textContent = `▤ ${takes}`;

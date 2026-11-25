@@ -1488,6 +1488,9 @@ pub struct NodeInfo {
     pub kind: String,
     /// Retour de monitoring (un bus d'un type à part : QR, onglet de mix, groupes propres) ; faux pour une piste et un bus ordinaire.
     pub is_return: bool,
+    /// Piste parente (piste parallèle) : numéro de nœud ; absent pour une piste ordinaire.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u32>,
     pub color: String,
     pub gain: f32,
     pub pan: f32,

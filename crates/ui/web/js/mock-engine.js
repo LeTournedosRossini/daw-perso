@@ -287,6 +287,13 @@ export class MockEngine extends EngineClient {
   }
 
   /** Vrai si diriger `node` vers `target` ferait une boucle. */
+  /** Le nœud et ses parallèles de proche en proche, dans l'ordre d'affichage. */
+  #family(n) {
+    const ids = new Set([n.id]);
+    for (const x of this.project.nodes) if (x.parent != null && ids.has(x.parent)) ids.add(x.id);
+    return this.project.nodes.filter((x) => ids.has(x.id));
+  }
+
   #loops(node, target) {
     for (let t = this.node(target); t; t = t.output === null ? null : this.node(t.output)) if (t.id === node.id) return true;
     return false;
@@ -1309,7 +1316,11 @@ export class MockEngine extends EngineClient {
           if (msg.tap === "after_insert" && !(parent.inserts ?? []).some((i) => i.id === msg.insert)) throw new Error("pas d'effet de ce numéro sur cette piste");
           const id = Math.max(...this.project.nodes.map((n) => n.id)) + 1;
           const color = TRACK_COLORS[(this.project.nodes.length - 1) % TRACK_COLORS.length];
-          this.project.nodes.push({ id, name: msg.name?.trim() || `${parent.name} ∥`, kind: "bus", is_return: false, color, gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: parent.output ?? 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] });
+          const fresh = { id, parent: parent.id, name: msg.name?.trim() || `${parent.name} ∥`, kind: "bus", is_return: false, color, gain: 1, pan: 0, mute: false, solo: false, invert: false, arm: false, output: parent.output ?? 0, input: { kind: "audio", channels: [1] }, monitor: true, inserts: [], clips: [] };
+          // Juste après la dernière piste de la famille de la parente.
+          const fam = this.#family(parent);
+          const last = fam[fam.length - 1];
+          this.project.nodes.splice(this.project.nodes.indexOf(last) + 1, 0, fresh);
           (parent.sends ??= []).push({ to: id, gain: 1, pre: msg.tap === "pre_fader", tap: msg.tap, tap_insert: msg.tap === "after_insert" ? msg.insert : null, follow: true });
         });
       }
@@ -1329,15 +1340,16 @@ export class MockEngine extends EngineClient {
         return this.#edit("Supprimer une piste", msg, () => {
           const n = this.node(msg.node);
           if (!n) throw new Error(`nœud inconnu : ${msg.node}`);
-          this.project.nodes = this.project.nodes.filter((x) => x !== n);
+          const gone = new Set(this.#family(n).map((x) => x.id)); // la piste et ses parallèles partent ensemble
+          this.project.nodes = this.project.nodes.filter((x) => !gone.has(x.id));
           for (const o of this.project.nodes) {
-            if (o.output === n.id) o.output = 0;
-            if (o.sends) o.sends = o.sends.filter((s) => s.to !== n.id);
+            if (gone.has(o.output)) o.output = 0;
+            if (o.sends) o.sends = o.sends.filter((s) => !gone.has(s.to));
             for (const i of o.inserts ?? []) {
-              if (i.sidechain === n.id) i.sidechain = null; // sa chaîne latérale disparaît avec la source
-              for (const a of i.aux_ports ?? []) if (a.to === n.id) a.to = null;
+              if (gone.has(i.sidechain)) i.sidechain = null; // sa chaîne latérale disparaît avec la source
+              for (const a of i.aux_ports ?? []) if (gone.has(a.to)) a.to = null;
             }
-            if (o.automation) o.automation = o.automation.filter((l) => !(l.target.kind === "send" && l.target.to === n.id));
+            if (o.automation) o.automation = o.automation.filter((l) => !(l.target.kind === "send" && gone.has(l.target.to)));
           }
         });
       }
@@ -1561,13 +1573,19 @@ export class MockEngine extends EngineClient {
         return this.#edit("Déplacer une piste", msg, () => {
           const n = this.node(msg.node);
           if (!n) throw new Error(`nœud inconnu : ${msg.node}`);
-          const rest = this.project.nodes.filter((x) => x !== n);
+          if (n.parent != null) throw new Error("une piste parallèle reste sous sa piste parente");
+          const block = this.#family(n);
+          let target = msg.before === undefined || msg.before === null ? null : this.node(msg.before);
+          if (msg.before != null && !target) throw new Error(`nœud inconnu : ${msg.before}`);
+          while (target?.parent != null) target = this.node(target.parent); // viser une parallèle = viser sa famille
+          if (target && block.includes(target)) return;
+          const rest = this.project.nodes.filter((x) => !block.includes(x));
           let at = rest.length;
-          if (msg.before !== undefined) {
-            at = rest.findIndex((x) => x.id === msg.before);
+          if (target) {
+            at = rest.indexOf(target);
             if (at < 1) throw new Error(`nœud inconnu : ${msg.before}`);
           }
-          rest.splice(at, 0, n);
+          rest.splice(at, 0, ...block);
           this.project.nodes = rest;
         });
       case "new_project": {

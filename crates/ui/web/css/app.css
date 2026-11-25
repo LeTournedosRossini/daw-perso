@@ -1047,3 +1047,15 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .group-dialog fieldset { border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 4px; }
 .group-dialog .row output { min-width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
 @media (pointer: coarse) { .mixer .mx-talk button { height: 36px; } }
+
+/* Pistes parallèles : rattachées à leur parente (même couleur en liseré), plus étroites, fond teinté. */
+.mx-strip.par { border-top-color: var(--pc, var(--accent)); width: 76px; padding: 4px 4px; border-left: 3px solid var(--pc, var(--accent)); background: color-mix(in srgb, var(--pc, var(--accent)) 10%, var(--panel-2)); }
+.mixer.wide .mx-strip.par { width: 100px; }
+.mx-strip.par .mx-name { font-size: 11px; }
+.mx-tap { font-size: 9px; line-height: 1.15; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.3em; }
+.mx-strip.has-kids { border-bottom: 3px solid var(--c, var(--accent)); }
+.mx-strip button.mx-fold { align-self: flex-start; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; cursor: pointer; padding: 1px 6px; font-size: 11px; line-height: 1.3; }
+.mx-strip button.mx-fold:hover { border-color: var(--accent); }
+@media (pointer: coarse) { .mx-strip button.mx-fold { min-height: 30px; padding: 3px 9px; } }
+.track-head.par-child { margin-left: 10px; border-left: 3px solid var(--pc, var(--accent)); background: color-mix(in srgb, var(--pc, var(--accent)) 9%, var(--panel-2)); }
+.track-head .btns button.par { font-size: 11px; }

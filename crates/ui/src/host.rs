@@ -1366,17 +1366,20 @@ impl Host {
                 }
                 let mut events = self.end_preview(true, false);
                 let handle = &self.handle;
-                let r = self.session.remove_node(NodeId(node), &mut |ins| {
-                    let state = handle.insert_control(ins.id).and_then(|c| c.save_state());
-                    with_state(Arc::clone(&ins.factory), state)
-                });
+                // La piste et ses parallèles (de proche en proche) partent ensemble, en une seule action annulable.
+                let removed: Vec<u32> = self.session.family_block(NodeId(node)).iter().map(|n| n.0).collect();
+                let r = self
+                    .session
+                    .remove_node_cascade(NodeId(node), &mut |ins| {
+                        let state = handle.insert_control(ins.id).and_then(|c| c.save_state());
+                        with_state(Arc::clone(&ins.factory), state)
+                    })
+                    .map(|_| ());
                 if r.is_ok() {
-                    // Les plugins gardés tels quels (introuvables) suivent la renumérotation ; ceux de la piste disparaissent.
-                    self.kept_plugins.retain(|p| p.node != node);
+                    // Les plugins gardés tels quels (introuvables) suivent la renumérotation ; ceux des pistes retirées disparaissent.
+                    self.kept_plugins.retain(|p| !removed.contains(&p.node));
                     for p in &mut self.kept_plugins {
-                        if p.node > node {
-                            p.node -= 1;
-                        }
+                        p.node -= removed.iter().filter(|&&g| g < p.node).count() as u32;
                     }
                 }
                 events.extend(self.finish_edit(name, r));
@@ -3057,6 +3060,7 @@ impl Host {
                     id: i as u32,
                     name: n.name.clone(),
                     is_return: n.monitor,
+                    parent: n.parent.map(|p| p.0),
                     kind: match n.kind {
                         NodeKind::Master => "master",
                         NodeKind::Bus => "bus",

@@ -53,6 +53,7 @@ const state = {
   selected: new Set(), // tous les clips sélectionnés
   clipboardCount: 0,
   autoOpen: new Set(),
+  parOpen: new Set(), // parentes dont les pistes parallèles sont affichées dans la timeline (repliées par défaut)
   takesOpen: new Set(), // pistes dont les voies de prises sont dépliées
   chordsOpen: false, // voie d'accords (accords, tonalités, gammes, motifs) affichée en tête de la timeline
   chordTrack: null, // dernière piste d'accords reçue : { revision, track }

@@ -25,9 +25,19 @@ export function takeLayers(node) {
  * Lignes de la timeline et des en-têtes : pistes et bus, puis la sortie principale, avec **sous chaque nœud dont la voie
  * d'automation est dépliée** une ligne `kind: "lane"` (même hauteur qu'une piste : tout l'alignement ligne à ligne reste valable).
  */
-export function orderedRows(project, open = new Set(), rollNode = null, rollRows = 4, takesOpen = new Set()) {
+export function orderedRows(project, open = new Set(), rollNode = null, rollRows = 4, takesOpen = new Set(), parOpen = new Set()) {
   const rows = [];
+  const byId = new Map(project.nodes.map((x) => [x.id, x]));
+  // Les pistes parallèles sont repliées sous leur parente tant que celle-ci n'est pas dans `parOpen` (de proche en proche).
+  const hidden = (n) => {
+    for (let p = n.parent, i = 0; p != null && i <= project.nodes.length; i++) {
+      if (!parOpen.has(p)) return true;
+      p = byId.get(p)?.parent;
+    }
+    return false;
+  };
   for (const n of orderedNodes(project)) {
+    if (hidden(n)) continue;
     rows.push(n);
     if (open.has(n.id)) rows.push({ id: n.id, kind: "lane", rowKey: `lane:${n.id}`, node: n, color: n.color, name: n.name, clips: [] });
     // Voies de prises : une ligne par couche de prises inactives, sous la piste (et sa voie d'automation).

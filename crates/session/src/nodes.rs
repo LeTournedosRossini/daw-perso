@@ -59,6 +59,8 @@ pub struct NodeRecord {
     display_pos: usize,
     /// Nœuds (numéros avec ce nœud présent) dont la sortie pointait vers lui : renvoyés vers la sortie principale au retrait.
     rerouted: Vec<u32>,
+    /// Nœuds (parallèles) dont il était le parent : ils n'ont plus de parent au retrait, il leur revient avec lui.
+    orphaned: Vec<u32>,
     /// Envois vers lui (propriétaire, place dans sa liste, envoi) : supprimés avec lui.
     dropped_sends: Vec<(u32, usize, SendDesc)>,
     /// Courbes de niveau d'envoi vers lui (propriétaire, courbe) : supprimées avec lui, rendues avec lui.
@@ -173,6 +175,7 @@ impl Session {
             midi_filter: Vec::new(),
             display_pos: self.order.len(),
             rerouted: Vec::new(),
+            orphaned: Vec::new(),
             dropped_sends: Vec::new(),
             dropped_lanes: Vec::new(),
         };
@@ -190,6 +193,7 @@ impl Session {
             ins.factory = keep_state(ins);
         }
         let mut rerouted = Vec::new();
+        let mut orphaned = Vec::new();
         let mut dropped_sends = Vec::new();
         let mut dropped_lanes = Vec::new();
         for (i, lanes) in self.lanes.iter().enumerate().filter(|(i, _)| *i != n) {
@@ -200,6 +204,9 @@ impl Session {
         for (i, other) in self.graph.nodes.iter().enumerate().filter(|(i, _)| *i != n) {
             if other.output == Some(node) {
                 rerouted.push(i as u32);
+            }
+            if other.parent == Some(node) {
+                orphaned.push(i as u32);
             }
             for (pos, s) in other.sends.iter().enumerate() {
                 if s.to == node {
@@ -240,6 +247,7 @@ impl Session {
             member_of: self.ret_groups.iter().map(|g| g.as_ref().and_then(|g| g.of.get(n).copied()).unwrap_or(0)).collect(),
             display_pos: self.order.iter().position(|&o| o == node).unwrap_or(self.order.len()),
             rerouted,
+            orphaned,
             dropped_sends,
             dropped_lanes,
         };
@@ -340,6 +348,17 @@ impl Session {
             let mut sends = s.graph.nodes[p].sends.clone();
             sends.push(daw_engine::SendDesc { to: bus, gain: 1.0, pre, mute: false, solo: false, tap, follow: true });
             s.change_sends("Piste parallèle", parent, sends)?;
+            s.push("Piste parallèle", Edit::SetParent { node: bus, old: None, new: Some(parent) })?;
+            // Juste après la dernière piste de la famille de la parente.
+            let last = s.family_block(parent).into_iter().rfind(|&n| n != bus).unwrap_or(parent);
+            let mut new = s.order.clone();
+            new.retain(|&o| o != bus);
+            let at = new.iter().position(|&o| o == last).map_or(new.len(), |i| i + 1);
+            new.insert(at, bus);
+            if new != s.order {
+                let old = s.order.clone();
+                s.push("Piste parallèle", Edit::SetOrder { old, new })?;
+            }
             Ok(bus)
         })
     }
@@ -515,22 +534,96 @@ impl Session {
         }
     }
 
-    /// Place `node` juste avant `before` dans l'ordre d'affichage (à la fin si `before` est `None`).
+    /// Parente directe d'un nœud (piste parallèle), s'il en a une.
+    pub fn node_parent(&self, node: NodeId) -> Option<NodeId> {
+        self.graph.nodes.get(node.0 as usize).and_then(|n| n.parent)
+    }
+
+    /// Lien de parenté **sans historique** (chargement d'un projet). Refusé : parent inconnu, la sortie principale, soi-même, boucle.
+    pub fn set_parent_untracked(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), SessionError> {
+        self.node_index(node)?;
+        if let Some(p) = parent {
+            self.node_index(p)?;
+            if p == NodeId::MASTER || p == node {
+                return Err(SessionError::Routing("parent invalide".into()));
+            }
+            let mut x = p;
+            for _ in 0..=self.graph.nodes.len() {
+                match self.node_parent(x) {
+                    Some(up) if up == node => return Err(SessionError::Routing("boucle de parenté".into())),
+                    Some(up) => x = up,
+                    None => break,
+                }
+            }
+        }
+        self.graph.nodes[node.0 as usize].parent = parent;
+        Ok(())
+    }
+
+    /// Le nœud et toutes ses parallèles (de proche en proche), **dans l'ordre d'affichage**. Vide si le nœud n'existe pas.
+    pub fn family_block(&self, node: NodeId) -> Vec<NodeId> {
+        let is_below = |mut x: NodeId| {
+            for _ in 0..self.graph.nodes.len() {
+                match self.node_parent(x) {
+                    Some(p) if p == node => return true,
+                    Some(p) => x = p,
+                    None => return false,
+                }
+            }
+            false
+        };
+        self.order.iter().copied().filter(|&o| o == node || is_below(o)).collect()
+    }
+
+    /// Place `node` juste avant `before` dans l'ordre d'affichage (à la fin si `before` est `None`). Ses parallèles le suivent ;
+    /// une piste parallèle ne se déplace pas seule (elle reste sous sa parente) ; viser une parallèle revient à viser sa famille.
     pub fn move_node(&mut self, node: NodeId, before: Option<NodeId>) -> Result<(), SessionError> {
         self.node_index(node)?;
+        if self.node_parent(node).is_some() {
+            return Err(SessionError::Routing("une piste parallèle reste sous sa piste parente".into()));
+        }
+        let block = self.family_block(node);
+        let mut target = before;
+        while let Some(p) = target.and_then(|b| self.node_parent(b)) {
+            target = Some(p);
+        }
+        if target.is_some_and(|b| block.contains(&b)) {
+            return Ok(());
+        }
         let mut new = self.order.clone();
-        new.retain(|&o| o != node);
-        let at = match before {
+        new.retain(|o| !block.contains(o));
+        let at = match target {
             None => new.len(),
-            Some(b) if b == node => return Ok(()),
             Some(b) => new.iter().position(|&o| o == b).ok_or(SessionError::UnknownNode(b))?,
         };
-        new.insert(at, node);
+        for (k, &b) in block.iter().enumerate() {
+            new.insert(at + k, b);
+        }
         if new == self.order {
             return Ok(());
         }
         let old = self.order.clone();
         self.push("Déplacer une piste", Edit::SetOrder { old, new })
+    }
+
+    /// Retire un nœud **et ses parallèles** (de proche en proche) : une seule action annulable. Rend le nombre de nœuds retirés.
+    pub fn remove_node_cascade(&mut self, node: NodeId, keep_state: &mut dyn FnMut(&InsertDesc) -> InsertFactory) -> Result<usize, SessionError> {
+        self.node_index(node)?;
+        let mut below: Vec<NodeId> = self.family_block(node).into_iter().filter(|&n| n != node).collect();
+        if below.is_empty() {
+            self.remove_node(node, keep_state)?;
+            return Ok(1);
+        }
+        below.sort_by_key(|n| std::cmp::Reverse(n.0)); // les numéros les plus hauts d'abord : les autres ne bougent pas
+        let n_below = below.len();
+        let shift = below.iter().filter(|b| b.0 < node.0).count() as u32;
+        self.group("Supprimer une piste", |s| {
+            for b in &below {
+                s.remove_node(*b, keep_state)?;
+            }
+            s.remove_node(NodeId(node.0 - shift), keep_state)
+        })?;
+        Ok(n_below + 1)
     }
 
     pub(crate) fn apply_node_edit(&mut self, e: &Edit) -> Result<(), SessionError> {
@@ -549,6 +642,7 @@ impl Session {
                 self.sync_node(node.0 as usize)?; // une courbe de niveau d'envoi dont l'envoi a disparu (ou est revenu) suit
             }
             Edit::SetOrder { new, .. } => self.order = new.clone(),
+            Edit::SetParent { node, new, .. } => self.graph.nodes.get_mut(node.0 as usize).ok_or(SessionError::UnknownNode(*node))?.parent = *new,
             Edit::SetPhys { node, new, .. } => self.graph.nodes.get_mut(node.0 as usize).ok_or(SessionError::UnknownNode(*node))?.phys = *new,
             Edit::InsertNode { index, record } => self.insert_node(*index, record)?,
             Edit::RemoveNode { index, .. } => self.remove_node_at(*index)?,
@@ -562,6 +656,7 @@ impl Session {
             return Err(SessionError::UnknownNode(NodeId(at as u32)));
         }
         for n in &mut self.graph.nodes {
+            n.parent = n.parent.map(|o| shift_up(o, at));
             n.output = n.output.map(|o| shift_up(o, at));
             for s in &mut n.sends {
                 s.to = shift_up(s.to, at);
@@ -587,6 +682,11 @@ impl Session {
         for &o in &r.rerouted {
             if let Some(n) = self.graph.nodes.get_mut(o as usize) {
                 n.output = Some(NodeId(at as u32));
+            }
+        }
+        for &o in &r.orphaned {
+            if let Some(n) = self.graph.nodes.get_mut(o as usize) {
+                n.parent = Some(NodeId(at as u32));
             }
         }
         for (o, id) in &r.dropped_sidechains {
@@ -651,6 +751,9 @@ impl Session {
             if n.output == Some(gone) {
                 n.output = Some(NodeId::MASTER);
             }
+            if n.parent == Some(gone) {
+                n.parent = None;
+            }
             n.sends.retain(|s| s.to != gone);
             for ins in &mut n.inserts {
                 if ins.sidechain == Some(gone) {
@@ -675,6 +778,7 @@ impl Session {
         for (i, n) in self.graph.nodes.iter_mut().enumerate() {
             n.id = NodeId(i as u32);
             n.output = n.output.map(|o| shift_down(o, at));
+            n.parent = n.parent.map(|o| shift_down(o, at));
             for s in &mut n.sends {
                 s.to = shift_down(s.to, at);
             }

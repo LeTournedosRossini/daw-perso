@@ -73,7 +73,7 @@ export class Timeline {
   /** Lignes dans l'ordre d'affichage : pistes et bus, la sortie principale en dernier, et sous chaque nœud dont la voie d'automation
    * est dépliée une ligne `kind: "lane"` (sans clips). */
   nodes() {
-    return orderedRows(this.state.project, this.state.autoOpen, this.state.rollDockNode ?? null, this.state.dockRows ?? this.state.rollRows ?? 4, this.state.takesOpen);
+    return orderedRows(this.state.project, this.state.autoOpen, this.state.rollDockNode ?? null, this.state.dockRows ?? this.state.rollRows ?? 4, this.state.takesOpen, this.state.parOpen);
   }
 
   refreshColors() {
