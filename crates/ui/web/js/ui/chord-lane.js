@@ -23,6 +23,9 @@ const DEFAULT_LANE_H = 24; // hauteur d'une voie (px) : un peu moins d'un tiers 
 const MIN_LANE_H = 14;
 const MAX_LANE_H = 64;
 const EDGE = 5; // zone de saisie d'un bord (px)
+const HANDLE_MOUSE = 11; // zone de saisie d'un bord d'un élément sélectionné (poignée visible)
+const HANDLE_TOUCH = 20; // idem au doigt
+const COARSE = () => (typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : false);
 const PATTERN_BAND = 4; // bande des appels de motifs en bas de la ligne des gammes (px)
 const NOTE_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 
@@ -281,13 +284,20 @@ export class ChordLane {
     });
   }
 
+  #kindOfRow(rowKind) {
+    return rowKind === "chords" ? "chord" : rowKind === "structure" ? "section" : rowKind === "keys" ? "key" : rowKind === "lyrics" ? "lyric" : "scale";
+  }
+
   #hit(kind, top, x, y) {
     const list = this.#blocks(kind, top);
     for (let i = list.length - 1; i >= 0; i--) {
       const b = list[i];
       if (y < b.y0 || y > b.y1 || x < b.x0 - 2 || x > b.x1 + 2) continue;
       const w = b.x1 - b.x0;
-      const zone = kind === "keys" ? "body" : kind === "lyrics" ? (x >= b.x1 - EDGE && w > 3 * EDGE ? "end" : "body") : x <= b.x0 + EDGE && w > 3 * EDGE ? "start" : x >= b.x1 - EDGE && w > 3 * EDGE ? "end" : "body";
+      // Un élément sélectionné montre des poignées : leur zone de saisie est plus large (surtout au doigt).
+      const on = !!this.sel && this.sel.kind === this.#kindOfRow(kind) && (this.sel.index === b.index || this.multi.has(b.index));
+      const edge = on ? (COARSE() ? HANDLE_TOUCH : HANDLE_MOUSE) : EDGE;
+      const zone = kind === "keys" ? "body" : kind === "lyrics" ? (x >= b.x1 - edge && w > 2.5 * edge ? "end" : "body") : x <= b.x0 + edge && w > 2.5 * edge ? "start" : x >= b.x1 - edge && w > 2.5 * edge ? "end" : "body";
       return { ...b, zone };
     }
     return null;
@@ -320,6 +330,22 @@ export class ChordLane {
       g.roundRect(x0, b.y0, w, b.y1 - b.y0, 3);
       g.fill();
       g.stroke();
+      if (selected && kind !== "key" && w > 16) {
+        // Poignées de durée sur un élément sélectionné : gauche et droite (la syllabe n'a que la droite : trait de prolongation).
+        const hw = COARSE() ? 8 : 5;
+        const hh = Math.max(6, Math.min(b.y1 - b.y0 - 4, COARSE() ? 20 : 14));
+        const hy = (b.y0 + b.y1) / 2 - hh / 2;
+        g.fillStyle = c.accent;
+        if (kind !== "lyric") {
+          g.beginPath();
+          g.roundRect(x0 + 1, hy, hw, hh, 2);
+          g.fill();
+        }
+        g.beginPath();
+        g.roundRect(x0 + w - hw - 1, hy, hw, hh, 2);
+        g.fill();
+        g.fillStyle = fill;
+      }
       if (w > 18 && b.y1 - b.y0 >= 9) {
         g.save();
         g.beginPath();
