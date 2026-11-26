@@ -81,6 +81,9 @@ struct FileDto {
     /// Paroles (syllabes en fractions de ronde), absentes si vide : champ facultatif, le numéro de version ne change pas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lyrics: Vec<LyricDto>,
+    /// Texte des paroles en strophes, absent si vide : champ facultatif, le numéro de version ne change pas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    strophes: Vec<StropheDto>,
     /// Marqueurs de repère, absents si vide : champ facultatif, le numéro de version ne change pas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     markers: Vec<MarkerDto>,
@@ -155,6 +158,17 @@ struct MarkerDto {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     color: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StropheDto {
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
+    #[serde(default)]
+    lines: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    link: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -788,6 +802,7 @@ impl Session {
             nodes,
             chord_track: if self.chords.is_empty() { None } else { serde_json::from_str(&self.chords.to_carte_json("")).ok() },
             groups: self.groups.iter().map(|g| GroupDto { id: g.id, name: g.name.clone(), color: g.color.clone() }).collect(),
+            strophes: self.strophes.iter().map(|t| StropheDto { name: t.name.clone(), category: t.category.clone(), lines: t.lines.clone(), link: t.link.clone() }).collect(),
             markers: self.markers.iter().map(|m| MarkerDto { id: m.id, at: frac_to(m.at), name: m.name.clone(), color: m.color.clone() }).collect(),
             lyrics: self.lyrics.iter().map(|l| LyricDto { at: frac_to(l.at), text: l.text.clone(), hyphen: l.hyphen, verse: l.verse, end: l.end.map(frac_to) }).collect(),
             structure: self.structure.iter().map(|s| SectionDto { at: frac_to(s.at), dur: frac_to(s.dur), name: s.name.clone(), color: s.color.clone(), category: s.category.clone() }).collect(),
@@ -1007,6 +1022,11 @@ impl Session {
             crate::lyrics::normalize(&mut list);
             crate::lyrics::validate(&list).map_err(ProjectError::BadGraph)?;
             s.lyrics = list;
+        }
+        if !file.strophes.is_empty() {
+            let list: Vec<crate::strophes::Strophe> = file.strophes.iter().map(|t| crate::strophes::Strophe { name: t.name.clone(), category: t.category.clone(), lines: t.lines.clone(), link: t.link.clone() }).collect();
+            crate::strophes::validate(&list).map_err(ProjectError::BadGraph)?;
+            s.strophes = list;
         }
         if !file.groups.is_empty() || file.nodes.iter().any(|n| n.group != 0) {
             let groups: Vec<crate::groups::Group> = file.groups.iter().map(|g| crate::groups::Group { id: g.id, name: g.name.clone(), color: g.color.clone() }).collect();

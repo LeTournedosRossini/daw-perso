@@ -183,6 +183,9 @@ export function validateCommand(m) {
     case "set_structure":
       if (!(Array.isArray(m.sections) && m.sections.every((s) => s && Array.isArray(s.at) && Array.isArray(s.dur) && typeof s.name === "string"))) return "set_structure : sections (liste de { at, dur, name }) requises";
       return m.sections.every((s) => s.category === undefined || s.category === null || CATEGORIES.includes(s.category)) ? null : "set_structure : catégorie inconnue";
+    case "set_strophes":
+      if (!(Array.isArray(m.strophes) && m.strophes.length <= 256 && m.strophes.every((t) => t && typeof t.name === "string" && Array.isArray(t.lines) && t.lines.every((l) => typeof l === "string")))) return "set_strophes : strophes (liste de { name, lines }) requises";
+      return m.strophes.every((t) => t.name.trim() && t.name.length <= 60 && t.lines.length <= 512 && t.lines.every((l) => l.length <= 400 && !/[\n\r]/.test(l))) ? null : "set_strophes : nom de 1 à 60 caractères, lignes de 400 caractères au plus sans retour à la ligne";
     case "set_lyrics":
       if (!(Array.isArray(m.syllables) && m.syllables.every((s) => s && Array.isArray(s.at) && s.at.length === 2 && typeof s.text === "string"))) return "set_lyrics : syllables (liste de { at, text }) requises";
       if (!m.syllables.every((s) => s.verse === undefined || (Number.isInteger(s.verse) && s.verse >= 1 && s.verse <= 8))) return "set_lyrics : couplet de 1 à 8";

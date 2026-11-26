@@ -156,6 +156,7 @@ export class ScoreWindow {
         return it?.data ? { id: this.cur, d: it.data } : null;
       },
       lyrics: () => this.state.lyrics ?? [],
+      strophes: () => this.state.strophes ?? [],
       view: () => this.view,
       verse: () => this.state.lyricVerse ?? 1,
       zoom: uiZoom,

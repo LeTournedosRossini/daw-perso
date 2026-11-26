@@ -28,12 +28,15 @@ export class LyricReserve {
       <div class="lr-row">
         <strong>Réserve de paroles</strong>
         <label>Couplet <select class="lr-verse" aria-label="Couplet"></select></label>
+        <label class="lr-strophe-wrap" title="Reprend le texte d'une strophe écrite dans « Texte des paroles »">Strophe <select class="lr-strophe" aria-label="Strophe"></select></label>
         <span class="lr-btns"><button class="lr-split" title="Découpe le texte en pastilles (celles déjà posées sont reprises à zéro). Un « _ » est une pastille mélisme.">Découper</button><button class="lr-melisma" title="Ajoute une pastille mélisme « _ » (après la pastille choisie, sinon à la fin) : posée sur une note, elle prolonge la syllabe qui la précède jusqu'à la fin de cette note">＋ Mélisme</button><button class="lr-clear" title="Remet toutes les pastilles dans la réserve">Tout retirer</button><button class="lr-remove" title="Remet la pastille choisie dans la réserve">Retirer</button><button class="lr-apply">Appliquer</button><button class="lr-cancel">Annuler</button></span>
       </div>
       <textarea class="lr-text" rows="2" placeholder="ma-man est la plus bel-le" aria-label="Texte du couplet"></textarea>
       <div class="lr-chips" role="listbox" aria-label="Syllabes"></div>
       <div class="lr-hint"></div>`;
     this.verseSel = panel.querySelector(".lr-verse");
+    this.strophSel = panel.querySelector(".lr-strophe");
+    this.strophSel.addEventListener("change", () => this.#loadStrophe(Number(this.strophSel.value)));
     this.text = panel.querySelector(".lr-text");
     this.chipsEl = panel.querySelector(".lr-chips");
     this.hint = panel.querySelector(".lr-hint");
@@ -63,6 +66,20 @@ export class LyricReserve {
     const n = Math.max(2, verseCount(this.host.lyrics()) + 1);
     this.verseSel.replaceChildren(...Array.from({ length: Math.min(8, n) }, (_, i) => new Option(`Couplet ${i + 1}`, String(i + 1))));
     this.#loadVerse(Math.min(8, this.host.verse()));
+    const st = this.host.strophes?.() ?? [];
+    this.strophSel.replaceChildren(new Option(st.length ? "Choisir…" : "(aucune : voir « Texte des paroles »)", ""), ...st.map((x, i) => new Option(x.name, String(i))));
+    this.strophSel.disabled = !st.length;
+  }
+
+  /** Reprend le texte de la strophe `i` : ses phrases mises bout à bout, découpées en pastilles ; « Couplet N » choisit le couplet N. */
+  #loadStrophe(i) {
+    const st = this.host.strophes?.()[i];
+    this.strophSel.value = "";
+    if (!st) return;
+    const n = /(\d+)\s*$/.exec(st.name);
+    if (n && Number(n[1]) >= 1 && Number(n[1]) <= 8 && Number(n[1]) !== this.verse) this.#loadVerse(Number(n[1]));
+    this.text.value = st.lines.join(" ");
+    this.#split();
   }
 
   close() {

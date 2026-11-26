@@ -20,6 +20,7 @@ pub mod project;
 pub mod groups;
 pub mod midi_filter;
 pub mod lyrics;
+pub mod strophes;
 pub mod markers;
 pub mod structure;
 pub mod takes;
@@ -83,6 +84,8 @@ pub enum SessionError {
     BadStructure(String),
     /// Paroles invalides (le message dit pourquoi).
     BadLyrics(String),
+    /// Texte des paroles en strophes invalide (le message dit pourquoi).
+    BadStrophes(String),
     /// Marqueurs invalides (le message dit pourquoi).
     BadMarkers(String),
     /// Sortie physique refusée (pas un bus, canaux de la sortie principale, trop de canaux, canal déjà pris).
@@ -114,6 +117,8 @@ pub enum Edit {
     SetStructure { old: Vec<structure::Section>, new: Vec<structure::Section> },
     /// Paroles remplacées en bloc : voir `lyrics`.
     SetLyrics { old: Vec<lyrics::Syllable>, new: Vec<lyrics::Syllable> },
+    /// Texte des paroles en strophes remplacé en bloc : voir `strophes`.
+    SetStrophes { old: Vec<strophes::Strophe>, new: Vec<strophes::Strophe> },
     /// Marqueurs de repère remplacés en bloc : voir `markers`.
     SetMarkers { old: Vec<markers::Marker>, new: Vec<markers::Marker> },
     /// Groupes de pistes et appartenance, en bloc : voir `groups`.
@@ -163,6 +168,7 @@ impl Edit {
             Edit::SetChordTrack { old, new } => Edit::SetChordTrack { old: new, new: old },
             Edit::SetStructure { old, new } => Edit::SetStructure { old: new, new: old },
             Edit::SetLyrics { old, new } => Edit::SetLyrics { old: new, new: old },
+            Edit::SetStrophes { old, new } => Edit::SetStrophes { old: new, new: old },
             Edit::SetMarkers { old, new } => Edit::SetMarkers { old: new, new: old },
             Edit::SetGroups { old, new } => Edit::SetGroups { old: new, new: old },
             Edit::SetReturnGroups { ret, old, new } => Edit::SetReturnGroups { ret, old: new, new: old },
@@ -250,6 +256,7 @@ pub struct Session {
     structure: Vec<structure::Section>,
     /// Paroles (syllabes en temps musical).
     lyrics: Vec<lyrics::Syllable>,
+    strophes: Vec<strophes::Strophe>,
     /// Marqueurs de repère, triés par instant.
     markers: Vec<markers::Marker>,
     /// Prochain identifiant de marqueur (jamais réutilisé).
@@ -317,7 +324,7 @@ impl Session {
         let inputs = vec![nodes::NodeInput::default(); graph.nodes.len()];
         let node_group = vec![0u32; graph.nodes.len()];
         let node_group_len = graph.nodes.len();
-        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), pending_send_taps: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), markers: Vec::new(), next_marker_id: 1, groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
+        let mut s = Session { seam_ms: 10, pending_insert_lanes: Vec::new(), pending_send_taps: Vec::new(), graph, ids, next_id, undo: Vec::new(), redo: Vec::new(), open: None, merge: None, assets: Vec::new(), missing: Vec::new(), sample_rate, timing, midi, lanes, next_midi_id, colors, order, inputs, structure_version: 0, chords: chords::ChordTrack::default(), chord_revision: 0, structure: Vec::new(), lyrics: Vec::new(), strophes: Vec::new(), markers: Vec::new(), next_marker_id: 1, groups: Vec::new(), node_group, next_group_id: 0, ret_groups: vec![None; node_group_len], monitor_tokens: vec![String::new(); node_group_len], monitor_roles: vec![0; node_group_len], midi_filters: vec![Vec::new(); node_group_len] };
         let _ = s.sync_all(); // identique à l'entrée (conversion exacte) ; sinon le graphe reste tel quel
         s
     }
@@ -568,6 +575,21 @@ impl Session {
         self.push(label, Edit::SetLyrics { old, new: list })
     }
 
+    /// Le texte des paroles en strophes (dans l'ordre où on l'a écrit).
+    pub fn strophes(&self) -> &[strophes::Strophe] {
+        &self.strophes
+    }
+
+    /// Remplace le texte des paroles en strophes (une action annulable). Refusé sans trace s'il est invalide.
+    pub fn set_strophes(&mut self, label: &str, list: Vec<strophes::Strophe>) -> Result<(), SessionError> {
+        strophes::validate(&list).map_err(SessionError::BadStrophes)?;
+        if list == self.strophes {
+            return Ok(());
+        }
+        let old = self.strophes.clone();
+        self.push(label, Edit::SetStrophes { old, new: list })
+    }
+
     /// Les marqueurs de repère (triés par instant).
     pub fn markers(&self) -> &[markers::Marker] {
         &self.markers
@@ -707,6 +729,10 @@ impl Session {
             Edit::SetLyrics { new, .. } => {
                 self.lyrics = new.clone();
                 self.chord_revision = self.chord_revision.wrapping_add(1); // la page relit chords + structure + paroles ensemble
+            }
+            Edit::SetStrophes { new, .. } => {
+                self.strophes = new.clone();
+                self.chord_revision = self.chord_revision.wrapping_add(1); // la page relit tout ensemble
             }
             Edit::SetMarkers { new, .. } => {
                 self.markers = new.clone();

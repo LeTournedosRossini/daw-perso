@@ -143,7 +143,7 @@ export class MockEngine extends EngineClient {
 
   #emitChords() {
     this.chordRevision = (this.chordRevision ?? 0) + 1;
-    this.emit("chords", { revision: this.chordRevision, track: structuredClone(this.chordTrack), skipped: [], structure: structuredClone(this.structure ?? []), lyrics: structuredClone(this.lyrics ?? []), markers: structuredClone(this.markers ?? []) });
+    this.emit("chords", { revision: this.chordRevision, track: structuredClone(this.chordTrack), skipped: [], structure: structuredClone(this.structure ?? []), lyrics: structuredClone(this.lyrics ?? []), strophes: structuredClone(this.strophes ?? []), markers: structuredClone(this.markers ?? []) });
   }
 
   /** Mêmes refus que l'hôte : durée nulle, accords qui se chevauchent, qualité inconnue (jamais de perte silencieuse). */
@@ -190,6 +190,7 @@ export class MockEngine extends EngineClient {
     s.__chords = structuredClone(this.chordTrack); // la piste d'accords suit l'historique, comme le reste
     s.__structure = structuredClone(this.structure ?? []);
     s.__lyrics = structuredClone(this.lyrics ?? []);
+    s.__strophes = structuredClone(this.strophes ?? []);
     s.__markers = structuredClone(this.markers ?? []);
     s.__groups = structuredClone(this.project.groups ?? []);
     return s;
@@ -199,6 +200,7 @@ export class MockEngine extends EngineClient {
   #restore(snap) {
     if (snap.__structure) this.structure = structuredClone(snap.__structure);
     if (snap.__lyrics) this.lyrics = structuredClone(snap.__lyrics);
+    if (snap.__strophes) this.strophes = structuredClone(snap.__strophes);
     if (snap.__markers) this.markers = structuredClone(snap.__markers);
     if (snap.__groups) this.project.groups = structuredClone(snap.__groups);
     if (snap.__chords) {
@@ -1110,6 +1112,16 @@ export class MockEngine extends EngineClient {
             if (n && n.verse === s.verse && fcmp(n.at, s.at) === 0) throw new Error("deux syllabes au même instant dans le même couplet");
           }
           this.lyrics = list;
+        }) && (this.#emitChords(), true);
+      case "set_strophes":
+        return this.#edit(msg.label ?? "Modifier les paroles (texte)", msg, () => {
+          const list = structuredClone(msg.strophes).map((t) => ({ name: t.name, ...(t.category ? { category: t.category } : {}), lines: t.lines, ...(t.link != null ? { link: t.link } : {}) }));
+          for (const t of list) {
+            if (!t.name.trim() || t.name.length > 60) throw new Error("nom de strophe invalide (1 à 60 caractères)");
+            if (t.category && !["intro", "verse", "preChorus", "chorus", "bridge", "solo", "interlude", "outro", "coda", "letter", "custom"].includes(t.category)) throw new Error(`catégorie de strophe inconnue : ${t.category}`);
+            if (t.link === "" ? false : t.link != null && !t.link.trim()) throw new Error("lien de strophe invalide");
+          }
+          this.strophes = list;
         }) && (this.#emitChords(), true);
       case "add_marker": {
         const at = msg.at ?? this.#playheadFrac();

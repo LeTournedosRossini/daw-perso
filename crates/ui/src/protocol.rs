@@ -78,6 +78,18 @@ pub struct MarkerDto {
     pub color: Option<String>,
 }
 
+/// Une strophe du texte des paroles (Couplet 1, Refrain…) : du texte seul, lié éventuellement à une carte de la structure par son nom.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StropheDto {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
 /// Une syllabe des paroles (position en fraction de ronde `[n, d]`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LyricDto {
@@ -138,6 +150,8 @@ pub enum Command {
     SetStructure { sections: Vec<SectionDto>, label: Option<String> },
     /// Remplace les paroles (syllabes en temps musical, couplets 1 à 8) : une action annulable, refusée en entier si invalide.
     SetLyrics { syllables: Vec<LyricDto>, label: Option<String> },
+    /// Remplace le texte des paroles en strophes (une action annulable).
+    SetStrophes { strophes: Vec<StropheDto>, label: Option<String> },
     /// Pose un marqueur de repère (une action annulable) : à `at` (fraction de ronde `[n, d]`), sinon à la position de lecture. Permis pendant
     /// une prise. `name` : par défaut « Marqueur N » ; `color` : `#rrggbb`.
     AddMarker { at: Option<[u64; 2]>, name: Option<String>, color: Option<String> },
@@ -647,6 +661,7 @@ impl Command {
             Command::SetChords { .. } => "set_chords",
             Command::SetStructure { .. } => "set_structure",
             Command::SetLyrics { .. } => "set_lyrics",
+            Command::SetStrophes { .. } => "set_strophes",
             Command::AddMarker { .. } => "add_marker",
             Command::EditMarker { .. } => "edit_marker",
             Command::DeleteMarkers { .. } => "delete_markers",
@@ -1644,7 +1659,7 @@ pub enum Event {
     /// Journal des commandes reçues par le serveur des retours (les plus récentes en dernier).
     MonitorLog { entries: Vec<crate::monitor::JournalEntry> },
     Monitor { active: bool, port: u16, returns: Vec<MonitorReturn>, error: Option<String> },
-    Chords { revision: u32, track: serde_json::Value, skipped: Vec<String>, structure: Vec<SectionDto>, lyrics: Vec<LyricDto>, markers: Vec<MarkerDto> },
+    Chords { revision: u32, track: serde_json::Value, skipped: Vec<String>, structure: Vec<SectionDto>, lyrics: Vec<LyricDto>, strophes: Vec<StropheDto>, markers: Vec<MarkerDto> },
     /// Ce que la page doit connaître pour saisir des accords et des gammes : dictionnaire de qualités de Scorsaire (identifiant,
     /// demi-tons sur deux octaves), écritures acceptées (`maj7` → `M7`) et catalogue des 72 gammes. Envoyé avec `get_project`.
     ChordCatalog { qualities: Vec<(String, Vec<u8>)>, aliases: Vec<(String, String)>, scales: Vec<ScaleInfo> },

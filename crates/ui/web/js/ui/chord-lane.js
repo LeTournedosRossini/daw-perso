@@ -11,6 +11,7 @@ import { pixelRatio } from "../ui-scale.js";
 import { fnum, fadd, fsub, fcmp } from "../notes-model.js";
 import { indicesInRect, toggled, copySelection, pasteSelection, duplicateAt, clampDelta, moveGroup, removeGroup } from "../lane-selection.js";
 import { KEY_CHOICES, choiceOf, keyEntry, keyName } from "../chord-model.js";
+import { StrophesWindow } from "./strophes-window.js";
 import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, MAX_VERSE } from "../lyrics-model.js";
 import { parseChordText, chordLabel, keyLabel, scaleLabel, scaleLayers, snapWhole, newChordLength, resolveQuality, normalizePitch, pitchName, barLength } from "../chord-model.js";
 
@@ -54,6 +55,7 @@ export class ChordLane {
     state.chordsOpen ??= false;
     state.structure ??= [];
     state.lyrics ??= [];
+    state.strophes ??= [];
     state.lyricVerse ??= 1; // couplet montré et saisi dans la voie « Paroles »
     try {
       state.laneH ??= Number(localStorage.getItem("daw.laneH")) || DEFAULT_LANE_H;
@@ -74,6 +76,7 @@ export class ChordLane {
       state.chordTrack = { revision: e.revision, track: e.track };
       state.structure = e.structure ?? [];
       state.lyrics = e.lyrics ?? [];
+      state.strophes = e.strophes ?? [];
       // À l'ouverture d'un projet qui contient des accords ou des gammes, on affiche la voie (une seule fois par projet).
       if (this.autoPending) {
         this.autoPending = false;
@@ -87,6 +90,7 @@ export class ChordLane {
       this.timeline.dirty = true;
     });
     client.on("chord_catalog", (e) => (state.chordCatalog = e));
+    this.strophes = new StrophesWindow({ state, client, say });
     this.canvas = document.getElementById("chords");
     const c = this.canvas;
     c.addEventListener("pointerdown", (e) => this.#down(e), true);
@@ -1023,7 +1027,9 @@ export class ChordLane {
       vs.value = String(this.state.lyricVerse ?? 1);
       vs.addEventListener("change", () => ((this.state.lyricVerse = Number(vs.value)), (this.timeline.dirty = true)));
       pop.append(label(`Couplet montré dans la voie (1 à ${MAX_VERSE})`, vs));
+      pop.append(mk("Texte des paroles (strophes)…", () => (this.closeEditors(), this.strophes.open())));
     }
+    if (kind === "structure") pop.append(mk("Texte des paroles (strophes)…", () => (this.closeEditors(), this.strophes.open())));
     if (kind === "chords") pop.append(mk("Importer une carte…", () => this.importFile()), mk("Exporter la carte…", () => this.exportFile()));
     if (kind === "structure") {
       const add = document.createElement("div");

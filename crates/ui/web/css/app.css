@@ -1062,3 +1062,25 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 @media (pointer: coarse) { .mx-strip button.mx-fold { min-height: 30px; padding: 3px 9px; } }
 .track-head.par-child { margin-left: 10px; border-left: 3px solid var(--pc, var(--accent)); background: color-mix(in srgb, var(--pc, var(--accent)) 9%, var(--panel-2)); }
 .track-head .btns button.par { font-size: 11px; }
+
+/* Fenêtre « Texte des paroles » (strophes) */
+.strophes-dialog { position: fixed; inset: 6vh 0 auto 0; margin: 0 auto; z-index: 60; border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(880px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc(88vh / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
+.sd-body { padding: 10px 12px 12px; display: grid; gap: 8px; }
+.sd-body h2 { margin: 0; font-size: 14px; }
+.sd-help { margin: 0; font-size: 12px; color: var(--muted); }
+.sd-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 760px) { .sd-cols { grid-template-columns: 1fr; } }
+.sd-text { box-sizing: border-box; width: 100%; min-height: 22em; resize: vertical; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: 13px/1.5 ui-monospace, monospace; }
+.sd-cards { display: grid; gap: 8px; align-content: start; max-height: 28em; overflow: auto; }
+.sd-card { border: 1px solid var(--line); border-left: 6px solid var(--sc); border-radius: 8px; padding: 6px 8px; background: color-mix(in srgb, var(--sc) 14%, var(--panel)); display: grid; gap: 4px; }
+.sd-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.sd-count { font-size: 11px; color: var(--muted); }
+.sd-ctl { display: flex; gap: 6px; flex-wrap: wrap; }
+.sd-ctl select { flex: 1 1 8em; min-width: 0; font-size: 12px; }
+.sd-link { font-size: 12px; }
+.sd-none { color: var(--muted); font-style: italic; }
+.sd-lines { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-empty { font-size: 12px; color: var(--muted); margin: 0; }
+.sd-foot { font-size: 12px; color: var(--muted); min-height: 1em; }
+.sd-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+@media (pointer: coarse) { .sd-buttons button, .sd-ctl select { min-height: 38px; } }
