@@ -11,7 +11,7 @@ import { shownValues } from "../automation-model.js";
 import { trackGesture } from "./gesture.js";
 import { getScale, pixelRatio } from "../ui-scale.js";
 import { LevelSheet, linearToDb } from "./level-sheet.js";
-import { menuEl, showMenu, bindInputMenu } from "./track-menu.js";
+import { menuEl, showMenu, bindInputMenu, openParallelMenu } from "./track-menu.js";
 import { openReturnDialog } from "./return-dialog.js";
 import { isListenable, setupListenButton, toggleListen } from "./listen.js";
 import { openGroupDialog } from "./group-dialog.js";
@@ -705,6 +705,16 @@ export class Mixer {
         this.render(true);
       });
       name.after(fold);
+    }
+    // Toujours présent (pistes et bus, pas la sortie principale ni les retours) : créer une piste parallèle depuis le mixeur.
+    if (n.kind !== "master" && !n.is_return) {
+      const add = document.createElement("button");
+      add.className = "mx-par-add";
+      add.textContent = "∥＋";
+      add.title = `Créer une piste parallèle de « ${n.name} »`;
+      add.setAttribute("aria-label", add.title);
+      add.addEventListener("click", (e) => openParallelMenu(e.currentTarget, { node: n, project, client: this.client }));
+      (root.querySelector(".mx-fold") ?? name).after(add);
     }
     if (n.kind !== "master") {
       name.title = "Double-clic : renommer";

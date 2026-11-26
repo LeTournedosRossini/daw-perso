@@ -1056,6 +1056,9 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .mx-strip.has-kids { border-bottom: 3px solid var(--c, var(--accent)); }
 .mx-strip button.mx-fold { align-self: flex-start; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; cursor: pointer; padding: 1px 6px; font-size: 11px; line-height: 1.3; }
 .mx-strip button.mx-fold:hover { border-color: var(--accent); }
+.mx-strip button.mx-par-add { align-self: flex-start; border: 1px dashed var(--line); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; padding: 1px 6px; font-size: 11px; line-height: 1.3; }
+.mx-strip button.mx-par-add:hover { border-color: var(--accent); color: inherit; }
+@media (pointer: coarse) { .mx-strip button.mx-par-add { min-height: 30px; padding: 3px 9px; } }
 @media (pointer: coarse) { .mx-strip button.mx-fold { min-height: 30px; padding: 3px 9px; } }
 .track-head.par-child { margin-left: 10px; border-left: 3px solid var(--pc, var(--accent)); background: color-mix(in srgb, var(--pc, var(--accent)) 9%, var(--panel-2)); }
 .track-head .btns button.par { font-size: 11px; }
