@@ -51,3 +51,37 @@ test("commande set_strophes : champs vides omis", () => {
   const c = strophesCommand([{ name: "A", lines: ["x"] }, { name: "B", category: "chorus", lines: [], link: "" }], "L");
   assert.deepEqual(c, { type: "set_strophes", strophes: [{ name: "A", lines: ["x"] }, { name: "B", category: "chorus", lines: [], link: "" }], label: "L" });
 });
+
+import { layStrophe, verseOfStrophe } from "../js/strophes-model.js";
+
+const onsetsAt = (...n) => n.map((k) => [k, 4]);
+
+test("couplet d'une strophe : le numéro du nom, sinon 1", () => {
+  assert.equal(verseOfStrophe({ name: "Couplet 2" }), 2);
+  assert.equal(verseOfStrophe({ name: "Refrain" }), 1);
+  assert.equal(verseOfStrophe({ name: "Couplet 12" }), 1);
+});
+
+test("poser une strophe sur toutes ses cartes : le texte recommence à chaque carte", () => {
+  const sections = [{ at: [0, 1], dur: [1, 1], name: "Refrain" }, { at: [2, 1], dur: [1, 1], name: "Refrain 2" }];
+  const onsets = [...onsetsAt(0, 1, 2, 3), ...onsetsAt(8, 9, 10, 11)];
+  const r = layStrophe({ name: "Refrain", lines: ["la la-la"] }, sections, onsets, []);
+  assert.deepEqual(r.list.map((s) => s.text), ["la", "la", "la", "la", "la", "la"]);
+  assert.deepEqual(r.list.map((s) => s.at[0] / s.at[1]), [0, 0.25, 0.5, 2, 2.25, 2.5]);
+  assert.deepEqual(r.report.map((x) => [x.placed, x.extra, x.free]), [[3, 0, 1], [3, 0, 1]]);
+  assert.equal(r.list[1].hyphen, true);
+});
+
+test("trop de syllabes ou de notes : signalé, rien ne déborde sur la carte voisine", () => {
+  const sections = [{ at: [0, 1], dur: [1, 1], name: "Couplet 1" }];
+  const r = layStrophe({ name: "Couplet 1", lines: ["a b c d e"] }, sections, [...onsetsAt(0, 1, 2), [5, 4]], []);
+  assert.equal(r.list.length, 3);
+  assert.deepEqual([r.report[0].placed, r.report[0].extra, r.report[0].free], [3, 2, 0]);
+});
+
+test("les syllabes déjà posées du même couplet sur la carte sont remplacées, les autres couplets gardés", () => {
+  const sections = [{ at: [0, 1], dur: [1, 1], name: "Couplet 1" }];
+  const existing = [{ at: [0, 1], text: "vieux", hyphen: false, verse: 1 }, { at: [1, 4], text: "garde", hyphen: false, verse: 2 }, { at: [3, 1], text: "loin", hyphen: false, verse: 1 }];
+  const r = layStrophe({ name: "Couplet 1", lines: ["neuf"] }, sections, onsetsAt(0), existing);
+  assert.deepEqual(r.list.map((s) => s.text), ["neuf", "garde", "loin"]);
+});

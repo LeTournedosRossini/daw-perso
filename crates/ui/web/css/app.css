@@ -1084,3 +1084,6 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .sd-foot { font-size: 12px; color: var(--muted); min-height: 1em; }
 .sd-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 @media (pointer: coarse) { .sd-buttons button, .sd-ctl select { min-height: 38px; } }
+.sd-lay { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.sd-lay select { min-width: 8em; font-size: 12px; }
+.sd-lay-one { justify-self: start; font-size: 12px; }

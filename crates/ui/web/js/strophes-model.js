@@ -2,6 +2,8 @@
 // avec les cartes de la structure. Calculs purs, sans page.
 
 import { CATEGORIES, suggestCategory } from "./section-model.js";
+import { parseLyricsText, clearVerseRange } from "./lyrics-model.js";
+import { fadd, fcmp } from "./notes-model.js";
 
 export const MAX_STROPHES = 256;
 const strip = (s) => String(s).trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -80,4 +82,34 @@ export function strophesCommand(list, label) {
     strophes: list.map((s) => ({ name: s.name, ...(s.category ? { category: s.category } : {}), lines: s.lines, ...(s.link != null ? { link: s.link } : {}) })),
     ...(label ? { label } : {}),
   };
+}
+
+/** Le couplet (1 à 8) qu'une strophe prend sur la ligne de temps : « Couplet 2 » → 2 ; sans numéro (refrain, pont…) : 1. */
+export function verseOfStrophe(strophe) {
+  const n = /(\d+)\s*$/.exec(strophe.name);
+  const v = n ? Number(n[1]) : 1;
+  return v >= 1 && v <= 8 ? v : 1;
+}
+
+/**
+ * Pose le texte d'une strophe sur les notes de **chacune des cartes** auxquelles elle correspond : dans chaque carte, une syllabe par instant
+ * de note (`onsets` : instants absolus, en fractions de ronde, triés), à partir de la première note ; le texte recommence au début à chaque
+ * carte (un refrain chanté deux fois). Les syllabes déjà posées dans le couplet sur la plage d'une carte sont remplacées, rien d'autre ne bouge.
+ * `existing` : les syllabes du projet. Rend `{ list, report }` : la nouvelle liste (triée) et, par carte, `{ section, placed, extra, free }` —
+ * syllabes posées, syllabes sans note, notes sans syllabe.
+ */
+export function layStrophe(strophe, sections, onsets, existing, verse = verseOfStrophe(strophe)) {
+  const items = parseLyricsText(strophe.lines.join(" ")).filter((it) => !it.extend);
+  let list = existing;
+  const report = [];
+  for (const sec of [...sections].sort((a, b) => fcmp(a.at, b.at))) {
+    const end = fadd(sec.at, sec.dur);
+    const ons = onsets.filter((o) => fcmp(o, sec.at) >= 0 && fcmp(o, end) < 0);
+    const n = Math.min(items.length, ons.length);
+    list = clearVerseRange(list, verse, sec.at, end);
+    const added = items.slice(0, n).map((it, k) => ({ at: ons[k], text: it.text, hyphen: !!it.hyphen, verse }));
+    list = [...list, ...added];
+    report.push({ section: sec, placed: n, extra: items.length - n, free: ons.length - n });
+  }
+  return { list: list.sort((a, b) => fcmp(a.at, b.at) || (a.verse ?? 1) - (b.verse ?? 1)), report };
 }
