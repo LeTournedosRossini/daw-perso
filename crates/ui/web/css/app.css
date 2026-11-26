@@ -139,7 +139,7 @@ input[type="range"]:disabled { opacity: 0.45; cursor: default; }
 #fade-editor { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: var(--fe-width, min(470px, calc((100vw - 16px) / var(--ui-zoom, 1)))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
 #fade-editor::backdrop { background: rgba(0, 0, 0, 0.45); }
 #fade-editor form { padding: 10px 12px 12px; display: grid; gap: 8px; }
-#fade-editor header { display: flex; align-items: center; justify-content: space-between; }
+#fade-editor header { display: flex; align-items: center; justify-content: flex-start; gap: 10px; }
 #fade-editor h2 { margin: 0; font-size: 14px; }
 #fade-editor .close { width: 28px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
 #fade-editor .sub { margin: 0; color: var(--muted); font-size: 12px; }
@@ -509,7 +509,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #export-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(480px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
 #export-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 #export-dialog form { padding: 10px 12px 12px; display: grid; gap: 8px; }
-#export-dialog header { display: flex; align-items: center; justify-content: space-between; }
+#export-dialog header { display: flex; align-items: center; justify-content: flex-start; gap: 10px; }
 #export-dialog h2 { margin: 0; font-size: 14px; }
 #export-dialog .close { width: 28px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
 #export-dialog fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0; padding: 4px 10px 8px; display: grid; gap: 3px; font-size: 12px; }
@@ -538,7 +538,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #import-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(460px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
 #import-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 #import-dialog form { padding: 10px 12px 12px; display: grid; gap: 8px; }
-#import-dialog header { display: flex; align-items: center; justify-content: space-between; }
+#import-dialog header { display: flex; align-items: center; justify-content: flex-start; gap: 10px; }
 #import-dialog h2 { margin: 0; font-size: 14px; }
 #import-dialog .close { width: 28px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
 #import-dialog .im-files { margin: 0; padding-left: 1.2em; font-size: 12px; max-height: 12em; overflow: auto; display: grid; gap: 2px; }
@@ -556,7 +556,7 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 #settings-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); width: min(520px, calc((100vw - 16px) / var(--ui-zoom, 1))); max-height: calc((100vh - 16px) / var(--ui-zoom, 1)); overflow: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
 #settings-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 #settings-dialog form { padding: 10px 12px 12px; display: grid; gap: 8px; }
-#settings-dialog header { display: flex; align-items: center; justify-content: space-between; }
+#settings-dialog header { display: flex; align-items: center; justify-content: flex-start; gap: 10px; }
 #settings-dialog h2 { margin: 0; font-size: 14px; }
 #settings-dialog .close { width: 28px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
 #settings-dialog fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0; padding: 4px 10px 8px; display: grid; gap: 4px; font-size: 12px; }
@@ -1089,3 +1089,12 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .sd-lay-one { justify-self: start; font-size: 12px; }
 #transport .edit-bar .edit-context[data-kind="lane"] { color: var(--accent); }
 @media (pointer: coarse) { #transport .edit-bar #edit-lane button { min-height: 36px; } }
+
+/* Bouton de fermeture : toujours en haut à gauche du titre, même forme partout */
+.close, .sc-close, .rh-close, .sh-close, .sd-top .close { flex: none; width: 28px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: inherit; cursor: pointer; font-size: 13px; line-height: 1; display: inline-grid; place-items: center; }
+.close:hover, .sc-close:hover, .rh-close:hover, .sh-close:hover { border-color: var(--danger, #e5484d); color: var(--danger, #e5484d); }
+.sd-top, .rh-top, .sh-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sd-top h2 { margin: 0; }
+.script-console .sc-head { justify-content: flex-start; gap: 8px; }
+.roll-head .rh-top .rh-title, .score-head .sh-top .sh-title { flex: 1 1 auto; min-width: 0; }
+@media (pointer: coarse) { .close, .sc-close, .rh-close, .sh-close { width: 36px; height: 34px; } }

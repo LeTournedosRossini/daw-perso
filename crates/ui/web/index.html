@@ -126,6 +126,7 @@
     <section id="mixer" class="mixer dock" aria-label="Mixeur" hidden>
       <div class="mx-grip" title="Tirer pour changer la hauteur" aria-hidden="true"></div>
       <header>
+        <button class="close" aria-label="Fermer le mixeur">✕</button>
         <h2>Mixeur</h2>
         <span class="mx-tabs" role="tablist" aria-label="Vue du mixeur"></span>
         <span class="mx-add" role="group" aria-label="Ajouter">
@@ -147,7 +148,6 @@
           <button data-mode="full" title="Plein écran : remplace la timeline">Plein écran</button>
           <button data-mode="float" title="Fenêtre flottante, déplaçable et redimensionnable">Flottant</button>
         </span>
-        <button class="close" aria-label="Fermer le mixeur">✕</button>
       </header>
       <div class="mx-strips"></div>
     </section>
@@ -156,8 +156,8 @@
   <dialog id="import-dialog" aria-labelledby="im-title">
     <form method="dialog">
       <header>
-        <h2 id="im-title">Importer de l'audio</h2>
         <button class="close" value="cancel" aria-label="Annuler l'import">✕</button>
+        <h2 id="im-title">Importer de l'audio</h2>
       </header>
       <ul id="im-files" class="im-files"></ul>
       <label id="im-multi" class="im-field" hidden><span>Plus de deux canaux</span>
@@ -178,8 +178,8 @@
   <dialog id="settings-dialog" aria-labelledby="st-title">
     <form method="dialog">
       <header>
-        <h2 id="st-title">Réglages</h2>
         <button class="close" value="close" aria-label="Fermer la fenêtre des réglages">✕</button>
+        <h2 id="st-title">Réglages</h2>
       </header>
       <p id="st-running" class="st-note"></p>
       <p id="st-forced" class="st-note warn" hidden></p>
@@ -264,8 +264,8 @@
   <dialog id="export-dialog" aria-labelledby="ex-title">
     <form method="dialog">
       <header>
-        <h2 id="ex-title">Exporter</h2>
         <button class="close" value="close" aria-label="Fermer la fenêtre d'export">✕</button>
+        <h2 id="ex-title">Exporter</h2>
       </header>
       <fieldset class="ex-row">
         <legend>Quoi</legend>
@@ -301,8 +301,8 @@
   <dialog id="fade-editor" aria-labelledby="fe-title">
     <form method="dialog">
       <header>
-        <h2 id="fe-title">Fondu</h2>
         <button class="close" value="close" aria-label="Fermer l'éditeur de fondu">✕</button>
+        <h2 id="fe-title">Fondu</h2>
       </header>
       <p id="fe-sub" class="sub"></p>
       <canvas id="fe-wave" aria-label="Formes d'onde autour du fondu : tirer les poignées règle la longueur"></canvas>
@@ -319,6 +319,7 @@
   </dialog>
   <section id="piano-roll" class="piano-roll" aria-labelledby="pr-title" hidden>
     <header>
+      <button class="close" aria-label="Fermer le piano roll">✕</button>
       <h2 id="pr-title">Piano roll</h2>
       <label class="pr-grid"><span>Grille</span><select id="pr-grid"></select></label>
       <label class="pr-grid"><span>Hauteur</span><select id="pr-scale" title="Libre, gamme ou accord en vigueur (piste d'accords)"></select></label>
@@ -332,7 +333,6 @@
         <button id="pr-zoomy-in" aria-label="Zoom vertical avant" title="Zoom vertical avant (Ctrl + Alt + molette, ou pincer à deux doigts)">＋</button></span>
       <button id="pr-score" title="Voir et éditer ce clip en partition">♪ Partition</button>
       <button id="pr-dock" title="Ancrer sous la piste, sur l'axe du temps de la timeline">⇲ Sous la piste</button>
-      <button class="close" aria-label="Fermer le piano roll">✕</button>
     </header>
     <div class="pr-body">
       <canvas id="pr-keys"></canvas>
@@ -344,8 +344,8 @@
   </section>
   <section id="plugins-panel" class="plugins-panel" aria-labelledby="pp-title" hidden>
     <header>
-      <h2 id="pp-title">Plugins</h2>
       <button class="close" aria-label="Fermer la fenêtre des plugins">✕</button>
+      <h2 id="pp-title">Plugins</h2>
     </header>
     <div class="pp-body">
       <div class="side">

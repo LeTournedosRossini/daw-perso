@@ -33,7 +33,13 @@ export class StrophesWindow {
     const dlg = h("dialog", "strophes-dialog");
     dlg.setAttribute("aria-label", "Texte des paroles");
     const form = h("div", "sd-body");
-    form.append(h("h2", "", "Texte des paroles"));
+    const top = h("header", "sd-top");
+    const x = h("button", "close", "✕");
+    x.type = "button";
+    x.setAttribute("aria-label", "Fermer");
+    x.addEventListener("click", () => this.close());
+    top.append(x, h("h2", "", "Texte des paroles"));
+    form.append(top);
     form.append(h("p", "sd-help", "Écris ou colle le texte : une ligne « [Couplet 1] », « [Refrain] »… commence une strophe, chaque ligne qui suit est une phrase. Pas besoin de mélodie. Les cartes de droite se lient aux cartes de la structure."));
     const cols = h("div", "sd-cols");
     const ta = h("textarea", "sd-text");

@@ -106,13 +106,13 @@ export class PianoRoll {
     head.innerHTML = `
       <div class="rh-keys"></div>
       <div class="rh-ctl">
-        <div class="rh-title"></div>
+        <div class="rh-top"><button class="rh-close" aria-label="Fermer le piano roll">✕</button><div class="rh-title"></div></div>
         <select class="rh-grid" aria-label="Grille de magnétisme"></select>
         <select class="rh-scale" aria-label="Contrainte de hauteur" title="Libre, gamme ou accord en vigueur (piste d'accords)"></select>
         <div class="rh-row"><button class="rh-q" title="Aimante le début de toutes les notes du clip sur la grille">Quantifier</button><button class="rh-fit" title="Ramène les notes sélectionnées (ou tout le clip) à la gamme en vigueur — à l'accord en mode Accord">Gamme</button></div>
         <div class="rh-row"><span aria-hidden="true">↕</span><button class="rh-zy-out" aria-label="Zoom vertical arrière">−</button><button class="rh-zy-in" aria-label="Zoom vertical avant">＋</button></div>
         <div class="rh-row"><span title="Hauteur du piano roll, en lignes de la timeline">Haut.</span><button class="rh-h-out" aria-label="Moins haut" title="Moins haut">−</button><button class="rh-h-in" aria-label="Plus haut" title="Plus haut">＋</button></div>
-        <div class="rh-row"><button class="rh-float" title="Détacher en fenêtre flottante">⇱ Fenêtre</button><button class="rh-close" aria-label="Fermer le piano roll">✕</button></div>
+        <div class="rh-row"><button class="rh-float" title="Détacher en fenêtre flottante">⇱ Fenêtre</button></div>
       </div>`;
     this.dockHead = head;
     const body = document.createElement("div");

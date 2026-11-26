@@ -53,6 +53,7 @@ export class ScoreWindow {
     this.root.setAttribute("aria-label", "Partition");
     this.root.innerHTML = `
       <header>
+        <button class="close" aria-label="Fermer la partition">✕</button>
         <h2 class="sc-title">Partition</h2>
         <label class="sc-clip" hidden>Clip <select class="sc-clipsel"></select></label>
         <label>Portée <select class="sc-staff"></select></label>
@@ -69,7 +70,6 @@ export class ScoreWindow {
         <button class="sc-roll" title="Ouvrir le clip courant dans le piano roll">Piano roll</button>
         <button class="sc-dockbtn" title="Ancrer la partition sous la piste"></button>
         <button class="sc-fullbtn" title="Plein écran" aria-label="Plein écran"></button>
-        <button class="close" aria-label="Fermer la partition">✕</button>
       </header>
       <div class="sc-reserve" hidden></div>
       <div class="sc-body"><div class="sc-host"></div></div>
@@ -580,9 +580,9 @@ export class ScoreWindow {
     head.className = "score-head";
     head.innerHTML = `
       <div class="sh-ctl">
-        <div class="sh-title"></div>
+        <div class="sh-top"><button class="sh-close" aria-label="Fermer la partition">✕</button><div class="sh-title"></div></div>
         <div class="sh-row"><span title="Hauteur de la partition, en lignes de la timeline">Haut.</span><button class="sh-out" aria-label="Moins haut" title="Moins haut">−</button><button class="sh-in" aria-label="Plus haut" title="Plus haut">＋</button></div>
-        <div class="sh-row"><button class="sh-float" title="Détacher en fenêtre flottante">⇱ Fenêtre</button><button class="sh-full" title="Plein écran" aria-label="Plein écran">⛶</button><button class="sh-close" aria-label="Fermer la partition">✕</button></div>
+        <div class="sh-row"><button class="sh-float" title="Détacher en fenêtre flottante">⇱ Fenêtre</button><button class="sh-full" title="Plein écran" aria-label="Plein écran">⛶</button></div>
       </div>`;
     this.dockHead = head;
     head.querySelector(".sh-in").addEventListener("click", () => this.setRows(this.rows + 1));

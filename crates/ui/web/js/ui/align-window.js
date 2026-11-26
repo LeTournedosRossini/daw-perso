@@ -111,12 +111,11 @@ export class AlignWindow {
   #build() {
     const dlg = (this.dlg = h("dialog", "al-win"));
     const head = h("header");
-    head.append(h("h2", "", "Caler des prises"));
     const close = h("button", "close", "✕");
     close.type = "button";
     close.setAttribute("aria-label", "Fermer");
     close.addEventListener("click", () => this.close());
-    head.append(close);
+    head.append(close, h("h2", "", "Caler des prises"));
     const body = h("div", "al-body");
     // Colonne de gauche : le guide et les doubles.
     const side = h("aside", "al-side");

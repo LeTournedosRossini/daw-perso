@@ -209,12 +209,11 @@ export class ScriptsUI {
     const root = h("section", "script-console");
     root.setAttribute("aria-label", "Console de scripts");
     const head = h("header", "sc-head");
-    head.append(h("strong", "", "Console de scripts"));
     const close = h("button", "sc-close", "✕");
     close.type = "button";
     close.setAttribute("aria-label", "Fermer");
     close.addEventListener("click", () => (root.hidden = true));
-    head.append(close);
+    head.append(close, h("strong", "", "Console de scripts"));
 
     const code = h("textarea", "sc-code");
     code.spellcheck = false;
