@@ -9,6 +9,7 @@ import { canvasPoint } from "../ui-scale.js";
 import { sampleToX, xToSample, gridLines } from "../time.js";
 import { pixelRatio } from "../ui-scale.js";
 import { fnum, fadd, fsub, fcmp } from "../notes-model.js";
+import { indicesInRect, toggled, copySelection, pasteSelection, duplicateAt, clampDelta, moveGroup, removeGroup } from "../lane-selection.js";
 import { KEY_CHOICES, choiceOf, keyEntry, keyName } from "../chord-model.js";
 import { parseLyricsText, syllableLabel, placeSyllables, mergeSyllables, verseSyllables, verseCount, MAX_VERSE } from "../lyrics-model.js";
 import { parseChordText, chordLabel, keyLabel, scaleLabel, scaleLayers, snapWhole, newChordLength, resolveQuality, normalizePitch, pitchName, barLength } from "../chord-model.js";
@@ -40,6 +41,9 @@ export class ChordLane {
     this.dialogs = dialogs;
     this.say = say;
     this.sel = null; // { kind: "chord" | "scale", index }
+    this.multi = new Set(); // indices sélectionnés dans la voie de `sel.kind` (le principal y est compris)
+    this.rect = null; // rectangle de sélection en cours : { kind, rowKind, top, x0, x1 }
+    this.focusKind = null; // genre de la dernière voie touchée : Ctrl+C / X / V / D / A y agissent
     this.drag = null; // { kind, index, zone, grabWhole, orig, moved, list }
     this.gridId = "1/4";
     this.input = null;
@@ -78,6 +82,7 @@ export class ChordLane {
       }
       if (e.skipped?.length) this.say(`Carte importée ; ignoré : ${e.skipped.slice(0, 3).join(" ; ")}${e.skipped.length > 3 ? ` (+${e.skipped.length - 3})` : ""}`);
       this.sel = null;
+      this.multi = new Set();
       this.drag = null;
       this.timeline.dirty = true;
     });
@@ -90,6 +95,9 @@ export class ChordLane {
     c.addEventListener("pointercancel", (e) => this.#up(e, false), true);
     c.addEventListener("dblclick", (e) => this.#dbl(e), true);
     window.addEventListener("keydown", (e) => this.#key(e), true);
+    window.addEventListener("pointerdown", (e) => {
+      if (e.target !== c) this.focusKind = null;
+    }, true);
   }
 
   get track() {
@@ -295,11 +303,11 @@ export class ChordLane {
     g.textBaseline = "middle";
     const block = (b, label, fill, kind, stroke = color) => {
       if (b.x1 < 0 || b.x0 > W) return;
-      const d = this.drag && this.drag.kind === kind && this.drag.index === b.index && this.drag.preview ? this.drag.preview : null;
+      const d = this.drag && this.drag.kind === kind ? (this.drag.group ? this.drag.previews?.get(b.index) : this.drag.index === b.index ? this.drag.preview : null) ?? null : null;
       const x0 = d ? this.#xf(d.at) : b.x0;
       const x1 = d ? (d.dur ? this.#xf(fadd(d.at, d.dur)) : x0 + (b.x1 - b.x0)) : b.x1;
       const w = Math.max(2, x1 - x0);
-      const selected = this.sel && this.sel.kind === kind && this.sel.index === b.index;
+      const selected = this.sel && this.sel.kind === kind && (this.sel.index === b.index || this.multi.has(b.index));
       g.fillStyle = fill;
       g.strokeStyle = selected ? c.accent : stroke;
       g.lineWidth = selected ? 2 : 1;
@@ -346,6 +354,14 @@ export class ChordLane {
         g.fillRect(x0, top + h - PATTERN_BAND, Math.max(2, x1 - x0), PATTERN_BAND - 1);
       }
     }
+    const r = this.rect;
+    if (r && r.top === top) {
+      g.fillStyle = c.accent + "22";
+      g.strokeStyle = c.accent;
+      g.lineWidth = 1;
+      g.fillRect(Math.min(r.x0, r.x1), top + 1, Math.abs(r.x1 - r.x0), h - 2);
+      g.strokeRect(Math.min(r.x0, r.x1) + 0.5, top + 1.5, Math.abs(r.x1 - r.x0), h - 3);
+    }
     g.restore();
   }
 
@@ -365,22 +381,64 @@ export class ChordLane {
     this.state.selected = new Set();
     this.timeline.onSelection?.();
     const kind = row.kind === "chords" ? "chord" : row.kind === "structure" ? "section" : row.kind === "keys" ? "key" : row.kind === "lyrics" ? "lyric" : "scale";
+    this.focusKind = kind;
     const hit = this.#hit(row.kind, row.top, x, y);
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
     if (!hit) {
-      this.sel = null;
+      // Glisser dans le vide : rectangle de sélection (Maj / Ctrl : on garde ce qui est déjà choisi) ; un simple clic efface la sélection.
+      if (!additive) ((this.sel = null), (this.multi = new Set()));
+      this.rect = { kind, rowKind: row.kind, top: row.top, x0: x, x1: x, base: additive && this.sel?.kind === kind ? new Set(this.multi) : new Set() };
+      this.canvas.setPointerCapture?.(e.pointerId);
       this.timeline.dirty = true;
       return;
     }
+    if (additive) {
+      // Maj / Ctrl + clic : ajoute ou retire l'élément de la sélection (une seule voie à la fois).
+      const base = this.sel?.kind === kind ? this.multi : new Set();
+      const next = toggled(base, hit.index);
+      this.multi = next;
+      this.sel = next.size ? { kind, index: next.has(hit.index) ? hit.index : [...next][0] } : null;
+      this.timeline.dirty = true;
+      return;
+    }
+    const inGroup = this.sel?.kind === kind && this.multi.size > 1 && this.multi.has(hit.index);
+    if (!inGroup) this.multi = new Set([hit.index]);
     this.sel = { kind, index: hit.index };
     this.canvas.setPointerCapture?.(e.pointerId);
-    const list = kind === "chord" ? this.track.chords : kind === "section" ? this.state.structure : kind === "lyric" ? this.state.lyrics : kind === "key" ? this.track.keys : this.track.scales;
-    this.drag = { kind, index: hit.index, zone: hit.zone, grab: this.#wholeAt(e).whole, orig: list[hit.index], list, moved: false, preview: null };
+    const list = this.#listOf(kind);
+    this.drag = { kind, index: hit.index, zone: hit.zone, grab: this.#wholeAt(e).whole, orig: list[hit.index], list, moved: false, preview: null, group: inGroup && hit.zone === "body", previews: null };
     this.timeline.dirty = true;
+  }
+
+  /** La liste d'éléments d'un genre (accords, gammes, tonalités de la piste ; sections ; syllabes). */
+  #listOf(kind) {
+    return kind === "chord" ? this.track.chords : kind === "section" ? this.state.structure : kind === "lyric" ? this.state.lyrics : kind === "key" ? this.track.keys : this.track.scales;
+  }
+
+  /** Envoie une liste modifiée d'un genre (une action annulable) : `label` dit laquelle. */
+  #commit(kind, list, label) {
+    if (kind === "section") return this.#sendStructure(list, label);
+    if (kind === "lyric") return this.#sendLyrics(list, label);
+    const t = structuredClone(this.track);
+    if (kind === "chord") t.chords = list;
+    else if (kind === "key") t.keys = list;
+    else t.scales = list;
+    this.#send(t, label);
   }
 
   #move(e) {
     const d = this.drag;
     const { x, y } = canvasPoint(this.canvas, e);
+    if (this.rect) {
+      e.stopImmediatePropagation();
+      this.rect.x1 = x;
+      const blocks = this.#blocks(this.rect.rowKind, this.rect.top);
+      const inside = indicesInRect(blocks, this.rect.x0, x);
+      this.multi = new Set([...this.rect.base, ...inside]);
+      this.sel = this.multi.size ? { kind: this.rect.kind, index: [...this.multi][0] } : null;
+      this.timeline.dirty = true;
+      return;
+    }
     if (!d) {
       const row = this.#rowAt(y);
       if (row) {
@@ -394,6 +452,20 @@ export class ChordLane {
     const { whole } = this.#wholeAt(e);
     const snapped = d.kind === "section" || d.kind === "key" ? this.#barSnap(whole, e.altKey) : this.#wholeAt(e).snapped;
     const o = d.orig;
+    if (d.group) {
+      // Tout le groupe suit : même décalage pour chacun (aimanté d'après l'élément saisi), sans passer avant 0.
+      const dx = whole - d.grab;
+      const start = d.kind === "section" || d.kind === "key" ? this.#barSnap(Math.max(0, fnum(o.at) + dx), e.altKey) : snapWhole(Math.max(0, fnum(o.at) + dx), e.altKey ? null : this.grid);
+      const want = fnum(start) - fnum(o.at);
+      const delta = clampDelta(d.list, this.multi, want);
+      const shift = fsub(snapWhole(Math.max(0, fnum(o.at) + delta), null), o.at);
+      d.shift = shift;
+      d.previews = new Map([...this.multi].map((i) => [i, { ...d.list[i], at: fadd(d.list[i].at, shift), ...(d.list[i].end ? { end: fadd(d.list[i].end, shift) } : {}) }]));
+      d.preview = d.previews.get(d.index) ?? null;
+      d.moved = d.moved || Math.abs(fnum(shift)) > 1e-9;
+      this.timeline.dirty = true;
+      return;
+    }
     if (d.kind === "lyric" && d.zone === "end") {
       // Tirer la fin d'une syllabe crée ou règle son trait de prolongation ; la ramener au début le supprime.
       const { end: _gone, ...rest } = o;
@@ -412,12 +484,23 @@ export class ChordLane {
   }
 
   #up(e, commit) {
+    if (this.rect) {
+      e.stopImmediatePropagation();
+      this.rect = null;
+      this.timeline.dirty = true;
+      return;
+    }
     const d = this.drag;
     if (!d) return;
     e.stopImmediatePropagation();
     this.drag = null;
     this.timeline.dirty = true;
     if (!commit || !d.moved || !d.preview) return;
+    if (d.group) {
+      const set = [...this.multi];
+      this.#commit(d.kind, moveGroup(d.list, set, d.shift), `Déplacer ${set.length} éléments`);
+      return;
+    }
     const p = d.preview;
     if (d.kind === "section") {
       const list = structuredClone(this.state.structure);
@@ -465,10 +548,27 @@ export class ChordLane {
       this.timeline.dirty = true;
       return;
     }
-    if ((e.key === "Delete" || e.key === "Backspace") && this.sel && !this.dlg && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target?.tagName ?? "")) {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target?.tagName ?? "");
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && this.focusKind && !this.dlg && !this.input && !this.pop && !typing) {
+      const k = e.key.toLowerCase();
+      if (k === "a" || k === "c" || k === "x" || k === "v" || k === "d") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return this.#clipboardKey(k);
+      }
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && this.sel && !this.dlg && !typing) {
       e.preventDefault();
       e.stopImmediatePropagation();
       const { kind, index } = this.sel;
+      if (this.multi.size > 1) {
+        const n = this.multi.size;
+        const list = removeGroup(this.#listOf(kind), this.multi);
+        this.sel = null;
+        this.multi = new Set();
+        this.#commit(kind, list, `Supprimer ${n} éléments`);
+        return;
+      }
       if (kind === "section") {
         const list = structuredClone(this.state.structure);
         list.splice(index, 1);
@@ -488,6 +588,48 @@ export class ChordLane {
       this.sel = null;
       this.#send(t, kind === "scale" ? "Supprimer une gamme" : kind === "key" ? "Supprimer une tonalité" : "Supprimer un accord");
     }
+  }
+
+  /** Ctrl+A (tout sélectionner dans la voie), C (copier), X (couper), V (coller à la tête de lecture), D (dupliquer juste après). */
+  #clipboardKey(k) {
+    const kind = this.focusKind;
+    const list = this.#listOf(kind);
+    const noun = { chord: "accord", scale: "gamme", key: "tonalité", section: "section", lyric: "syllabe" }[kind];
+    const verse = kind === "lyric" ? this.state.lyricVerse ?? 1 : null;
+    const visible = kind === "lyric" ? list.map((s, i) => i).filter((i) => (list[i].verse ?? 1) === verse) : list.map((_, i) => i);
+    if (k === "a") {
+      this.multi = new Set(visible);
+      this.sel = visible.length ? { kind, index: visible[0] } : null;
+      this.timeline.dirty = true;
+      return;
+    }
+    const chosen = this.sel?.kind === kind ? [...this.multi] : [];
+    if (k === "c" || k === "x" || k === "d") {
+      const clip = copySelection(list, chosen);
+      if (!clip) return this.say(`Sélectionne d'abord des éléments (Maj + clic, ou glisse un rectangle) : ${noun}.`);
+      this.state.laneClip = { kind, ...clip };
+      if (k === "c") return this.say(`${clip.items.length} copié(s) : Ctrl+V pour coller à la tête de lecture.`);
+      if (k === "x") {
+        this.sel = null;
+        this.multi = new Set();
+        return this.#commit(kind, removeGroup(list, chosen), `Couper ${clip.items.length} éléments`);
+      }
+      const at = duplicateAt(clip, kind);
+      const r = pasteSelection(list, clip, at, kind, verse);
+      return this.#commit(kind, r.list, `Dupliquer ${clip.items.length} éléments`);
+    }
+    const clip = this.state.laneClip;
+    if (!clip) return this.say("Rien à coller : copie d'abord des éléments (Ctrl+C).");
+    if (clip.kind !== kind) return this.say("Ce qui est copié ne se colle pas dans cette voie.");
+    const m = this.state.meters_;
+    const whole = Math.max(0, this.state.tempo.wholeAt(Math.max(0, this.state.pos)));
+    let at;
+    if (kind === "section" || kind === "key") {
+      const { bar } = m.locate(whole);
+      at = snapWhole(m.barStart(bar), null);
+    } else at = snapWhole(whole, this.grid);
+    const r = pasteSelection(list, clip, at, kind, verse);
+    this.#commit(kind, r.list, `Coller ${r.added} éléments`);
   }
 
   // ---- saisie ---------------------------------------------------------------------------------------------------

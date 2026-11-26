@@ -68,6 +68,7 @@ pub(crate) struct Xlib {
     pub(crate) pending: unsafe extern "C" fn(*mut Display) -> c_int,
     pub(crate) next_event: unsafe extern "C" fn(*mut Display, *mut [c_long; 24]) -> c_int,
     pub(crate) flush: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub(crate) sync: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
     pub(crate) map_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
     pub(crate) reparent_window: unsafe extern "C" fn(*mut Display, Window, Window, c_int, c_int) -> c_int,
     pub(crate) unmap_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
@@ -104,6 +105,7 @@ impl Xlib {
             pending: sym!(lib, "XPending"),
             next_event: sym!(lib, "XNextEvent"),
             flush: sym!(lib, "XFlush"),
+            sync: sym!(lib, "XSync"),
             map_window: sym!(lib, "XMapWindow"),
             reparent_window: sym!(lib, "XReparentWindow"),
             unmap_window: sym!(lib, "XUnmapWindow"),
@@ -175,6 +177,11 @@ impl X11Window {
 
 impl NativeWindow for X11Window {
     fn handle(&self) -> (&'static str, usize) {
+        // Le plugin ouvre sa propre connexion X (JUCE) et va créer sa fenêtre **fille** de la nôtre : le serveur doit avoir déjà traité notre
+        // `CreateWindow`, sinon il répond `BadWindow` (parent inconnu) et l'interface reste noire. `XFlush` ne suffit pas : les requêtes de
+        // deux connexions ne sont pas ordonnées entre elles ; `XSync` attend que le serveur ait fini.
+        // SAFETY: `display` ouvert, appelé sur le fil qui possède la connexion.
+        unsafe { (self.conn.x.sync)(self.conn.display, 0) };
         ("x11", self.state.borrow().id as usize)
     }
     fn scale(&self) -> f64 {

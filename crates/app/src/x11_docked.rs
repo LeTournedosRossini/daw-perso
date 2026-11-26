@@ -204,6 +204,9 @@ struct DockedWindow {
 
 impl NativeWindow for DockedWindow {
     fn handle(&self) -> (&'static str, usize) {
+        // Voir `X11Window::handle` : le plugin se logera dans cette fenêtre depuis sa propre connexion X ; le serveur doit déjà la connaître.
+        // SAFETY: `display` ouvert, fil des plugins (celui qui possède la connexion).
+        unsafe { (self.inner.borrow().conn.x.sync)(self.inner.borrow().conn.display, 0) };
         ("x11", self.inner.borrow().area as usize)
     }
     fn scale(&self) -> f64 {
