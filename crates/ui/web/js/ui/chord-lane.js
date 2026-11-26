@@ -88,6 +88,7 @@ export class ChordLane {
       this.multi = new Set();
       this.drag = null;
       this.timeline.dirty = true;
+      this.#changed();
     });
     client.on("chord_catalog", (e) => (state.chordCatalog = e));
     this.strophes = new StrophesWindow({ state, client, say });
@@ -372,6 +373,11 @@ export class ChordLane {
   // ---- souris ---------------------------------------------------------------------------------------------------
 
   #down(e) {
+    this.#downInner(e);
+    this.#changed();
+  }
+
+  #downInner(e) {
     const { x, y } = canvasPoint(this.canvas, e);
     const row = this.#rowAt(y);
     if (!row) {
@@ -441,6 +447,7 @@ export class ChordLane {
       this.multi = new Set([...this.rect.base, ...inside]);
       this.sel = this.multi.size ? { kind: this.rect.kind, index: [...this.multi][0] } : null;
       this.timeline.dirty = true;
+      this.#changed();
       return;
     }
     if (!d) {
@@ -561,42 +568,67 @@ export class ChordLane {
         return this.#clipboardKey(k);
       }
     }
-    if ((e.key === "Delete" || e.key === "Backspace") && this.sel && !this.dlg && !typing) {
+    if ((e.key === "Delete" || e.key === "Backspace") && this.sel && this.focusKind && !this.dlg && !typing) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      const { kind, index } = this.sel;
-      if (this.multi.size > 1) {
-        const n = this.multi.size;
-        const list = removeGroup(this.#listOf(kind), this.multi);
-        this.sel = null;
-        this.multi = new Set();
-        this.#commit(kind, list, `Supprimer ${n} éléments`);
-        return;
-      }
-      if (kind === "section") {
-        const list = structuredClone(this.state.structure);
-        list.splice(index, 1);
-        this.sel = null;
-        this.#sendStructure(list, "Supprimer une section");
-        return;
-      }
-      if (kind === "lyric") {
-        const list = structuredClone(this.state.lyrics);
-        list.splice(index, 1);
-        this.sel = null;
-        this.#sendLyrics(list, "Supprimer une syllabe");
-        return;
-      }
-      const t = structuredClone(this.track);
-      (kind === "chord" ? t.chords : kind === "key" ? t.keys : t.scales).splice(index, 1);
-      this.sel = null;
-      this.#send(t, kind === "scale" ? "Supprimer une gamme" : kind === "key" ? "Supprimer une tonalité" : "Supprimer un accord");
+      this.deleteSelected();
     }
+  }
+
+  /** Supprime les éléments sélectionnés (Suppr, ou le bouton de la barre d'édition) : une seule action annulable. */
+  deleteSelected() {
+    if (!this.sel) return;
+    const { kind, index } = this.sel;
+    if (this.multi.size > 1) {
+      const n = this.multi.size;
+      const list = removeGroup(this.#listOf(kind), this.multi);
+      this.sel = null;
+      this.multi = new Set();
+      this.#commit(kind, list, `Supprimer ${n} éléments`);
+      return;
+    }
+    if (kind === "section") {
+      const list = structuredClone(this.state.structure);
+      list.splice(index, 1);
+      this.sel = null;
+      this.#sendStructure(list, "Supprimer une section");
+      return;
+    }
+    if (kind === "lyric") {
+      const list = structuredClone(this.state.lyrics);
+      list.splice(index, 1);
+      this.sel = null;
+      this.#sendLyrics(list, "Supprimer une syllabe");
+      return;
+    }
+    const t = structuredClone(this.track);
+    (kind === "chord" ? t.chords : kind === "key" ? t.keys : t.scales).splice(index, 1);
+    this.sel = null;
+    this.#send(t, kind === "scale" ? "Supprimer une gamme" : kind === "key" ? "Supprimer une tonalité" : "Supprimer un accord");
+    this.#changed();
+  }
+
+  /** Pour la barre d'édition : { kind, count } de la sélection dans les voies (ou `null`), et si quelque chose est copié. */
+  selectionInfo() {
+    const count = this.sel ? this.multi.size || 1 : 0;
+    return { kind: this.sel?.kind ?? null, count, clip: this.state.laneClip ?? null };
+  }
+
+  /** Les boutons de la barre d'édition : copier, couper, coller, dupliquer (`k` : c, x, v, d). */
+  clipboardAction(k) {
+    this.focusKind = this.sel?.kind ?? this.state.laneClip?.kind ?? null;
+    if (this.focusKind) this.#clipboardKey(k);
+  }
+
+  /** Dit à la barre d'édition que la sélection (ou le presse-papiers) a changé. */
+  #changed() {
+    this.onSelection?.();
   }
 
   /** Ctrl+A (tout sélectionner dans la voie), C (copier), X (couper), V (coller à la tête de lecture), D (dupliquer juste après). */
   #clipboardKey(k) {
-    const kind = this.focusKind;
+    const kind = this.focusKind ?? this.sel?.kind ?? this.state.laneClip?.kind ?? null;
+    if (!kind) return;
     const list = this.#listOf(kind);
     const noun = { chord: "accord", scale: "gamme", key: "tonalité", section: "section", lyric: "syllabe" }[kind];
     const verse = kind === "lyric" ? this.state.lyricVerse ?? 1 : null;
@@ -605,6 +637,7 @@ export class ChordLane {
       this.multi = new Set(visible);
       this.sel = visible.length ? { kind, index: visible[0] } : null;
       this.timeline.dirty = true;
+      this.#changed();
       return;
     }
     const chosen = this.sel?.kind === kind ? [...this.multi] : [];
@@ -612,6 +645,7 @@ export class ChordLane {
       const clip = copySelection(list, chosen);
       if (!clip) return this.say(`Sélectionne d'abord des éléments (Maj + clic, ou glisse un rectangle) : ${noun}.`);
       this.state.laneClip = { kind, ...clip };
+      this.#changed();
       if (k === "c") return this.say(`${clip.items.length} copié(s) : Ctrl+V pour coller à la tête de lecture.`);
       if (k === "x") {
         this.sel = null;

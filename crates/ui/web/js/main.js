@@ -284,6 +284,11 @@ fileHooks.onWarnings = (list) => {
 };
 timeline.onFadeEditor = (target) => fadeEditor.open(target);
 const editBar = new EditBar(state);
+editBar.chordLane = chordLane;
+chordLane.onSelection = () => editBar.update();
+for (const b of document.querySelectorAll("#edit-lane [data-lane]")) {
+  b.addEventListener("click", () => (b.dataset.lane === "del" ? chordLane.deleteSelected() : chordLane.clipboardAction(b.dataset.lane)));
+}
 transport.onEditing = () => editBar.update();
 timeline.onSelection = () => transport.updateEditing();
 timeline.refreshColors();

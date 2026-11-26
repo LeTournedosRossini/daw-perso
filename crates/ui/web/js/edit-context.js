@@ -24,3 +24,11 @@ export function contextLabel(audio, notes) {
   if (notes) parts.push(plural(notes, "clip de notes", "clips de notes"));
   return parts.join(" + ");
 }
+
+const LANE_NOUNS = { chord: ["accord", "accords"], scale: ["gamme", "gammes"], key: ["tonalité", "tonalités"], section: ["section", "sections"], lyric: ["syllabe", "syllabes"] };
+
+/** Le texte du contexte quand des éléments d'une voie d'accords sont sélectionnés (« 3 accords »). */
+export function laneContextLabel(kind, count) {
+  const n = LANE_NOUNS[kind] ?? ["élément", "éléments"];
+  return `${count} ${count > 1 ? n[1] : n[0]}`;
+}

@@ -67,6 +67,13 @@
           <button id="btn-split" title="Découper le clip sélectionné à la tête de lecture (S)" aria-label="Découper" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v18h-2zM4 8h5v8H4zm11 0h5v8h-5z"/></svg></button>
           <button id="btn-delete" title="Supprimer le clip sélectionné (Suppr)" aria-label="Supprimer" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zM9 3h6l1 2h4v2H4V5h4z"/></svg></button>
         </div>
+        <div id="edit-lane" class="group" role="group" aria-label="Éléments de la voie d'accords" hidden>
+          <button data-lane="d" class="txt-btn" title="Dupliquer la sélection juste après (Ctrl+D)" aria-label="Dupliquer">Dupliquer</button>
+          <button data-lane="x" class="txt-btn" title="Couper la sélection (Ctrl+X)" aria-label="Couper">Couper</button>
+          <button data-lane="c" class="txt-btn" title="Copier la sélection (Ctrl+C)" aria-label="Copier">Copier</button>
+          <button data-lane="v" class="txt-btn" title="Coller à la tête de lecture (Ctrl+V)" aria-label="Coller" disabled>Coller</button>
+          <button data-lane="del" class="txt-btn" title="Supprimer la sélection (Suppr)" aria-label="Supprimer">Supprimer</button>
+        </div>
         <div class="group" role="group" aria-label="Aimantation et fondus">
           <select id="snap-grid" class="stretch-engine" title="Aimantation : grille sur laquelle se calent les clips, leur rognage, la boucle, les marqueurs d'étirement, l'automation et (avec une grille choisie) la tête de lecture. Maj ou Alt : sans aimant, ponctuellement." aria-label="Aimantation"></select>
           <button id="btn-xfade" title="Fondus enchaînés automatiques (aussi les raccords de 10 ms entre morceaux de prises différentes)" aria-label="Fondus enchaînés automatiques" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17.5 16 6l1.5 1.6L5 19.1zM3.5 7.6 5 6l12.5 11.5L16 19.1z"/></svg></button>

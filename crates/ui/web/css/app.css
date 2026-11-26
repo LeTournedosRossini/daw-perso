@@ -1087,3 +1087,5 @@ input[type="range"].automated::-moz-range-thumb { background: var(--solo); }
 .sd-lay { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
 .sd-lay select { min-width: 8em; font-size: 12px; }
 .sd-lay-one { justify-self: start; font-size: 12px; }
+#transport .edit-bar .edit-context[data-kind="lane"] { color: var(--accent); }
+@media (pointer: coarse) { #transport .edit-bar #edit-lane button { min-height: 36px; } }
